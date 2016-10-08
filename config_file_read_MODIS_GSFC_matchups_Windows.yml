@@ -1,0 +1,158 @@
+# -----------------------------------------------------------------------------------
+# -----------------------------------------------------------------------------------
+# Configuration file for reading MODIS matchups in GSFC format
+# -----------------------------------------------------------------------------------
+# -----------------------------------------------------------------------------------
+
+# -----------------------------------------------------------------------------------
+# Sensor being analyzed
+# -----------------------------------------------------------------------------------
+
+sensor  :  'MODIS'		# sensor to be analyzed
+platform  : 'Aqua'
+
+# -----------------------------------------------------------------------------------
+# Version of matchups' calibration collection
+# -----------------------------------------------------------------------------------
+
+collection  :  6
+
+# -----------------------------------------------------------------------------------
+# Information about matchups
+# -----------------------------------------------------------------------------------
+
+matchups  :
+
+  format   :  'GSFC'		          # Can be MIA_L2GEN, or GSFC
+  field.separator  :  ','         # Character used as field separator in matchup files
+  level1.version  :  'Class'		  # Can be NOAA Class or GSFC
+  algo.coeffs.version  :  '6.4.1' # <algorithm type>.<coef version>.<quality version> # latband==6 non-latband==5
+
+  # Reference field can be:
+  # ao = operational reynolds daily
+  # pv2 = reynolds enhance land/lake mask
+  # ws = windsat
+
+  type.1.ref.field  : 'ao'
+
+  type.2.ref.field  : 'none'	# Can be none, windsat, or other TBD
+
+# -----------------------------------------------------------------------------------
+
+# -----------------------------------------------------------------------------------
+# Information about geophysical variable being estimated, and algorithm details
+# -----------------------------------------------------------------------------------
+
+geophys.var  :  'SST2b' 	# Geophysical variable estimated can be "SST2b" or "SST3b"
+
+algorithm  :
+
+  type  :  'latband' 			          # SST algorithm type
+  sst.LWIR.form  :  'NLSST'		      # Can be NLSST, IDPS, OSISAF, other
+  sst.MWIR.form  :  'MCSST'		      # Can be MCSST,IDPS,OSISAF, other
+  algo.coeffs.version  :  'v6.4.1'	# may or may not be the same as matchup Version
+# -----------------------------------------------------------------------------------
+
+# -----------------------------------------------------------------------------------
+# Base directory for scripts.
+# R objects will be stored in .Rdata in this location
+# Also define subdirectory for functions.
+# -----------------------------------------------------------------------------------
+
+project_name  :  'proj_MODIS_l6cv6'
+
+working_dir  :  'D:/matchups/r-projects/R_MUDB/modis/aqua/gsfc/l6cv6/workdir/'
+
+scripts_dir  :  'D:/matchups/r-projects/R_scripts/R_master_scripts/read_matchups/'
+
+functions_dir  :  'D:/matchups/r-projects/R_scripts/R_master_scripts/functions/'
+# -----------------------------------------------------------------------------------
+
+# -----------------------------------------------------------------------------------
+# Directory where compressed and extracted daily input matchups are located
+# -----------------------------------------------------------------------------------
+
+# This directory holds folders for each year, with compressed archive files
+
+matchups_base_indir  :  'D:/Matchups/r-projects/R_MUDB/modis/aqua/gsfc/l6cv6/daily/'
+
+# -----------------------------------------------------------------------------------
+# Specify matchup files to be read through one or more patterns
+# -----------------------------------------------------------------------------------
+
+# Define a vector of patterns that will be used to select
+# matchup files that will be read .
+# This is because directories have different kinds of files.
+# NOTE: The patterns are formuklated 'a la perl'.
+
+file_selection_strings  :  ['(.+?)reproc2014\.(.+?)\.V2\.matchup$',
+  '(.+?)stream\.(.+?)l6cv6\.matchup$']
+
+# -----------------------------------------------------------------------------------
+# Specify matchup files to be read based on in situ source
+# -----------------------------------------------------------------------------------
+
+# Specify vector of desired in situ data sources:
+# sources can be SNB, IQUAM, MAERI, ISAR, or GH.
+# If one wants all in situ types, specify 'ALL'.
+
+insitu_source  :  ['ALL']		   
+# -----------------------------------------------------------------------------------
+
+# -----------------------------------------------------------------------------------
+# Root directory for results
+# -----------------------------------------------------------------------------------
+
+results_dir   :  'D:/matchups/r-projects/R_MUDB/modis/aqua/gsfc/l6cv6/results/'
+# -----------------------------------------------------------------------------------
+
+# -----------------------------------------------------------------------------------
+# Directory where ancillary information (e.g., geographic names) is located
+# -----------------------------------------------------------------------------------
+
+ancillary_dir  :  'D:/matchups/r-projects/R_MUDB/ancillary_data/'  # Used to fetch ocean basin names
+
+# -----------------------------------------------------------------------------------
+
+# -----------------------------------------------------------------------------------
+# Message logging options
+# -----------------------------------------------------------------------------------
+
+# Select level of detail for logging messages
+# FATAL: 1
+# ERROR: 2
+# WARN: 4
+# INFO: 6
+# DEBUG: 8
+# TRACE: 9
+
+log_level  :  6		# Level 6 is INFO
+
+log_dir  :  'D:/matchups/r-projects/R_MUDB/modis/aqua/gsfc/l6cv6/logs/'
+
+log_file  :  'read_aqua_gsfc_l6cv6_log.txt'
+
+log_file_erase  :  TRUE   # If TRUE, delete log file before starting new run
+
+# -----------------------------------------------------------------------------------
+
+# -----------------------------------------------------------------------------------
+# Define if current daily matchup files have a header record
+# with column names
+# -----------------------------------------------------------------------------------
+
+files_have_header  :  TRUE
+  
+header_record_number : 1
+# -----------------------------------------------------------------------------------
+
+# -----------------------------------------------------------------------------------
+# Decide if all variables in matchup files will be kept
+# -----------------------------------------------------------------------------------
+
+keep_all_vars  :  FALSE   # Only SOME variables will be retained
+
+# -----------------------------------------------------------------------------------
+
+
+
