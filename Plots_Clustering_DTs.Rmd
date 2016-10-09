@@ -1,0 +1,20 @@
+---
+title: "Plots for Clustering and DTs"
+author: "Chirag Kumar and Guillermo Podesta"
+date: "October 9, 2016"
+output:
+  html_document: 
+    toc: TRUE
+    theme: united
+#runtime: shiny
+---
+
+```{r setup, include=FALSE}
+library(ggplot2)
+library(plot3D)
+```
+
+```{r 3_feature_with_residual}
+x1 <- 
+```
+

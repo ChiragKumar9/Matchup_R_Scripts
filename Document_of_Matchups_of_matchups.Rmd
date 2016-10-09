@@ -1,41 +1,114 @@
 ---
-title: "Matchup_of_Matchups_Plots"
+title: "Matchup of Matchups Plots and Tables"
 author: "Chirag Kumar and Guillermo Podesta"
 date: "October 8, 2016"
-output: html_document
+output:
+  html_document: 
+    toc: TRUE
+    theme: united
+runtime: shiny
 ---
-
-```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+```{r prep_workspace, include=FALSE}
+#Load necessary packages
+library(dplyr)
+library(ggplot2)
+ggplot <- function(...) {ggplot2::ggplot(...) + theme_bw()}
+#Load Data
+#Load orig_j
+load("/home/ckk/Projects/Matchup_R_Scripts/Results/objects/Joined_AQUA_VIIRS_Matchups_No_Filtering.Rdata")
+#Load orig_solz_platform_time
+load("/home/ckk/Projects/Matchup_R_Scripts/Results/objects/Joined_AQUA_and_VIIRS_Matchups_filtered_by_solz_platform_and_timediff.Rdata")
+#Load orig_filtered
+load("/home/ckk/Projects/Matchup_R_Scripts/Results/objects/Joined_AQUA_and_VIIRS_Matchups_completely_filtered_including_qsst.Rdata")
 ```
 
-## R Markdown
+We will explore patterns in collocated and temporally-similar (within 2 hours) night-time buoy MODIS AQUA and VIIRS retrievals and how those patterns change when only records where both AQUA and VIIRS SSTs have a quality level of 0.
 
-This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+orig_solz_platform_time are the collocated and temporally-similar night-time buoy AQUA and VIIRS retrievals.
 
-When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+orig_filtered is orig_solz_platform_time where only retrievals where both AQUA and VIIRS quality levels are 0.
 
-```{r cars}
-summary(cars)
-```
+Anything ending in ".x" refers to the value coming from MODIS AQUA retrievals and ".y" is from VIIRS.
 
-## Including Plots
-
-You can also embed plots, for example:
-
-```{r pressure, echo=FALSE}
-plot(pressure)
-```
-
-Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
-
-
-
+##Cross-Tabulation Tables
+###orig_solz_platform_time
+This table shows the cross tabulation of quality levels in AQUA and VIIRS matchups from orig_solz_platform_time.
+Note the large quantity of AQUA retrievals that have a quality of 3 when their respective VIIRS counterparts have a quality level of 0.
 ```{r QTabs1, echo=TRUE}
-xtabs(~ qsst.x + qsst.y, data = orig_j)
+xtabs(~ qsst.x + qsst.y, data = orig_solz_platform_time)
+```
+
+#Plots of features in AQUA and VIIRS matchups
+Here we attempt plot features in the AQUA and VIIRS matchups to (a) check that the joining and filtering has been implemented correctly and (b) identify any other discrepancies that could help us understand the quality discrepancy. For every feature we explore, we will explore it both in orig_solz_platform_time and orig_filtered. *ggplot2* will be used to do the plotting
+
+##Plot of SSTs
+###orig_solz_platform_time
+```{r cen.sst_solz_platform_time, echo=TRUE}
+ggplot2::ggplot(data = orig_solz_platform_time, mapping = aes(x = cen.sst.x, y = cen.sst.y)) +
+  geom_point() +
+  geom_abline(intercept = 0, slope = 1, color = "tomato") +
+  ggtitle("VIIRS SSTs against AQUA SSTs from collocated and temporally-similar matchups")
+```
+
+###orig_filtered
+
+```{r cen.sst_filtered, echo=TRUE}
+ggplot2::ggplot(data = orig_filtered, mapping = aes(x = cen.sst.x, y = cen.sst.y)) +
+  geom_point() +
+  geom_abline(intercept = 0, slope = 1, color = "tomato") +
+  ggtitle("VIIRS SSTs against AQUA SSTs from collocated and temporally-similar matchups with VIIRS and AQUA quality levels of 0")
+```
+Notice that much of the deviation from the $y = x$ line in the first plot is removed when we constrict the data to only matchups with both AQUA and VIIRS qualities equal to 0. To explore the quality discrepancies more, let us look at a plot where we include matchups where AQUA **or** VIIRS matchups have a quality level of 0.
+```{r cen.sst_qsst_or, echo=TRUE}
+ggplot2::ggplot(data = orig_solz_platform_time %>%
+    dplyr::filter(qsst.x == 0 | qsst.y == 0), mapping = aes(x = cen.sst.x, y = cen.sst.y)) +
+  geom_point() +
+  geom_abline(intercept = 0, slope = 1, color = "tomato") +
+  ggtitle("VIIRS SSTs against AQUA SSTs from collocated and temporally-similar matchups with either VIIRS or AQUA quality levels equal to 0")
+```
+Again, we see much of the same spread as in the first plot. To see if the spread points are coming from AQUA or VIIRS matchups, let us do two plots. One will have only matchups where AQUA's quality level is equal to 0. The other will have only matchups where VIIRS's quality level is equal to 0.
+```{r cen.sst_AQUA_qsst, echo=TRUE}
+ggplot2::ggplot(data = orig_solz_platform_time %>%
+    dplyr::filter(qsst.x == 0), mapping = aes(x = cen.sst.x, y = cen.sst.y)) +
+  geom_point() +
+  geom_abline(intercept = 0, slope = 1, color = "tomato") +
+  ggtitle("VIIRS SSTs against AQUA SSTs from collocated and temporally-similar matchups with AQUA quality levels equal to 0")
+```
+
+```{r cen.sst_VIIRS_qsst, echo=TRUE}
+ggplot2::ggplot(data = orig_solz_platform_time %>%
+    dplyr::filter(qsst.y == 0), mapping = aes(x = cen.sst.x, y = cen.sst.y)) +
+  geom_point() +
+  geom_abline(intercept = 0, slope = 1, color = "tomato") +
+  ggtitle("VIIRS SSTs against AQUA SSTs from collocated and temporally-similar matchups with VIIRS quality levels equal to 0")
+```
+
+It looks like AQUA is reporting higher SSTs than VIIRS when we filter by AQUA quality levels equaling 0 and VIIRS reports higher SSTs when we restrict to VIIRS quality levels equaling 0.
+
+**WHAT???**
+
+##Histograms of time distributions
+We will explore 3 separate histograms to try and get an idea of the distribution of the time difference between when the buoy takes the SST measurement and when AQUA and VIIRS do. We will also explore the time difference between AQUA and VIIRS passing over the same buoy.
+
+```{r aqua-buoy, echo=TRUE}
+ggplot2::ggplot(data = orig_filtered, mapping = aes(x = sat.pftime.x - buoy.pftime.x)) +
+  geom_histogram(bins = 100) +
+  ggtitle("Histogram showing the distribution of the time difference between AQUA retrievals and buoy retrievals") +
+  xlim(-3600, 3600)
 ```
 
 
+```{r viirs-buoy, echo=TRUE}
+ggplot2::ggplot(data = orig_filtered, mapping = aes(x = sat.pftime.y - buoy.pftime.y)) +
+  geom_histogram(bins = 100) +
+  ggtitle("Histogram showing the distribution of the time difference between VIIRS retrievals and buoy retrievals") +
+  xlim(-3600, 3600)
+```
 
 
-
+```{r aqua-viirs, echo=TRUE}
+ggplot2::ggplot(data = orig_filtered, mapping = aes(x = sat.pftime.x - sat.pftime.y)) +
+  geom_histogram(bins = 100) +
+  ggtitle("Histogram showing the distribution of the time difference between AQUA retrievals and VIIRS retrievals") +
+  xlim(-7200, 7200)
+```

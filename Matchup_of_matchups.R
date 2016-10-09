@@ -10,7 +10,7 @@
 require(dplyr)
 
 #Objects
-AQUA <- load('~/Projects/MODIS/Matchups/Results/objects/MODIS_Aqua_GSFC_SNB_Class_6.4.1_ao_2016_10_01.RData')
+load("~/Projects/MODIS/Matchups/Results/objects/MODIS_Aqua_GSFC_SNB_Class_6.4.1_ao_2016_10_01.RData")
 VIIRS <- load("~/Projects/MODIS/Matchups/Results/objects/VIIRS_Suomi NPP_MIA_L2GEN_ALL_Class_6.4.1_ao_2016_09_29_with_ancillary.Rdata")
 # --------------------------------------------------------------------------------
 
@@ -60,8 +60,9 @@ VIIRS$sat.timedate <- as.character(VIIRS$sat.timedate)
 AQUA$sat.timedate <- as.character(AQUA$sat.timedate)
 
 #Join VIIRS and AQUA into one object
-tt1 <- dplyr::inner_join(AQUA, VIIRS, by = c("buoy.pftime", "buoy.lon", "buoy.lat", "buoy.id"))
-orig_j <- as.data.frame(tt1)
+#orig_j <- dplyr::inner_join(AQUA, VIIRS, by = c("buoy.pftime", "buoy.lon", "buoy.lat", "buoy.id"))
+
+orig_j <- dplyr::inner_join(AQUA, VIIRS, by = c("buoy.date", "buoy.id"))
 
 #Convert timedates back from characters to POSIXct objects
 orig_j$buoy.timedate.x <- lubridate::ymd_hms(orig_j$buoy.timedate.x)
@@ -72,24 +73,29 @@ orig_j$sat.timedate.y <- lubridate::ymd_hms(orig_j$sat.timedate.y)
 
 
 #Save joint object
-save(orig_j, "/home/ckk/Projects/MODIS/Matchups/Results/objects/Joined_AQUA_VIIRS_Matchups_No_Filtering.Rdata")
+save(orig_j, file = "/home/ckk/Projects/Matchup_R_Scripts/Results/objects/Joined_AQUA_VIIRS_Matchups_No_Filtering.Rdata")
 # ------------------------------------------------------------------------------
 
 # -----------------------------------------------------------------------------#
 # ---- Filting orig_j ----
 
-
 #Filter by solz, platform, time difference, and quality
-orig_filtered <- dplyr::tbl_df(orig_j) %>%
+orig_solz_platform_time <- dplyr::tbl_df(orig_j) %>%
   dplyr::filter(solz.x >= 90 & solz.y >= 90) %>%
   dplyr::filter(insitu.platform.x != "Ship") %>%
-  dplyr::filter(as.numeric(abs(sat.timedate.x - sat.timedate.y)) <= 3600)
+  dplyr::filter(as.numeric(abs(sat.timedate.x - sat.timedate.y)) <= 7200)
+
+save(orig_solz_platform_time, file = "/home/ckk/Projects/Matchup_R_Scripts/Results/objects/Joined_AQUA_and_VIIRS_Matchups_filtered_by_solz_platform_and_timediff.Rdata")
+
+orig_filtered <- orig_filtered %>%
+  dplyr::filter(qsst.x == 0 & qsst.y == 0)
+
+save(orig_filtered, file = "/home/ckk/Projects/Matchup_R_Scripts/Results/objects/Joined_AQUA_and_VIIRS_Matchups_completely_filtered_including_qsst.Rdata")
 
 #Tables showing spread of qualities for the different sensors
 xtabs(~ qsst.x + qsst.y, data = orig_j)
 
 xtabs(~ qsst.x + qsst.y, data = orig_filtered)
-
 # ------------------------------------------------------------------------------
 
 
