@@ -12,9 +12,99 @@ output:
 ```{r setup, include=FALSE}
 library(ggplot2)
 library(plot3D)
+library(circular)
+load("/home/ckk/Projects/Matchup_R_Scripts/Results/objects/Joined_AQUA_VIIRS_Matchups_No_Filtering.Rdata")
+secant.deg <- function(x) {1 / (cos(rad(x)))}
 ```
 
 ```{r 3_feature_with_residual}
-x1 <- 
+x1 <- orig_j$cen.11000.x
+x2 <- (x1 - orig_j$cen.12000.x)*(orig_j$ref.type.1.SST)
+x3 <- (secant.deg(orig_j$satz.x) - 1)*(x1 - orig_j$cen.12000.x)
+plot3D::scatter3D(x1, x2, x3,
+  bty = "g",
+  pch = '.',
+  col.var = round(orig_j$sst.minus.buoy.sst.x, digits = 0),
+  col = rainbow(41),
+  pch = '.',
+  ticktype = "detailed",
+  theta = 45)
+```
+
+```{r}
+plot3D::scatter3D(x1, x2, x3,
+  bty = "g",
+  pch = '.',
+  col.var = round(orig_j$sst.minus.buoy.sst.x, digits = 0),
+  col = rainbow(41),
+  pch = '.',
+  ticktype = "detailed",
+  theta = 0)
+```
+
+```{r}
+plot3D::scatter3D(x1, x2, x3,
+  bty = "g",
+  pch = '.',
+  col.var = round(orig_j$sst.minus.buoy.sst.x, digits = 0),
+  col = rainbow(41),
+  pch = '.',
+  ticktype = "detailed",
+  theta = 90)
+```
+
+```{r}
+plot3D::scatter3D(x1, x2, x3,
+  bty = "g",
+  pch = '.',
+  col.var = round(orig_j$sst.minus.buoy.sst.x, digits = 0),
+  col = rainbow(41),
+  pch = '.',
+  ticktype = "detailed",
+  theta = 135)
+```
+
+```{r}
+plot3D::scatter3D(x1, x2, x3,
+  bty = "g",
+  pch = '.',
+  col.var = round(orig_j$sst.minus.buoy.sst.x, digits = 0),
+  col = rainbow(41),
+  pch = '.',
+  ticktype = "detailed",
+  theta = 180)
+```
+
+```{r}
+plot3D::scatter3D(x1, x2, x3,
+  bty = "g",
+  pch = '.',
+  col.var = round(orig_j$sst.minus.buoy.sst.x, digits = 0),
+  col = rainbow(41),
+  pch = '.',
+  ticktype = "detailed",
+  theta = 225)
+```
+
+```{r}
+plot3D::scatter3D(x1, x2, x3,
+  bty = "g",
+  pch = '.',
+  col.var = round(orig_j$sst.minus.buoy.sst.x, digits = 0),
+  col = rainbow(41),
+  pch = '.',
+  ticktype = "detailed",
+  theta = 270)
+```
+
+```{r}
+plot3D::scatter3D(x1, x2, x3,
+  bty = "g",
+  pch = '.',
+  col.var = round(orig_j$sst.minus.buoy.sst.x, digits = 0),
+  col = rainbow(41),
+  pch = '.',
+  ticktype = "detailed",
+  theta = 315)
 ```
 

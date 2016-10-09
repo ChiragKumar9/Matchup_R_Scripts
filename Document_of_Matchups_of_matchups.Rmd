@@ -45,7 +45,7 @@ Here we attempt plot features in the AQUA and VIIRS matchups to (a) check that t
 ###orig_solz_platform_time
 ```{r cen.sst_solz_platform_time, echo=TRUE}
 ggplot2::ggplot(data = orig_solz_platform_time, mapping = aes(x = cen.sst.x, y = cen.sst.y)) +
-  geom_point() +
+  stat_bin2d(bins = 200) +
   geom_abline(intercept = 0, slope = 1, color = "tomato") +
   ggtitle("VIIRS SSTs against AQUA SSTs from collocated and temporally-similar matchups")
 ```
@@ -54,7 +54,7 @@ ggplot2::ggplot(data = orig_solz_platform_time, mapping = aes(x = cen.sst.x, y =
 
 ```{r cen.sst_filtered, echo=TRUE}
 ggplot2::ggplot(data = orig_filtered, mapping = aes(x = cen.sst.x, y = cen.sst.y)) +
-  geom_point() +
+  stat_bin2d(bins = 200) +
   geom_abline(intercept = 0, slope = 1, color = "tomato") +
   ggtitle("VIIRS SSTs against AQUA SSTs from collocated and temporally-similar matchups with VIIRS and AQUA quality levels of 0")
 ```
@@ -62,7 +62,7 @@ Notice that much of the deviation from the $y = x$ line in the first plot is rem
 ```{r cen.sst_qsst_or, echo=TRUE}
 ggplot2::ggplot(data = orig_solz_platform_time %>%
     dplyr::filter(qsst.x == 0 | qsst.y == 0), mapping = aes(x = cen.sst.x, y = cen.sst.y)) +
-  geom_point() +
+  stat_bin2d(bins = 200) +
   geom_abline(intercept = 0, slope = 1, color = "tomato") +
   ggtitle("VIIRS SSTs against AQUA SSTs from collocated and temporally-similar matchups with either VIIRS or AQUA quality levels equal to 0")
 ```
@@ -70,7 +70,7 @@ Again, we see much of the same spread as in the first plot. To see if the spread
 ```{r cen.sst_AQUA_qsst, echo=TRUE}
 ggplot2::ggplot(data = orig_solz_platform_time %>%
     dplyr::filter(qsst.x == 0), mapping = aes(x = cen.sst.x, y = cen.sst.y)) +
-  geom_point() +
+  stat_bin2d(bins = 200) +
   geom_abline(intercept = 0, slope = 1, color = "tomato") +
   ggtitle("VIIRS SSTs against AQUA SSTs from collocated and temporally-similar matchups with AQUA quality levels equal to 0")
 ```
@@ -78,14 +78,57 @@ ggplot2::ggplot(data = orig_solz_platform_time %>%
 ```{r cen.sst_VIIRS_qsst, echo=TRUE}
 ggplot2::ggplot(data = orig_solz_platform_time %>%
     dplyr::filter(qsst.y == 0), mapping = aes(x = cen.sst.x, y = cen.sst.y)) +
-  geom_point() +
+  stat_bin2d(bins = 200) +
   geom_abline(intercept = 0, slope = 1, color = "tomato") +
   ggtitle("VIIRS SSTs against AQUA SSTs from collocated and temporally-similar matchups with VIIRS quality levels equal to 0")
 ```
 
 It looks like AQUA is reporting higher SSTs than VIIRS when we filter by AQUA quality levels equaling 0 and VIIRS reports higher SSTs when we restrict to VIIRS quality levels equaling 0.
 
-**WHAT???**
+__WHAT???__
+
+#cen.11000
+Because SST is a function of the Brightness Temperature in the 11 $mu$m, let us see if we find the same pattern in plots of VIIRS cen.11000 against AQUA cen.11000
+###orig_solz_platform_time
+```{r cen.11000_solz_platform_time, echo=TRUE}
+ggplot2::ggplot(data = orig_solz_platform_time, mapping = aes(x = cen.11000.x, y = cen.11000.y)) +
+  stat_bin2d(bins = 200) +
+  geom_abline(intercept = 0, slope = 1, color = "tomato") +
+  ggtitle("VIIRS 11 micrometer BTs against AQUA 11 micrometer BTs from collocated and temporally-similar matchups")
+```
+
+###orig_filtered
+
+```{r cen.11000_filtered, echo=TRUE}
+ggplot2::ggplot(data = orig_filtered, mapping = aes(x = cen.11000.x, y = cen.11000.y)) +
+  stat_bin2d(bins = 200) +
+  geom_abline(intercept = 0, slope = 1, color = "tomato") +
+  ggtitle("VIIRS 11 micrometer BTs against AQUA 11 micrometer BTs from collocated and temporally-similar matchups with VIIRS and AQUA quality levels of 0")
+```
+Notice that much of the deviation from the $y = x$ line in the first plot is removed when we constrict the data to only matchups with both AQUA and VIIRS qualities equal to 0. To explore the quality discrepancies more, let us look at a plot where we include matchups where AQUA **or** VIIRS matchups have a quality level of 0.
+```{r cen.11000_qsst_or, echo=TRUE}
+ggplot2::ggplot(data = orig_solz_platform_time %>%
+    dplyr::filter(qsst.x == 0 | qsst.y == 0), mapping = aes(x = cen.11000.x, y = cen.11000.y)) +
+  stat_bin2d(bins = 200) +
+  geom_abline(intercept = 0, slope = 1, color = "tomato") +
+  ggtitle("VIIRS 11 micrometer BTs against AQUA 11 micrometer BTs from collocated and temporally-similar matchups with either VIIRS or AQUA quality levels equal to 0")
+```
+Again, we see much of the same spread as in the first plot. To see if the spread points are coming from AQUA or VIIRS matchups, let us do two plots. One will have only matchups where AQUA's quality level is equal to 0. The other will have only matchups where VIIRS's quality level is equal to 0.
+```{r cen.11000_AQUA_qsst, echo=TRUE}
+ggplot2::ggplot(data = orig_solz_platform_time %>%
+    dplyr::filter(qsst.x == 0), mapping = aes(x = cen.11000.x, y = cen.11000.y)) +
+  stat_bin2d(bins = 200) +
+  geom_abline(intercept = 0, slope = 1, color = "tomato") +
+  ggtitle("VIIRS 11 micrometer BTs against AQUA 11 micrometer BTs from collocated and temporally-similar matchups with AQUA quality levels equal to 0")
+```
+
+```{r cen.11000_VIIRS_qsst, echo=TRUE}
+ggplot2::ggplot(data = orig_solz_platform_time %>%
+    dplyr::filter(qsst.y == 0), mapping = aes(x = cen.11000.x, y = cen.11000.y)) +
+  stat_bin2d(bins = 200) +
+  geom_abline(intercept = 0, slope = 1, color = "tomato") +
+  ggtitle("VIIRS 11 micrometer BTs against AQUA 11 micrometer BTs from collocated and temporally-similar matchups with VIIRS quality levels equal to 0")
+```
 
 ##Histograms of time distributions
 We will explore 3 separate histograms to try and get an idea of the distribution of the time difference between when the buoy takes the SST measurement and when AQUA and VIIRS do. We will also explore the time difference between AQUA and VIIRS passing over the same buoy.
