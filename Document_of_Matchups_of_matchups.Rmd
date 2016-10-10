@@ -50,6 +50,22 @@ ggplot2::ggplot(data = orig_solz_platform_time, mapping = aes(x = cen.sst.x, y =
   ggtitle("VIIRS SSTs against AQUA SSTs from collocated and temporally-similar matchups")
 ```
 
+```{r cen.sst_solz_platform_time_qsst_coloring, echo=TRUE}
+ggplot2::ggplot(data = orig_solz_platform_time, mapping = aes(x = cen.sst.x, y = cen.sst.y,
+  alpha = 0.2, color = as.factor(qsst.x))) +
+  geom_point() +
+  geom_abline(intercept = 0, slope = 1, color = "tomato") +
+  ggtitle("VIIRS SSTs against AQUA SSTs from collocated and temporally-similar matchups")
+```
+
+```{r cen.sst_solz_platform_time_qsst_VIIRS_coloring, echo=TRUE}
+ggplot2::ggplot(data = orig_solz_platform_time, mapping = aes(x = cen.sst.x, y = cen.sst.y,
+  alpha = 0.2, color = as.factor(qsst.y))) +
+  geom_point() +
+  geom_abline(intercept = 0, slope = 1, color = "tomato") +
+  ggtitle("VIIRS SSTs against AQUA SSTs from collocated and temporally-similar matchups")
+```
+
 ###orig_filtered
 
 ```{r cen.sst_filtered, echo=TRUE}

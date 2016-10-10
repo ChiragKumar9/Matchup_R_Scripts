@@ -8,7 +8,7 @@
 
 #Packages
 require(dplyr)
-
+require(sp)
 #Objects
 load("~/Projects/MODIS/Matchups/Results/objects/MODIS_Aqua_GSFC_SNB_Class_6.4.1_ao_2016_10_01.RData")
 VIIRS <- load("~/Projects/MODIS/Matchups/Results/objects/VIIRS_Suomi NPP_MIA_L2GEN_ALL_Class_6.4.1_ao_2016_09_29_with_ancillary.Rdata")
@@ -77,13 +77,14 @@ save(orig_j, file = "/home/ckk/Projects/Matchup_R_Scripts/Results/objects/Joined
 # ------------------------------------------------------------------------------
 
 # -----------------------------------------------------------------------------#
-# ---- Filting orig_j ----
+# ---- Filtering orig_j ----
 
 #Filter by solz, platform, time difference, and quality
 orig_solz_platform_time <- dplyr::tbl_df(orig_j) %>%
   dplyr::filter(solz.x >= 90 & solz.y >= 90) %>%
   dplyr::filter(insitu.platform.x != "Ship") %>%
-  dplyr::filter(as.numeric(abs(sat.timedate.x - sat.timedate.y)) <= 7200)
+  dplyr::filter(as.numeric(abs(sat.timedate.x - sat.timedate.y)) <= 3600) %>%
+  dplyr::filter(as.numeric(abs(buoy.timedate.x - buoy.timedate.y)) <= 300)
 
 save(orig_solz_platform_time, file = "/home/ckk/Projects/Matchup_R_Scripts/Results/objects/Joined_AQUA_and_VIIRS_Matchups_filtered_by_solz_platform_and_timediff.Rdata")
 
@@ -98,28 +99,18 @@ xtabs(~ qsst.x + qsst.y, data = orig_j)
 xtabs(~ qsst.x + qsst.y, data = orig_filtered)
 # ------------------------------------------------------------------------------
 
+# -----------------------------------------------------------------------------#
+# ---- Build a SpatialPoints object with lons and lats of matchups ----
 
+matchup.coords <- as.matrix(cbind(lon = orig_filtered[, 'sat.lon.x'],
+  lat = orig_filtered[, 'sat.lat.x']))
 
+crs.string <- "+proj=longlat +datum=WGS84 +no_defs +ellps=WGS84 +towgs84=0,0,0"
 
+pts <- sp::SpatialPoints(coords = matchup.coords,
+  proj4string = sp::CRS(crs.string))
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-xtabs(~ qsst.x + qsst.y, data = orig_j)
-
-difftime <- as.numeric(abs(orig_j$sat.timedate.x - orig_j$sat.timedate.y))
-
-
+# ------------------------------------------------------------------------------
 
 
 
