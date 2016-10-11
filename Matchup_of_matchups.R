@@ -1,21 +1,23 @@
-# ---- This script creates a matchup of matchups for a collocation analysis.
-# ---- The dplyr::left_join() function is used to do the joining and the
-# ---- resulting dataframe is ready for a collocation with all variables in
-# ---- the same units and same variable types.
+# --- This script creates a matchup of matchups for a collocation analysis.
+# --- dplyr is used to join AQUA and VIIRS matchups and the result is
+# --- filtered. The resulting dataframe has only nighttime buoy retrievals,
+# --- where buoy retrievals are less than five minutes apart and satellite
+# --- retrievals are less than 1 hour apart.
 
 # -----------------------------------------------------------------------------#
-# ---- Require necessary packages and prep workspace with AQUA and VIIRS objects ----
+# --- Require necessary packages and prep workspace with AQUA and VIIRS objects ----
 
 #Packages
 require(dplyr)
 require(sp)
+require(mapview)
 #Objects
 load("~/Projects/MODIS/Matchups/Results/objects/MODIS_Aqua_GSFC_SNB_Class_6.4.1_ao_2016_10_01.RData")
 VIIRS <- load("~/Projects/MODIS/Matchups/Results/objects/VIIRS_Suomi NPP_MIA_L2GEN_ALL_Class_6.4.1_ao_2016_09_29_with_ancillary.Rdata")
 # --------------------------------------------------------------------------------
 
 # -----------------------------------------------------------------------------#
-# ---- Create as.celsius() function ----
+# --- Create as.celsius() function ----
 
 # The as.celsius() function takes Kelvin temperatures as input and returns them in celsius
 as.celsius <- function(kelvin) {
@@ -25,7 +27,7 @@ as.celsius <- function(kelvin) {
 # -------------------------------------------------------------------------------
 
 # -----------------------------------------------------------------------------#
-# ---- Begin checks on matchup objects ----
+# --- Begin checks on matchup objects ----
 
 #Check whether objects aqua and viirs exist
 
@@ -39,7 +41,7 @@ if (!exists("VIIRS")) {
 # -------------------------------------------------------------------------------
 
 # -----------------------------------------------------------------------------#
-# ---- Join aqua and viirs objects into one ----
+# --- Join aqua and viirs objects into one ----
 
 #Convert VIIRS BTs from kelvin to celsius
 
@@ -77,7 +79,7 @@ save(orig_j, file = "/home/ckk/Projects/Matchup_R_Scripts/Results/objects/Joined
 # ------------------------------------------------------------------------------
 
 # -----------------------------------------------------------------------------#
-# ---- Filtering orig_j ----
+# --- Filtering orig_j ----
 
 #Filter by solz, platform, time difference, and quality
 orig_solz_platform_time <- dplyr::tbl_df(orig_j) %>%
@@ -100,7 +102,7 @@ xtabs(~ qsst.x + qsst.y, data = orig_filtered)
 # ------------------------------------------------------------------------------
 
 # -----------------------------------------------------------------------------#
-# ---- Build a SpatialPoints object with lons and lats of matchups ----
+# --- Build a SpatialPoints object with lons and lats of matchups ----
 
 matchup.coords <- as.matrix(cbind(lon = orig_filtered[, 'sat.lon.x'],
   lat = orig_filtered[, 'sat.lat.x']))
@@ -110,6 +112,7 @@ crs.string <- "+proj=longlat +datum=WGS84 +no_defs +ellps=WGS84 +towgs84=0,0,0"
 pts <- sp::SpatialPoints(coords = matchup.coords,
   proj4string = sp::CRS(crs.string))
 
+mapview(pts)
 # ------------------------------------------------------------------------------
 
 
@@ -118,7 +121,7 @@ pts <- sp::SpatialPoints(coords = matchup.coords,
 
 
 
-# ---- Workspace ----
+# --- Workspace ----
 
 bank_codes <- seq(from = 1, to = 5, by = 1)
 names <- c("Guillermo", "Chirag", "Poonam", "Arvind", "Ishana")

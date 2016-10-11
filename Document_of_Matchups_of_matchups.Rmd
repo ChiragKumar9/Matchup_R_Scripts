@@ -8,6 +8,7 @@ output:
     theme: united
 runtime: shiny
 ---
+
 ```{r prep_workspace, include=FALSE}
 #Load necessary packages
 library(dplyr)
@@ -34,6 +35,7 @@ Anything ending in ".x" refers to the value coming from MODIS AQUA retrievals an
 ###orig_solz_platform_time
 This table shows the cross tabulation of quality levels in AQUA and VIIRS matchups from orig_solz_platform_time.
 Note the large quantity of AQUA retrievals that have a quality of 3 when their respective VIIRS counterparts have a quality level of 0.
+
 ```{r QTabs1, echo=TRUE}
 xtabs(~ qsst.x + qsst.y, data = orig_solz_platform_time)
 ```
@@ -66,6 +68,13 @@ ggplot2::ggplot(data = orig_solz_platform_time, mapping = aes(x = cen.sst.x, y =
   ggtitle("VIIRS SSTs against AQUA SSTs from collocated and temporally-similar matchups")
 ```
 
+#Faceted plot with QSSTs
+```{r facted_qsst, echo=TRUE}
+ggplot2::ggplot(orig_solz_platform_time, mapping = aes(x = cen.sst.x, y = cen.sst.y)) +
+  stat_bin2d(bins = 100) +
+  facet_grid(as.factor(qsst.x) ~ as.factor(qsst.y))
+```
+
 ###orig_filtered
 
 ```{r cen.sst_filtered, echo=TRUE}
@@ -74,7 +83,10 @@ ggplot2::ggplot(data = orig_filtered, mapping = aes(x = cen.sst.x, y = cen.sst.y
   geom_abline(intercept = 0, slope = 1, color = "tomato") +
   ggtitle("VIIRS SSTs against AQUA SSTs from collocated and temporally-similar matchups with VIIRS and AQUA quality levels of 0")
 ```
-Notice that much of the deviation from the $y = x$ line in the first plot is removed when we constrict the data to only matchups with both AQUA and VIIRS qualities equal to 0. To explore the quality discrepancies more, let us look at a plot where we include matchups where AQUA **or** VIIRS matchups have a quality level of 0.
+
+Notice that much of the deviation from the $y = x$ line in the first plot is removed when we constrict the data to only matchups with both AQUA and VIIRS qualities equal to 0. To explore the quality discrepancies more, let us look at a plot where we include 
+matchups where AQUA **or** VIIRS matchups have a quality level of 0.
+
 ```{r cen.sst_qsst_or, echo=TRUE}
 ggplot2::ggplot(data = orig_solz_platform_time %>%
     dplyr::filter(qsst.x == 0 | qsst.y == 0), mapping = aes(x = cen.sst.x, y = cen.sst.y)) +
@@ -82,7 +94,9 @@ ggplot2::ggplot(data = orig_solz_platform_time %>%
   geom_abline(intercept = 0, slope = 1, color = "tomato") +
   ggtitle("VIIRS SSTs against AQUA SSTs from collocated and temporally-similar matchups with either VIIRS or AQUA quality levels equal to 0")
 ```
+
 Again, we see much of the same spread as in the first plot. To see if the spread points are coming from AQUA or VIIRS matchups, let us do two plots. One will have only matchups where AQUA's quality level is equal to 0. The other will have only matchups where VIIRS's quality level is equal to 0.
+
 ```{r cen.sst_AQUA_qsst, echo=TRUE}
 ggplot2::ggplot(data = orig_solz_platform_time %>%
     dplyr::filter(qsst.x == 0), mapping = aes(x = cen.sst.x, y = cen.sst.y)) +
@@ -121,7 +135,9 @@ ggplot2::ggplot(data = orig_filtered, mapping = aes(x = cen.11000.x, y = cen.110
   geom_abline(intercept = 0, slope = 1, color = "tomato") +
   ggtitle("VIIRS 11 micrometer BTs against AQUA 11 micrometer BTs from collocated and temporally-similar matchups with VIIRS and AQUA quality levels of 0")
 ```
+
 Notice that much of the deviation from the $y = x$ line in the first plot is removed when we constrict the data to only matchups with both AQUA and VIIRS qualities equal to 0. To explore the quality discrepancies more, let us look at a plot where we include matchups where AQUA **or** VIIRS matchups have a quality level of 0.
+
 ```{r cen.11000_qsst_or, echo=TRUE}
 ggplot2::ggplot(data = orig_solz_platform_time %>%
     dplyr::filter(qsst.x == 0 | qsst.y == 0), mapping = aes(x = cen.11000.x, y = cen.11000.y)) +
@@ -129,7 +145,9 @@ ggplot2::ggplot(data = orig_solz_platform_time %>%
   geom_abline(intercept = 0, slope = 1, color = "tomato") +
   ggtitle("VIIRS 11 micrometer BTs against AQUA 11 micrometer BTs from collocated and temporally-similar matchups with either VIIRS or AQUA quality levels equal to 0")
 ```
+
 Again, we see much of the same spread as in the first plot. To see if the spread points are coming from AQUA or VIIRS matchups, let us do two plots. One will have only matchups where AQUA's quality level is equal to 0. The other will have only matchups where VIIRS's quality level is equal to 0.
+
 ```{r cen.11000_AQUA_qsst, echo=TRUE}
 ggplot2::ggplot(data = orig_solz_platform_time %>%
     dplyr::filter(qsst.x == 0), mapping = aes(x = cen.11000.x, y = cen.11000.y)) +
