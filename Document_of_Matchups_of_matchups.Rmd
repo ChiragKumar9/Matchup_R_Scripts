@@ -70,9 +70,9 @@ ggplot2::ggplot(data = orig_solz_platform_time, mapping = aes(x = cen.sst.x, y =
 
 #Faceted plot with QSSTs
 ```{r facted_qsst, echo=TRUE}
-ggplot2::ggplot(orig_solz_platform_time, mapping = aes(x = cen.sst.x, y = cen.sst.y)) +
-  stat_bin2d(bins = 100) +
-  facet_grid(as.factor(qsst.x) ~ as.factor(qsst.y))
+ggplot2::ggplot(data = orig_solz_platform_time, mapping = aes(x = cen.sst.x, y = cen.sst.y)) +
+  stat_bin2d(bins = 200) +
+  facet_grid(qsst.x ~ qsst.y)
 ```
 
 ###orig_filtered

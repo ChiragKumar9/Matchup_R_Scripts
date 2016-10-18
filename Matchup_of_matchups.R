@@ -27,6 +27,50 @@ as.celsius <- function(kelvin) {
 # -------------------------------------------------------------------------------
 
 # -----------------------------------------------------------------------------#
+# --- Create collocation functions ----
+#Bias
+bias <- function(x, y) {
+  if (ncol(x) != 1 | ncol(y) != 1) {
+    stop("Only vectors can be passed as arguements in the bias function.")
+  }
+  bias <- mean(x) - mean(y)
+  return(bias)
+}
+
+#Variance
+variance <- function(x, y, z) {
+  if (ncol(x) != 1 | ncol(y) != 1) {
+    stop("Only vectors can be passed as arguements in the bias function.")
+  }
+  #Variance of differences in x and y
+  var_x <- var(x)
+  var_y <- var(y)
+  r_xy <- cor(x, y)
+  variance_xy <- var_x + var_y - 2*r_xy*var_x*var_y
+  #Variance of differences in z and x
+  var_x <- var(x)
+  var_z <- var(z)
+  r_xz <- cor(x, z)
+  variance_xz <- var_x + var_z - 2*r_xz*var_x*var_z
+  #Variance of differences in y and z
+  var_z <- var(z)
+  var_y <- var(y)
+  r_zy <- cor(z, y)
+  variance_zy <- var_z + var_y - 2*r_zy*var_z*var_y
+  #Variance of x
+  variance_x <- .5*(variance_xy + variance_xz - variance_zy) +
+    (r_xy*var_x*var_y + r_xz*var_x*var_z - r_zy*var_y*var_z)
+  #Variance of y
+  variance_xy <- .5*(variance_zy + variance_xy - variance_xz) +
+    (r_zy*var_z*var_y + r_xy*var_x*var_y - r_xz*var_x*var_z)
+  #Variance of z
+  variance_xz <- .5*(variance_xz + variance_zy - variance_xy) +
+    (r_xz*var_x*var_z + r_zy*var_z*var_y - r_xy*var_x*var_y)
+}
+# -------------------------------------------------------------------------------
+
+
+# -----------------------------------------------------------------------------#
 # --- Begin checks on matchup objects ----
 
 #Check whether objects aqua and viirs exist
@@ -95,6 +139,20 @@ orig_filtered <- orig_filtered %>%
 
 save(orig_filtered, file = "/home/ckk/Projects/Matchup_R_Scripts/Results/objects/Joined_AQUA_and_VIIRS_Matchups_completely_filtered_including_qsst.Rdata")
 
+#Summary of buoy ssts to ensure that VIIRS and AQUA buoy retrievals aren't very different
+
+#In orig without quality filtering
+#AQUA
+summary(orig_solz_platform_time$buoy.sst.x)
+#VIIRS
+summary(orig_solz_platform_time$buoy.sst.y)
+
+#In orig with quality filtering
+#AQUA
+summary(orig_filtered$buoy.sst.x)
+#VIIRS
+summary(orig_filtered$buoy.sst.y)
+
 #Tables showing spread of qualities for the different sensors
 xtabs(~ qsst.x + qsst.y, data = orig_j)
 
@@ -112,8 +170,15 @@ crs.string <- "+proj=longlat +datum=WGS84 +no_defs +ellps=WGS84 +towgs84=0,0,0"
 pts <- sp::SpatialPoints(coords = matchup.coords,
   proj4string = sp::CRS(crs.string))
 
-mapview(pts)
+mapview::mapview(pts)
 # ------------------------------------------------------------------------------
+
+# -----------------------------------------------------------------------------#
+# --- Compute standard deviations for collocation ----
+
+# ------------------------------------------------------------------------------
+
+
 
 
 
