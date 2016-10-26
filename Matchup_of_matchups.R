@@ -193,7 +193,6 @@ xtabs(~ qsst.AQUA + qsst.VIIRS, data = orig_filtered)
 
 # -----------------------------------------------------------------------------#
 # --- Build a SpatialPoints object with lons and lats of matchups ----
-
 matchup.coords <- as.matrix(cbind(lon = orig_filtered[, 'sat.lon.AQUA'],
   lat = orig_filtered[, 'sat.lat.AQUA']))
 

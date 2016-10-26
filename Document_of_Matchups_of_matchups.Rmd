@@ -12,6 +12,7 @@ output:
 #Load necessary packages
 library(dplyr)
 library(ggplot2)
+library(mapview)
 ggplot <- function(...) {ggplot2::ggplot(...) + theme_bw()}
 #Load Data
 #Load orig_j
@@ -140,4 +141,22 @@ ggplot2::ggplot(data = orig_filtered, mapping = aes(x = sat.pftime.AQUA - sat.pf
   geom_histogram(bins = 100) +
   ggtitle(label = "Time differences between AQUA retrievals and respective VIIRS retrievals") +
   xlim(-7200, 7200)
+```
+
+#Interactive Maps of Retrieval Locations
+```{r map_buoy, echo=TRUE}
+matchup.coords <- as.matrix(cbind(lon = orig_filtered[, 'buoy.lon.AQUA'],
+  lat = orig_filtered[, 'buoy.lat.AQUA']))
+
+crs.string <- "+proj=longlat +datum=WGS84 +no_defs +ellps=WGS84 +towgs84=0,0,0"
+
+pts <- sp::SpatialPoints(coords = matchup.coords,
+  proj4string = sp::CRS(crs.string))
+
+pts <- as.data.frame(pts)
+pts <- data.frame(pts, orig_filtered$insitu.platform.AQUA, orig_filtered$buoy.id)
+sp::coordinates(pts) <- ~ buoy.lon.AQUA + buoy.lat.AQUA
+sp::proj4string(pts) <- sp::CRS(crs.string)
+
+mapview::mapview(pts, alpha = .2, cex = 1)
 ```
