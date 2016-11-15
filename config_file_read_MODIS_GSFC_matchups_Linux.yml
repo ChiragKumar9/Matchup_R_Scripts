@@ -61,11 +61,11 @@ algorithm  :
 
 project_name  :  'proj_MODIS_l6cv6'
 
-working_dir  :  '/home/ckk/Projects/MODIS/Matchups/Work_dir/'
+working_dir  :  '/home/ckk/Projects/Matchups_R_Scripts/Work_dir/'
 
-scripts_dir  :  '/home/ckk/Projects/MODIS/Matchups/MODIS_R_Scripts/Read_Matchups/'
+scripts_dir  :  '/home/ckk/Projects/Matchups_R_Scripts/'
 
-functions_dir  :  '/home/ckk/Projects/MODIS/Matchups/MODIS_R_Scripts/Functions/'
+functions_dir  :  '/home/ckk/Projects/Matchup_R_Scripts/Functions/'
 # -----------------------------------------------------------------------------------
 
 # -----------------------------------------------------------------------------------
@@ -107,7 +107,7 @@ insitu_source  :  ['SNB', 'IQUAM', 'GH']
 # Root directory for results
 # -----------------------------------------------------------------------------------
 
-results_dir   :  '/home/ckk/Projects/MODIS/Matchups/Results/'
+results_dir   :  '/home/ckk/Projects/Matchup_R_Scripts/Results/'
 # -----------------------------------------------------------------------------------
 
 # -----------------------------------------------------------------------------------
@@ -132,7 +132,7 @@ ancillary_dir  :  '/media/ckk/hdd1/Ancillary_data/'  # Used to fetch ocean basin
 
 log_level  :  8		# Level 6 is INFO
 
-log_dir  :  '/home/ckk/Projects/MODIS/Matchups/Logs/'
+log_dir  :  '/home/ckk/Projects/Matchup_R_Scripts/Logs/'
 
 log_file  :  'read_aqua_gsfc_l6cv6_log.txt'
 

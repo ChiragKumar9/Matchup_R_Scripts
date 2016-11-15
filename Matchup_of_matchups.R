@@ -1,8 +1,9 @@
 # --- This script creates a matchup of matchups for a collocation analysis.
 # --- dplyr is used to join AQUA and VIIRS matchups and the result is
 # --- filtered. The resulting dataframe has only nighttime buoy retrievals,
-# --- where buoy retrievals are less than five minutes apart and satellite
-# --- retrievals are less than 1 hour apart.
+# --- where AQUA and VIIRS buoy retrievals are less than five minutes apart,
+# --- satellite retrievals that are less than 1 hour apart, and the distance
+# --- between the satellites and buoy is less than 1 km.
 
 # -----------------------------------------------------------------------------#
 # --- Require necessary packages and prep workspace with AQUA and VIIRS objects ----
@@ -32,53 +33,53 @@ as.celsius <- function(kelvin) {
 # -----------------------------------------------------------------------------#
 # --- Create collocation functions ----
 #Bias
-bias <- function(x, y, z) {
-  if (!is.null(nrow(x)) | !is.null(nrow(y)) | !is.null(nrow(z)) | length(x) <= 1 | length(y) <= 1 | length(z) <= 1) {
+#This function computes the systematic error, or bias, between two different observation types. By subtracting the
+#means of one observation type from the mean of another observation type, the bias between those two observation 
+#types can be computed.
+
+bias <- function(source1, source2, source3) {
+  if (!is.null(nrow(source1)) | !is.null(nrow(source2)) | !is.null(nrow(source3)) | length(source1) <= 1 | length(source2) <= 1 | length(source3) <= 1) {
     stop("Only vectors can be passed as arguments in the bias function.")
   }
-  #Bias between x and y
-  bias_xy <- mean(x) - mean(y)
-  #Bias between x and y
-  bias_xz <- mean(x) - mean(z)
-  #Bias between y and z
-  bias_zy <- mean(z) - mean(y)
-  #Return a dataframe with all biases
-  biases <- data.frame(bias_xy, bias_xz, bias_zy)
-  colnames(biases) <- c("bias_xy", "bias_xz", "bias_zy")
+
+  bias_source1source3 <- mean(source1) - mean(source3) #Bias between source1 and source2
+  
+  bias_source2source3 <- mean(source2) - mean(source3) #Bias between source2 and source3
+  
+  #Return a dataframe of biases that can re-scale each observation type
+  biases <- c(bias_source1source3, bias_source2source3)
+  names(biases) <- c("bias_source1source3", "bias_source2source3")
   return(biases)
 }
-#TO DO: CREATE MORE DESCRIPTIVE VARIABLE NAMES (i.e aq, vi, b) 
+
+
 #Variance
-variance <- function(x, y, z) {
-  if (!is.null(nrow(x)) | !is.null(nrow(y)) | !is.null(nrow(z)) | length(x) <= 1 | length(y) <= 1 | length(z) <= 1) {
-    stop("Only vectors can be passed as arguments in the variance function.")
-  }
-  #Variance of differences in x and y
-  var_x <- var(x)
-  var_y <- var(y)
-  r_xy <- cor(x, y)
-  variance_xy <- var_x + var_y - 2*r_xy*sqrt(var_x)*sqrt(var_y)
-  #Variance of differences in z and x
-  var_x <- var(x)
-  var_z <- var(z)
-  r_xz <- cor(x, z)
-  variance_xz <- var_x + var_z - 2*r_xz*sqrt(var_x)*sqrt(var_z)
-  #Variance of differences in y and z
-  var_z <- var(z)
-  var_y <- var(y)
-  r_zy <- cor(z, y)
-  variance_zy <- var_z + var_y - 2*r_zy*sqrt(var_z)*sqrt(var_y)
-  #Variance of x
-  variance_x <- .5*(variance_xy + variance_xz - variance_zy) +
-    (r_xy*sqrt(var_x)*sqrt(var_y) + r_xz*sqrt(var_x)*sqrt(var_z) - r_zy*sqrt(var_y)*sqrt(var_z))
-  #Variance of y
-  variance_xy <- .5*(variance_zy + variance_xy - variance_xz) +
-    (r_zy*sqrt(var_z)*sqrt(var_y) + r_xy*sqrt(var_x)*sqrt(var_y) - r_xz*sqrt(var_x)*sqrt(var_z))
-  #Variance of z
-  variance_xz <- .5*(variance_xz + variance_zy - variance_xy) +
-    (r_xz*sqrt(var_x)*sqrt(var_z) + r_zy*sqrt(var_z)*sqrt(var_y) - r_xy*sqrt(var_x)*sqrt(var_y))
-  variances <- data.frame(variance_xy, variance_xz, variance_zy)
-  colnames(variances) <- c("variance_xy", "variance_xz", "variance_zy")
+#This function computes the variance of error in one observation type by computing the variance between the 
+#difference in two error types. The bias and mean of two observation types can be used to compute the variance of 
+#the difference in the observation types. The variance of differences in the observation type can be used to solve
+#directly for the variance of error in a single observation type.
+
+variance <- function(source1, source2, source3) {
+  #CHECK INSTEAD WITH as.vector()
+  #if (!is.null(nrow(aqua)) | !is.null(nrow(viirs)) | !is.null(nrow(buoy)) | length(aqua) <= 1 | length(viirs) <= 1 | length(buoy) <= 1) {
+   # stop("Only vectors can be passed as arguments in the variance function.")
+  #}
+  
+  #Call bias function to re-scale measurements
+  biases <- bias(source1, source2, source3)
+  
+  #PUT A COMMENT
+  source1_scaled <- source1 - biases['bias_source1source3']
+  source2_scaled <- source2 - biases['bias_source2source3']
+  
+  #Variance of errors in observation types
+  variance_source1 <- mean((source1_scaled - source2_scaled) * (source1_scaled - source3))     #Variance of source1
+  variance_source2 <- mean((source1_scaled - source2_scaled) * (source2_scaled - source3))     #Variance of source2
+  variance_source3 <- mean((source1_scaled - source3) * (source2_scaled - source3))            #Variance of source3
+  
+  #Take all the individual variances and return them as a dataframe
+  variances <- data.frame(variance_source1, variance_source2, variance_source3)
+  colnames(variances) <- c("variance_source1", "variance_source2", "variance_source3")
   return(variances)
 }
 # -------------------------------------------------------------------------------
@@ -109,6 +110,8 @@ for (uuu in seq(from = 1, to = length(names(VIIRS)), by = 1)) {
     VIIRS[uu1] <- as.celsius(VIIRS[uu1])
   }
 }
+
+VIIRS$sst.minus.buoy.sst <- as.celsius(VIIRS$sst.minus.buoy.sst)
 
 #Convert timedates from POSIXct objects to characters
 VIIRS$buoy.timedate <- as.character(VIIRS$buoy.timedate)
@@ -193,19 +196,38 @@ xtabs(~ qsst.AQUA + qsst.VIIRS, data = orig_filtered)
 
 # -----------------------------------------------------------------------------#
 # --- Build a SpatialPoints object with lons and lats of matchups ----
-matchup.coords <- as.matrix(cbind(lon = orig_filtered[, 'sat.lon.AQUA'],
-  lat = orig_filtered[, 'sat.lat.AQUA']))
+matchup.coords <- as.matrix(cbind(lon = orig_filtered[, 'buoy.lon.AQUA'],
+  lat = orig_filtered[, 'buoy.lat.AQUA']))
 
 crs.string <- "+proj=longlat +datum=WGS84 +no_defs +ellps=WGS84 +towgs84=0,0,0"
 
 pts <- sp::SpatialPoints(coords = matchup.coords,
   proj4string = sp::CRS(crs.string))
 
-mapview::mapview(pts)
+pts <- as.data.frame(pts)
+pts <- data.frame(pts, orig_filtered$insitu.platform.AQUA, orig_filtered$buoy.id)
+sp::coordinates(pts) <- ~ buoy.lon.AQUA + buoy.lat.AQUA
+sp::proj4string(pts) <- sp::CRS(crs.string)
+
+mapview::mapview(pts, alpha = .2, cex = 1)
+# ------------------------------------------------------------------------------
+
+
+# -----------------------------------------------------------------------------#
+# --- Do regressions for each set of obsesrvations ----
+#Trying to predict aqua residuals based on viirs residuals
+fit_aquaviirsresiduals <- lm(orig_filtered$sst.minus.buoy.sst.AQUA ~ orig_filtered$sst.minus.buoy.sst.VIIRS)
+
+#Try to predict SST in one observation type from another observation type
+fit_aquaviirstsst <- lm(orig_filtered$cen.sst.AQUA ~ orig_filtered$cen.sst.VIIRS)
+
+fit_aquabuoysst <- lm(orig_filtered$cen.sst.AQUA ~ orig_filtered$buoy.sst.AQUA)
+
+fit_viirsbuoysst <- lm(orig_filtered$)
 # ------------------------------------------------------------------------------
 
 # -----------------------------------------------------------------------------#
-# --- Conduct Collocation Experiments on Different Populations
+# --- Conduct collocation experiments on different populations
 #Maybe we can conduct experiments on the regimes we identified last year to see if we can show a second way
 #that regimes we identified actually had different residual characteristics than the rest of the the globe???
 
@@ -249,16 +271,29 @@ bank.full <- dplyr::full_join(names.codes, codes.money) #all rows and all column
 
 
 #Testing collocation functions
-x <- rnorm(100, 10, 1)
-y <- rnorm(100, 25, 5)
-z <- rnorm(100, 50, 10)
+truthx <- seq(1, 1000)
 
-biases <- bias(x, y, z)
+epsi1 <- rnorm(1000, 0, 1)
+epsi2 <- rnorm(1000, 0, 2)
+epsi3 <- rnorm(1000, 0, 3)
 
-variances <- variance(x, y, z)
+alpha1 <- 5
+
+alpha2 <- 3
+
+alpha3 <- 7
+
+meas1 <- truthx + alpha1 + epsi1
+
+meas2 <- truthx + alpha2 + epsi2
+
+meas3 <- truthx + alpha3 + epsi3
 
 
 
+
+
+biases <- as.data.frame(t(t(as.matrix(bias(aqua, viirs, buoy))) %*% bias.coefs))
 
 
 tt1 <- (as.numeric(orig_solz_platform_time$sat.timedate.AQUA - orig_solz_platform_time$sat.timedate.VIIRS) > 3000)

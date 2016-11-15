@@ -57,10 +57,10 @@ scale.robust <- function(x, method) {
 #-------------------------------------------------------------------------------
 
 #Read Matchups file (2002-2010)
-orig <- readr::read_csv("/Users/parora/Projects/MODIS/Matchups/Results/objects/MODIS_Aqua_GSFC_ALL_Class_6.4.1_ao_2016_01_23.csv")
+orig <- readr::read_csv("/home/ckk/Projects/Matchup_R_Scripts/Results/objects/MODIS_Aqua_GSFC_ALL_Class_6.4.1_ao_2016_01_23.csv")
 
 #Filter for only nighttime data
-orig_filtered <- dplyr::tbl_df(orig) %>% 
+orig_solz <- dplyr::tbl_df(orig) %>% 
   dplyr::filter(solz >= 90)
 
 #2: Check orig dataframe for correct filteration solz >= 90
@@ -71,7 +71,7 @@ orig_filtered <- dplyr::tbl_df(orig) %>%
 #}
 
 #Select variables
-orig2 <- dplyr::tbl_df(orig_filtered) %>%
+orig2 <- dplyr::tbl_df(orig_solz) %>%
   dplyr::select(satz,
     cen.11000,
     cen.12000,
@@ -125,7 +125,21 @@ orig3 <- dplyr::tbl_df(orig2) %>%
     diff.med.min11 = med.11000 - min.11000,
     diff.med.min12 = med.12000 - min.12000, 
     SST.resid = (buoy.sst-.17) - cen.sst) %>% 
-  dplyr::select(x1, x2, x3, lat, sd11, range11, range12, diff.med.min11, diff.med.min12, SST.resid)
+  dplyr::select(x1, x2, x3, lat, sd11, sd12, range11, range12, diff.med.min11, diff.med.min12, SST.resid)
+
+#Testing different cluster number choices
+clusterchoices <- c(10, 20, 30, 40, 50, 100)
+evaluation <- data.frame(rep(999, 6), rep(999, 6), rep(999, 6), rep(999, 6), rep(999, 6), rep(999, 6))
+colnames(evaluation) <- c("3f", "4f", "5f", "6f", "7f", "8f")
+rownames(evaluation) <- c("10c", "20c", "30c", "40c", "50c", "100c")
+for (nfeatures in seq(3, 8, 1)) {
+  for (nclusters in clusterchoices) {
+    scaled_orig <- scale.robust(as.matrix(orig3[ ,1:nfeatures]), "IQR")
+    fit <- kmeans(scaled_orig, nclusters)
+    evaluation[nfeatures-2, match(nclusters, clusterchoices)] <- fit$tot.withinss
+  }
+}
+
 
 
 #Clustering
@@ -208,7 +222,7 @@ rpart.plot::prp(good_tree, uniform=TRUE,
 bad_tree <- rpart::rpart(bad ~ x1 + x2 + x3 + lat + sd11 + range11 + range12 + diff.med.min11 + diff.med.min12,
   data = orig_clustering)
 
-prp(bad_tree, uniform=TRUE,
+rpart.plot::prp(bad_tree, uniform=TRUE,
   main="Classification Tree for Bad Clusters")
 
 
