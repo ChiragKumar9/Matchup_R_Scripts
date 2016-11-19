@@ -1,0 +1,83 @@
+---
+title: "collocation_poster_AGU2016"
+author: "Chirag Kumar and Guillermo Podesta"
+date: "AGU Fall Meeting 2016"
+output:
+  html_document: 
+    toc: TRUE
+    theme: united
+runtime: knitr
+---
+
+```{r prep_workspace, include=FALSE}
+#Load necessary packages
+library(dplyr)
+library(ggplot2)
+library(mapview)
+ggplot <- function(...) {ggplot2::ggplot(...) + theme_bw()}
+#Load Data
+#Load orig_j
+load("/home/ckk/Projects/Matchup_R_Scripts/Results/objects/Joined_AQUA_VIIRS_Matchups_No_Filtering.Rdata")
+#Load orig_solz_platform_time
+load("/home/ckk/Projects/Matchup_R_Scripts/Results/objects/Joined_AQUA_and_VIIRS_Matchups_filtered_by_solz_platform_and_timediff.Rdata")
+#Load orig_filtered
+load("/home/ckk/Projects/Matchup_R_Scripts/Results/objects/Joined_AQUA_and_VIIRS_Matchups_completely_filtered_including_qsst.Rdata")
+```
+
+#Introduction
+  Sea Surface Temperature (SST), a vital variable in climate change models, is fundamental to accurately predicting climate and weather trends. Drifting and moored buoys and thermometers aboard ships are able to provide SST measurements but they have poor coverage and error (...). On the other hand satellite sensors acquire SST on a global scale but errors introduced by the intervening atmosphere in satellite SST retrievals makes accurate predictions difficult. Here we analyse the bias and variance of errors in SST measurements made by two Infrared Radiometers, the Moderate Resolution Imaging Spectroradiometer (MODIS) aboard NASA's Aqua satellite and the Visible Infrared Imaging Radiometer Suite (VIIRS) aboard NASA's Suomi NPP satellite, and buoys. We attempt to evaluate the accuracy of the SST sensors and their algorithms.
+  
+#Overview of Dataset Used
+
+
+
+## 
+
+
+
+
+
+
+  A necessity for analyzing global accuracy of MODIS, VIIRS, and buoy SSTs is that they are measuring SST over ideally temporally, spatially, and atmospherically identical points. We attempt do this through a series of joining and filtering routines. An initial joining technique combines MODIS and VIIRS matchups using the common in-situ measurements. The fields that were used in the first join were buoy id and date. However, this collection of matchups is not temporally or spatially similar enough for any analyse. The joined matchups were then filtered such that the buoy measurements in MODIS and VIIRS matchups were taken within 5 minutes of each other, creating temporally similarity. Further filtering was applied so that only retrievals where Aqua and Suomi NPP passed over the same point within an hour of each other were considered. In addition, to account for differences in MODIS and VIIRS matchup processing formats (GSFC Goddard vs MIA L2GEN) such as the definition of the 'central pixel', a distance filtring was done so that Aqua and Suomi NPP were at most 1 km from the common buoy. Lastly, in accordance to standard practice, only night-time retrievals with a quality of 0 in both MODIS and VIIRS matchups were used.
+
+##Global Coverage of Joined and Filtered Matchups
+  
+```{r global_coverage, echo=FALSE}
+
+#Create base map
+base_map <- ggmap::get_map(c(73.76, 41.16), source = "stamen", maptype = "watercolor", crop = FALSE)
+
+#Plot points over map
+ggmap(base_map) + 
+  geom_point(mapping = aes(x = buoy.lon.AQUA, y = buoy.lat.AQUA), data = orig_filtered, alpha = .5, color = 'darkred', size = 3)
+```
+
+  
+  
+  
+  
+  
+  
+  
+  
+  MODIS and AQUA matchups were filtered such that only matchups with buoys (drifting and moored) were used. (Buoys are less subject to error than thermometers aboard ships.)
+
+
+
+
+
+#Triple Collocation Theory
+We require three independent measurement sources to accurately compare 
+```{r cars}
+summary(cars)
+```
+
+## Including Plots
+
+You can also embed plots, for example:
+
+```{r pressure, echo=FALSE}
+plot(pressure)
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.

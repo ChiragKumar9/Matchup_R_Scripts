@@ -223,7 +223,7 @@ fit_aquaviirstsst <- lm(orig_filtered$cen.sst.AQUA ~ orig_filtered$cen.sst.VIIRS
 
 fit_aquabuoysst <- lm(orig_filtered$cen.sst.AQUA ~ orig_filtered$buoy.sst.AQUA)
 
-fit_viirsbuoysst <- lm(orig_filtered$)
+fit_viirsbuoysst <- lm(orig_filtered$cen.sst.VIIRS ~ orig_filtered$buoy.sst.AQUA)
 # ------------------------------------------------------------------------------
 
 # -----------------------------------------------------------------------------#
