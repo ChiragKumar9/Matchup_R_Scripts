@@ -1,0 +1,127 @@
+---
+title: "Triple Collocation of VIIRS, Aqua, and Buoy Matchups"
+output: html_notebook
+---
+What is this notebook?
+
+```{r prep_workspace, include=FALSE}
+# Load necessary packages
+library(dplyr)
+library(ggplot2)
+library(mapview)
+ggplot <- function(...) {ggplot2::ggplot(...) + theme_bw()}
+# Load Data
+# Load AQUA
+load("~/Projects/Matchup_R_Scripts/Results/objects/MODIS_Aqua_GSFC_SNB_Class_6.4.1_ao_2016_10_01.RData")
+# Load VIIRS
+VIIRS <- load("~/Projects/Matchup_R_Scripts/Results/objects/VIIRS_Suomi_NPP_MIA_L2GEN_ALL_Class_6.4.1_ao_2016_09_29_with_ancillary.Rdata")
+VIIRS <- `VIIRS_Suomi NPP_MIA_L2GEN_ALL_Class_6.4.1_ao_2016_09_29`
+# Load orig_j
+load("/home/ckk/Projects/Matchup_R_Scripts/Results/objects/Joined_AQUA_VIIRS_Matchups_No_Filtering.Rdata")
+# Load orig_solz_platform_time
+load("/home/ckk/Projects/Matchup_R_Scripts/Results/objects/Joined_AQUA_and_VIIRS_Matchups_filtered_by_solz_platform_and_timediff.Rdata")
+# Load orig_filtered
+load("/home/ckk/Projects/Matchup_R_Scripts/Results/objects/Joined_AQUA_and_VIIRS_Matchups_completely_filtered_including_qsst.Rdata")
+```
+
+# Building a Dataset for Triple Collocation
+
+## Joining VIIRS and Aqua Matchups
+
+  We read in VIIRS matchups for the period between `r min(VIIRS$buoy.timedate.VIIRS)` and `r max(VIIRS$buoy.timedate.VIIRS)`. The original VIIRS dataset had `r nrow(VIIRS)` matchups. We also read Aqua matchups for the period between `r min(AQUA$buoy.timedate.AQUA)` and `r max(AQUA$buoy.timedate.AQUA)`. *For Aqua, we modified the regular expression to list files so that only matchups from 2010 onwards were read.* The number of Aqua matchups was `r nrow(AQUA)`. *VIIRS BTs, SSTs, and residuals are in degrees Kelvin whereas Aqua BTs, SSTs, and residuals are in degrees Celsius. We convert VIIRS values to degrees Celsius from degrees Kelvin.*
+  
+```{r convert_VIIRS_K_to_C, echo=TRUE}
+
+# Create as.celsius function
+as.celsius <- function(kelvin) {
+  celsius <- kelvin - 273.15
+  return(celsius)
+}
+# Convert VIIRS BTs from kelvin to celsius
+pattern = c('cen(.+?)', 'med(.+?)', 'max(.+?)', 'min(.+?)')
+pattern = paste(pattern, collapse = '|')
+for (uuu in seq(from = 1, to = length(names(VIIRS)), by = 1)) {
+  uu1 <- names(VIIRS)[uuu]
+  if (grepl(pattern, uu1)) {
+    VIIRS[uu1] <- as.celsius(VIIRS[uu1])
+  }
+}
+
+# Convert VIIRS residuals from kelvin to celsius
+VIIRS$sst.minus.buoy.sst <- as.celsius(VIIRS$sst.minus.buoy.sst)
+
+```
+
+  
+  A collocation study requires data from at least three sources that are relatively coincident in space and time.
+We require that the three measurement techniques take SST measurements within an hour and at most a kilometer from each other.
+We have two SST measurements derived from satellite-based infrared radiometers (Suomi Npp - VIIRS and Aqua - MODIS). Since the buoy data is a common element to both VIIRS and Aqua matchups, we use them as a common key to join Aqua and VIIRS matchups. 
+
+```{r join_VIIRS_and_AQUA, echo=TRUE}
+
+# Convert timedates from POSIXct objects to characters for the dplyr joining
+# dplyr does not accept date variables for joining
+VIIRS$buoy.timedate <- as.character(VIIRS$buoy.timedate)
+AQUA$buoy.timedate <- as.character(AQUA$buoy.timedate)
+
+VIIRS$sat.timedate <- as.character(VIIRS$sat.timedate)
+AQUA$sat.timedate <- as.character(AQUA$sat.timedate)
+
+# Change column names of VIIRS and AQUA objects so that when we join, there is no ambiguity
+#colnames(AQUA) <- paste(colnames(AQUA), "AQUA", sep = ".")
+#colnames(VIIRS) <- paste(colnames(VIIRS), "VIIRS", sep = ".")
+
+# Don't change names of buoy.date or buoy.id as that is what we join by
+#colnames(AQUA)['buoy.date.AQUA'] = "buoy.date"
+#colnames(AQUA)['buoy.date.AQUA'] = "buoy.id"
+#colnames(VIIRS)['buoy.date.VIIRS'] = "buoy.date"
+#colnames(VIIRS)['buoy.id.VIIRS'] = "buoy.id"
+
+# Join VIIRS and AQUA into one object (orig_j)
+
+orig_j <- dplyr::inner_join(AQUA, VIIRS, by = c("buoy.date", "buoy.id"))
+
+# This line excludes non-exact matches and we lose too many potentially useful matchups
+#orig_j <- dplyr::inner_join(AQUA, VIIRS, by = c("buoy.pftime", "buoy.lon", "buoy.lat", "buoy.id"))
+
+# Convert timedates back from characters to POSIXct objects
+orig_j$buoy.timedate.AQUA <- lubridate::ymd_hms(orig_j$buoy.timedate.AQUA)
+orig_j$buoy.timedate.VIIRS <- lubridate::ymd_hms(orig_j$buoy.timedate.VIIRS)
+
+orig_j$sat.timedate.AQUA <- lubridate::ymd_hms(orig_j$sat.timedate.AQUA)
+orig_j$sat.timedate.VIIRS <- lubridate::ymd_hms(orig_j$sat.timedate.VIIRS)
+
+```
+
+At this point, we have `r nrow(orig_j)` joined matchups. However, these matchups do not have enough spatial or temporal coincidence to meet our requirements stated above or for a triple collocation error analysis. We did not join by the buoy's timedate or latitude/longitude because the `dplyr::innerjoin()` only matches if respective values are exactly the same, thereby reducing the number of potentially useful matchups. We instead apply a series of filtering steps described in the next section to ensure the conditions stated above for a triple collocation error analysis.
+
+## Filtering VIIRS and Aqua Matchups
+
+  To decrease the probability of having potentially cloud-contaminated SST retrievals, we use only SST matchups with a VIIRS and Aqua quality of 0. 
+  
+```{r filtering_orig_j, echo=TRUE}
+
+#Filter by solz, platform, time difference
+orig_solz_platform_time <- dplyr::tbl_df(orig_j) %>%
+  dplyr::filter(solz.AQUA >= 90 & solz.VIIRS >= 90) %>% #Allow only nighttime retrievals
+  dplyr::filter(insitu.platform.AQUA != "Ship") %>% #Allow only buoy retrievals
+  dplyr::filter(as.numeric(abs(sat.timedate.AQUA - sat.timedate.VIIRS)) <= 3600) %>% #VIIRS and AQUA passover times must be less than 1hr
+  dplyr::filter(as.numeric(abs(buoy.timedate.AQUA - buoy.timedate.VIIRS)) <= 300) %>% #Buoy retrievals for VIIRS and AQUA must be less than 5 min
+  dplyr::filter(geosphere::distVincentyEllipsoid(as.matrix(data.frame(sat.lon.AQUA, sat.lat.AQUA)), #Allow only retrievals with distance between sat and buoy less than 1 km
+    as.matrix(data.frame(buoy.lon.AQUA, buoy.lat.AQUA))) <= 1000) %>%
+  dplyr::filter(geosphere::distVincentyEllipsoid(as.matrix(data.frame(sat.lon.VIIRS, sat.lat.VIIRS)),
+    as.matrix(data.frame(buoy.lon.VIIRS, buoy.lat.VIIRS))) <= 1000)
+
+#Add filtering by quality
+orig_filtered <- orig_solz_platform_time %>%
+  dplyr::filter(qsst.AQUA == 0 & qsst.VIIRS == 0)
+```
+
+
+## Description of Collocation Dataset
+
+### Spatial Distribution of Collocated Data
+
+### Temporal Distribution of Collocated Data
+
+# Calculating Collocation Statistics
