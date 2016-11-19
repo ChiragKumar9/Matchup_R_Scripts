@@ -331,7 +331,7 @@ get_matchup_variables <- function(matchup.format = c('MIA_L2GEN','GSFC'),
 # --- for a given sensor and are filled with '-999.0' (ie, missing values)).
 
 keep_matchup_variables <- function(matchup.format = NULL,
-                                  sensor = NULL, ancillary.data = NULL) {
+  sensor = NULL, ancillary.data = NULL) {
 
   # --- Checking arguments
   if (missing(matchup.format)) {
@@ -641,7 +641,6 @@ keep_matchup_variables_collocation <- function(matchup.format = NULL,
   return(keep.vars)
 } # End of function keep_matchup_variables()
 # ------------------------------------------------------------------------------
-
 
 # -----------------------------------------------------------------------------#
 # --- Function apply_gross_quality_filters() ----

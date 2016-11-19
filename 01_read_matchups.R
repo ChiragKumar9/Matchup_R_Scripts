@@ -140,11 +140,13 @@ rm(uu0,uu1,uub,uu.temp,tt1,tt2,tt3,use.file); gc()
 tt1 <- as.Date(Sys.time())
 
 if (config$use_ancillary_data == "FALSE") {
+  # DO NOT use ancillary variables (eg, microwave SSTs)
   files.read <- paste(objects.outdir, matchup.object,
-                      '_file_list_','.Rdata', sep = '')
+    '_file_list_','.Rdata', sep = '')
 } else {
+  # Use ancillary variables (eg, microwave SSTs)
   files.read <- paste(objects.outdir, matchup.object,
-                      '_file_list_ancillary','.Rdata', sep = '')
+    '_file_list_ancillary','.Rdata', sep = '')
 }
 
 save(daily.file.info,
@@ -202,7 +204,6 @@ assign(jj1, seq(from = min(file.dates), to = max(file.dates), by = 'days'))
 
 tt3 <- get(jj1) %in% file.dates
 assign(jj2, get(jj1)[!tt3]) # which dates are missing
-
 
 if (length(get(jj2)) > 0) {
   Log.warn(paste('There are', length(get(jj2)), 'days without',
@@ -378,7 +379,7 @@ if (config$matchups$format == 'MIA_L2GEN') {
   csep <- ","
 }
 
-# --- Read first file
+# --- Read FIRST file in list
 
 orig <- readr::read_delim(file = daily.file.list[1],
   delim = csep,
@@ -417,14 +418,15 @@ if (ncol(orig) != lhdr) {
 
 # --- If configuration file specifies that not all variables will be kept,
 # --- filter out variables that we DO NOT want to keep.
-if (config$collocation) {
-  orig <- dplyr::select(orig, one_of(vars.to.keep))
-} else if (!config$collocation) {
-  if (! config$keep_all_vars) {
-    orig <- dplyr::select(orig, one_of(vars.to.keep))
-  }
-}
 
+if (config$keep_all_vars) {
+  # Keep all variables
+  Log.debug('Keeping ALL variables in matchups')
+} else {
+  # DO NOT keep all variables
+  Log.debug('Keeping SOME variables in matchups (defined in \'vars.to.keep\'')
+  orig <- dplyr::select(orig, one_of(vars.to.keep))
+}
 
 # --- Apply GROSS quality filters to first file read.
 # --- Tests are formulated so that records are KEPT if tests are TRUE.
@@ -513,13 +515,14 @@ if (n.daily.files == 1) {
 
     # --- If configuration file specifies that not all variables will be kept,
     # --- filter out variables that we DO NOT want to keep.
-
-    if (config$collocation) {
+    
+    if (config$keep_all_vars) {
+      # Keep all variables
+      Log.debug('Keeping ALL variables in matchups')
+    } else {
+      # DO NOT keep all variables
+      Log.debug('Keeping SOME variables in matchups (defined in \'vars.to.keep\'')
       orig2 <- dplyr::select(orig2, one_of(vars.to.keep))
-    } else if (!config$collocation) {
-      if (! config$keep_all_vars) {
-        orig2 <- dplyr::select(orig2, one_of(vars.to.keep))
-      }
     }
 
     # --- Apply GROSS quality filters to first file read.
@@ -603,83 +606,58 @@ rm(lines.duplicated, which.not.duplicated, which.duplicated, orig2); gc()
 
 orig$buoy.id <- as.character(orig$buoy.id)				# Buoy ID
 
-# Kay- commented out the lines below....not sure what was intended here but the reynolds sst values should
-# stay as numeric
-# if (config$sensor == "VIIRS" &
-#     config$matchups$format == "MIA_L2GEN") {
-#   orig$ref.type.1 <-
-#     as.character(orig$ref.type.1)	# Reference SST, type 1
-#   orig$ref.type.2 <-
-#     as.character(orig$ref.type.2)	# Reference SST, type 1
-# } else if (config$sensor == "MODIS" &
-#            config$matchups$format == "GSFC") {
-#   orig$cen.ref.type.1 <-
-#     as.character(orig$cen.ref.type.1)	# Reference SST, type 1
-# }
-
 # --- Variables that depend on matchup format
 
 if (config$matchups$format == 'MIA_L2GEN') {
+  # Variables for MIA_L2GEN format
   orig$sat.id <- as.character(orig$sat.id)  # Satellite ID
-  orig$anc.type <- as.character(orig$anc.type)  		# Ancillary data type description
+  orig$anc.type <- as.character(orig$anc.type)  # Ancillary data type description
   orig$matchup.version <- as.character(orig$matchup.version)	# Matchup version
 
+  # --- Assign labels to buoy quality.
+  # --- This field only populated for IQUAM in situ data (for now).
+  orig$buoy.qual <- factor(orig$buoy.qual,
+    levels = c(0, 1, 2, 9),
+    labels = c('no quality','passed','final','junk'))
+    
+  # --- Assign labels to in situ platform type
+  orig$buoy.type <- factor(orig$buoy.type,
+    levels = 0:5,
+    labels = c('moored buoy', 'drifting buoy', 'ship', 'maeri',
+      'isar','argos float'))
+    
 } else if (config$matchups$format == 'GSFC') {
+  # Variables in GSFC matchups
   orig$sat <- as.character(orig$sat)        # Satellite ID
   orig$source <- as.character(orig$source)  # Source of matchups (eg, 'goddard')
+  
+} else {
+  Log.error('Specified matchups\' format not recognized')
 }
-
-# --- Change a few variables into factors.
-
-orig$sunside <- factor(orig$sunside, levels = c('yes','no'))	# Sun side of the scan
-
-# --- Assign labels to buoy types.
-# --- For now, they have values from 0 to 5.
-# --- TO DO: Assign labels to additional buoy types head(orig$buoy.id))
-
-if (config$matchups$format == "MIA_L2GEN") {
-orig$buoy.type <- factor(orig$buoy.type,
-  levels = 0:5,
-  labels = c('moored buoy', 'drifting buoy', 'ship', 'maeri',
-    'isar','argos float'))
-}
-
-# --- Assign labels to buoy quality.
-# --- This field only populated for IQUAM in situ data (for now).
-
-if (config$matchups$format == 'MIA_L2GEN') {
-  orig$buoy.qual <- factor(
-    orig$buoy.qual,
-    levels = c(0, 1, 2, 9),
-    labels = c('no quality','passed','final','junk')
-  )
-}
-
-# --- Add prefix 'd' to detector number (for VIIRS and MODIS);
-
+  
+# --- Variables that depend on sensor
+  
 if (config$sensor == 'VIIRS' | config$sensor == 'MODIS') {
+    
+  # --- Add prefix 'd' to detector number (for VIIRS and MODIS);
   dd1 <- sort(unique(orig$detector))
   orig$detector <- factor(orig$detector,
-    levels = dd1, labels = paste0('d',dd1))
+      levels = dd1, labels = paste0('d',dd1))
   rm(dd1)
-} else if (config$sensor == 'AVHRR') {
-  orig$detector <- NULL
-} else {
-  Log.error('Specified sensor not recognized')
-}
-
-# --- add prefix 'm' to mirror number (for VIIRS and MODIS).
-
-if (config$sensor == 'VIIRS' | config$sensor == 'MODIS') {
+    
+  # --- Add prefix 'm' to mirror side (for VIIRS and MODIS);
   orig$mirror <- factor(orig$mirror,
     levels = 1:2, labels = paste0('m', 1:2))
+  
 } else if (config$sensor == 'AVHRR') {
+    
+  orig$detector <- NULL
   orig$mirror <- NULL
+
 } else {
   Log.error('Specified sensor not recognized')
 }
 # ------------------------------------------------------------------------------
-
 
 # -----------------------------------------------------------------------------#
 # -----------------------------------------------------------------------------#
@@ -852,8 +830,6 @@ if (config$matchups$format == 'MIA_L2GEN') {
     check4 <- tapply(orig$cen.ref.type.1.SST, INDEX = refsstint, FUN = range, simplify = TRUE)
 }
 
-
-
 rm(check, check2, check3, check4, lat.boundaries,
   lat.labels, satz.boundaries, satz.labels, bsst.boundaries); gc()
 # ------------------------------------------------------------------------------
@@ -1017,19 +993,20 @@ rm(file, infile, zip.file, NE.url,geo.info,geo.location,
 # --- These residuals are the same for all sensors, but depend on the
 # --- matchup format, as SSTs are expressed in deg C for GSFC format
 # --- and in degrees K for MIA_L2GEN format.
-
-if (config$matchups$format == 'GSFC' | (config$matchups$format == 'MIA_L2GEN' & config$sensor == 'AVHRR')) {
+  
+if (config$matchups$format == 'GSFC' |
+      (config$matchups$format == 'MIA_L2GEN' & config$sensor == 'AVHRR')) {
   orig$sst.minus.buoy.sst <- orig$cen.sst - orig$buoy.sst
   orig$sst.minus.ref.type.1.sst <- orig$cen.sst - orig$ref.type.1.SST
 } else if (config$matchups$format == 'MIA_L2GEN' & config$sensor == 'VIIRS') {
   orig$sst.minus.buoy.sst <- orig$cen.sst - (orig$buoy.sst + 273.15)
   orig$sst.minus.ref.type.1.sst <- orig$cen.sst - (orig$ref.type.1.SST + 273.15)
 } else {
-  Log.error('Matchups format not correctly specified in configuration')
+    Log.error('Matchups format or sensor name not correctly specified in configuration')
 }
-
+  
 # --- These residuals are sensor-dependent
-
+  
 if (config$matchups$format == 'GSFC' & config$sensor == 'VIIRS') {
   orig$sst3b.minus.buoy.sst <- orig$cen.sst3b - (orig$buoy.sst)
   orig$sst3b.minus.ref.type.1.sst <- orig$cen.sst3b - (orig$cen.ref.type.1.SST)
@@ -1048,7 +1025,6 @@ if (config$matchups$format == 'GSFC' & config$sensor == 'VIIRS') {
 # ------------------------------------------------------------------------------
 
 Log.info('END creation of additional variables')
-
 
 # -----------------------------------------------------------------------------#
 # -----------------------------------------------------------------------------#
@@ -1075,7 +1051,7 @@ save(list = matchup.object, file = matchup.bin.file,
 
 # load(matchup.txt.file, verbose = TRUE)
 
-# --- Save contents of object named in 'matchup.bject'
+# --- Save contents of object named in 'matchup.object'
 # --- to an ASCII file (extension txt)
 
 Log.info('Saving matchups in ASCII file')
@@ -1101,7 +1077,7 @@ tt3 <- apply(tt2, 1, any)
 tt4 <- tt1[!tt3]
 
 rm(list = tt4)
-rm(tt3,tt4,keep.strings); gc()
+rm(tt1, tt2, tt3, tt4, keep.strings); gc()
 
 save.image()  # Save .Rdata in working directory
 Log.info('END of cleaning up')

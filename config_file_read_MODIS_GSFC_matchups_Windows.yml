@@ -63,9 +63,9 @@ project_name  :  'proj_MODIS_l6cv6'
 
 working_dir  :  'D:/matchups/r-projects/R_MUDB/modis/aqua/gsfc/l6cv6/workdir/'
 
-scripts_dir  :  'D:/matchups/r-projects/R_scripts/R_master_scripts/read_matchups/'
+scripts_dir  :  'D:/matchups/r-projects/Matchup_R_scripts/'
 
-functions_dir  :  'D:/matchups/r-projects/R_scripts/R_master_scripts/functions/'
+functions_dir  :  'D:/matchups/r-projects/Matchup_R_scripts/functions/'
 # -----------------------------------------------------------------------------------
 
 # -----------------------------------------------------------------------------------
@@ -74,7 +74,7 @@ functions_dir  :  'D:/matchups/r-projects/R_scripts/R_master_scripts/functions/'
 
 # This directory holds folders for each year, with compressed archive files
 
-matchups_base_indir  :  'D:/Matchups/r-projects/R_MUDB/modis/aqua/gsfc/l6cv6/daily/'
+matchups_base_indir  :  'D:/matchups/r-projects/R_MUDB/modis/aqua/gsfc/l6cv6/daily/'
 
 # -----------------------------------------------------------------------------------
 # Specify matchup files to be read through one or more patterns
@@ -83,10 +83,15 @@ matchups_base_indir  :  'D:/Matchups/r-projects/R_MUDB/modis/aqua/gsfc/l6cv6/dai
 # Define a vector of patterns that will be used to select
 # matchup files that will be read .
 # This is because directories have different kinds of files.
-# NOTE: The patterns are formuklated 'a la perl'.
+# NOTE: The patterns are formulated 'a la perl'.
 
-file_selection_strings  :  ['(.+?)reproc2014\.(.+?)\.V2\.matchup$',
-  '(.+?)stream\.(.+?)l6cv6\.matchup$']
+# IMPORTANT: This pattern reads MODIS files starting in 2010.
+# This is desired for collocation.
+
+file_selection_strings  :  ['(.+?)A201(.+?)reproc2014\.(.+?)\.V2\.amsre\.amsr2\.wsat\.matchup$',
+  '(.+?)A201(.+?)stream\.(.+?)l6cv6\.amsre\.amsr2\.wsat\.matchup$']
+
+use_ancillary_data  :  TRUE
 
 # -----------------------------------------------------------------------------------
 # Specify matchup files to be read based on in situ source
@@ -151,6 +156,14 @@ header_record_number : 1
 # -----------------------------------------------------------------------------------
 
 keep_all_vars  :  FALSE   # Only SOME variables will be retained
+
+# -----------------------------------------------------------------------------------
+
+# -----------------------------------------------------------------------------------
+# Decide if matchups are being used for a collocation study
+# -----------------------------------------------------------------------------------
+
+collocation  :  TRUE  # Matchups used in collocation studies
 
 # -----------------------------------------------------------------------------------
 

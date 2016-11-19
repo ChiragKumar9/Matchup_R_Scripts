@@ -9,7 +9,7 @@
 # -----------------------------------------------------------------------------------
 
 sensor  :  'VIIRS'		# sensor to be analyzed
-platform  : 'Suomi NPP'
+platform  : 'Suomi_NPP'
 
 # -----------------------------------------------------------------------------------
 # Version of matchups' calibration collection
@@ -65,9 +65,9 @@ project_name  :  'proj_viirs_v641ao'
 
 working_dir  :  'D:/matchups/r-projects/R_MUDB/viirs/v641ao/mia/workdir/'
 
-scripts_dir  :  'D:/matchups/r-projects/R_scripts/R_master_scripts/read_matchups/'
+scripts_dir  :  'D:/matchups/r-projects/Matchup_R_scripts/'
 
-functions_dir  :  'D:/matchups/r-projects/R_scripts/R_master_scripts/functions/'
+functions_dir  :  'D:/matchups/r-projects/Matchup_R_scripts/functions/'
 # -----------------------------------------------------------------------------------
 
 # -----------------------------------------------------------------------------------
@@ -76,10 +76,9 @@ functions_dir  :  'D:/matchups/r-projects/R_scripts/R_master_scripts/functions/'
 
 # This directory holds folders for each year, with compressed archive files
 
-matchups_base_indir  :  'D:/matchups/viirs/v641ao/daily/'
+matchups_base_indir  :  'D:/matchups/r-projects/R_MUDB/viirs/v641ao/mia/daily/'
 
 # -----------------------------------------------------------------------------------
-
 
 # -----------------------------------------------------------------------------------
 # Specify matchup files to be read through one or more patterns
@@ -90,10 +89,10 @@ matchups_base_indir  :  'D:/matchups/viirs/v641ao/daily/'
 # This is because directories have different kinds of files.
 # NOTE: The patterns are formulated 'a la perl'.
 
+file_selection_strings  :  ['^(.+?)amsre\.amsr2\.wsat\.matchup$']
+
 #file_selection_strings  :  ['(.+?)reproc2014\.(.+?)\.V2\.matchup$',
 #  '(.+?)stream\.(.+?)l6cv6\.matchup$']
-
-file_selection_strings  :  ['^(.+?)amsre\.amsr2\.wsat\.matchup$']
 
 # Decide if ancillary data from other sensors will be read in.
 # These data are SSTs from other sensosrs such as AMSR-E, AMSR-2 and WindSat.
@@ -169,5 +168,12 @@ keep_all_vars  :  FALSE   # Only SOME variables will be retained
 
 # -----------------------------------------------------------------------------------
 
+# -----------------------------------------------------------------------------------
+# Decide if matchups are being used for a collocation study
+# -----------------------------------------------------------------------------------
+
+collocation  :  TRUE  # Matchups used in collocation studies
+
+# -----------------------------------------------------------------------------------
 
 
