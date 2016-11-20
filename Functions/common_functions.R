@@ -129,7 +129,7 @@ get_matchup_variables <- function(matchup.format = c('MIA_L2GEN','GSFC'),
       "buoy.wdir","buoy.airtmp",
       "sat.id","sat.date","sat.time","sat.pftime","sat.lon","sat.lat",
       "solz","satz","azimuth","aoi","detector","mirror","sstflg","sst3bflg",
-      "l2flg","qsst","qsst3b","sunside","glint",
+      "l2flg","qsst","qsst3b","sunside","glintflg",
       "pixel","line","boxsizx","boxsizy",
       "ray.ch1","ray.ch2","aer.ch1","aer.ch2",
       "prt.avg","prt.1","prt.2","prt.3","prt.4",
@@ -237,7 +237,7 @@ get_matchup_variables <- function(matchup.format = c('MIA_L2GEN','GSFC'),
       "sat.lat","sat.lon",
       "solz","satz","azim","aoi","detector","pixnum","mirror","sunside",
       "spare3","l2comflg",
-      "qual","qsst","qsst4","glintflg",
+      "qual","qsst","qsst4","glint",
       "cen.sst","cen.sst3b",
       "cen.3750","cen.3959","cen.4050","cen.11000","cen.12000","cen.1380",
       "cen.6715","cen.7325","cen.8550","cen.39.40.ref","cen.678l","cen.spare1",
@@ -382,63 +382,17 @@ keep_matchup_variables <- function(matchup.format = NULL,
     # Matchup variables to KEEP
     # for format 'MIA_L2GEN' (aka 'new Miami' matchup format)
     # and for MODIS sensor.
-    keep.vars <- c("sat.date","sat.time","sat.pftime", "sat.lat", "sat.lon",
-      "solz", "satz", "mirror","qsst", "qsst4","glint",
-      "cen.sst","cen.sst4","cen.678","cen.748","cen.1380","cen.3750","cen.3959","cen.4050",
-      "cen.6715","cen.7325","cen.8550","cen.11000","cen.12000","cen.39.40.ref",
-      "med.sst","med.sst4","med.678","med.748","med.1380","med.3750","med.3959","med.4050",
-      "med.6715","med.8550","med.11000","med.12000",
-      "min.sst","min.sst4","min.678","min.748","min.1380","min.3750","min.3959","min.4050",
-      "min.6715","min.7325","min.8550","min.11000","min.12000",
-      "max.sst","max.sst4","max.678","max.748","max.1380","max.3750","max.3959","max.4050",
-      "max.6715","max.7325","max.8550","max.11000","max.12000",
-      "avg.sst","avg.sst4","avg.678","avg.748","avg.1380","avg.3750","avg.3959","avg.4050",
-      "avg.6715","avg.7325","avg.8550","avg.11000","avg.12000",
-      "sd.sst","sd.sst4","sd.678","sd.748","sd.1380","sd.3750","sd.3959","sd.4050",
-      "sd.6715","sd.7325","sd.8550","sd.11000","sd.12000",
-      "buoy.pftime","buoy.lat","buoy.lon","buoy.id","buoy.sst",
-      "ref.type.1.SST")
+    keep.vars <- NULL
   } else if (matchup.format == 'MIA_L2GEN' && sensor == 'AVHRR') {
     # Matchup variables to KEEP
     # for format 'MIA_L2GEN' (aka 'new Miami' matchup format)
     # and for AVHRR sensor.
-    keep.vars <- c("buoy.date","buoy.time","buoy.pftime","buoy.lon","buoy.lat",
-                   "buoy.type","buoy.id","buoy.sst","buoy.qual","buoy.wspd",
-                   "buoy.wdir","buoy.airtmp",
-                   "sat.id","sat.date","sat.time","sat.pftime","sat.lon","sat.lat",
-                   "solz","satz","azimuth","aoi","sstflg",
-                   "l2flg","qsst","sunside","glint",
-                   "pixel","line","boxsizx","boxsizy",
-                   "ray.ch1","ray.ch2","aer.ch1","aer.ch2",
-                   "prt.avg","prt.1","prt.2","prt.3","prt.4",
-                   "emis.ch3","emis.ch4","emis.ch5","slope.ch3","slope.ch4","slope.ch5",
-                   "intcp.ch3","intcp.ch4","intcp.ch5",
-                   "cen.sst",
-                   "cen.630","cen.3750",
-                   "cen.3959","cen.11000","cen.12000",
-                   "med.sst",
-                   "med.3750",
-                   "med.11000","med.12000",
-                   "min.sst",
-                   "min.3750",
-                   "min.3959",
-                   "min.11000","min.12000",
-                   "max.sst",
-                   "max.3750",
-                   "max.11000","max.12000",
-                   "avg.sst","avg.3750",
-                   "avg.11000","avg.12000",
-                   "sd.sst",
-                   "sd.3750",
-                   "sd.11000","sd.12000",
-                   "anc.type","anc.wspd","anc.wdir","anc.wv",
-                   "matchup.version",
-                   "ref.type.1","ref.type.1.SST",
-                   "ref.type.2","ref.type.2.SST")
+    keep.vars <- NULL
   } else if (matchup.format == 'GSFC' && sensor == 'VIIRS') {
     # Matchup variables to KEEP
     # for format 'GSFC'
     # and for VIIRS sensor.
+    keep.vars <- NULL
   } else if (matchup.format == 'GSFC' && sensor == 'MODIS') {
     # Matchup variables to KEEP
     # for format 'GSFC' matchup format)
@@ -528,12 +482,13 @@ keep_matchup_variables_collocation <- function(matchup.format = NULL,
   
   # --- List of variables to keep for each format and sensor combination
   
-  if (matchup.format == 'MIA_L2GEN' && sensor == 'VIIRS') {
+  if (matchup.format == 'MIA_L2GEN' & sensor == 'VIIRS') {
     # Matchup variables to KEEP
     # for format 'MIA_L2GEN' (aka 'new Miami' matchup format)
     # and for VIIRS sensor.
     keep.vars <-  c("buoy.date","buoy.time","buoy.pftime","buoy.lon","buoy.lat",
-      "buoy.type","buoy.id","buoy.sst","buoy.qual","buoy.wspd","buoy.wdir","buoy.airtmp",
+      "buoy.type","buoy.id","buoy.sst","buoy.qual","buoy.wspd","buoy.wdir",
+      "buoy.airtmp",
       "sat.id","sat.date","sat.time","sat.pftime","sat.lon","sat.lat",
       "solz","satz","qsst","qsst3b","sunside","glint",
       "cen.sst","cen.sst3b","cen.3750","cen.4050","cen.11000","cen.12000",
@@ -542,104 +497,61 @@ keep_matchup_variables_collocation <- function(matchup.format = NULL,
       "max.11000","max.12000",
       "min.11000","min.12000",
       "sd.11000","sd.12000",
-      "ref.type.1","ref.type.1.SST")
+      "amsre.type","amsre.val",                 
+      "amsr2.type","amsr2.val",                 
+      "wsat.type","wsat.val",                  
+      "sat.timedate","buoy.timedate","doy",                       
+      "latband","satzint","bsstint",                 
+      "insitu.platform","insitu.source",             
+      "cell5deg","cell1deg",                  
+      "geo.location")
     # Eliminated ref.type.2 and ref.type.2.SST
   } else if (matchup.format == 'MIA_L2GEN' && sensor == 'MODIS') {
     # Matchup variables to KEEP
     # for format 'MIA_L2GEN' (aka 'new Miami' matchup format)
     # and for MODIS sensor.
-    keep.vars <- c("sat.date","sat.time","sat.pftime", "sat.lat", "sat.lon",
-      "solz", "satz", "mirror","qsst", "qsst4","glint",
-      "cen.sst","cen.sst4","cen.678","cen.748","cen.1380","cen.3750","cen.3959","cen.4050",
-      "cen.6715","cen.7325","cen.8550","cen.11000","cen.12000","cen.39.40.ref",
-      "med.sst","med.sst4","med.678","med.748","med.1380","med.3750","med.3959","med.4050",
-      "med.6715","med.8550","med.11000","med.12000",
-      "min.sst","min.sst4","min.678","min.748","min.1380","min.3750","min.3959","min.4050",
-      "min.6715","min.7325","min.8550","min.11000","min.12000",
-      "max.sst","max.sst4","max.678","max.748","max.1380","max.3750","max.3959","max.4050",
-      "max.6715","max.7325","max.8550","max.11000","max.12000",
-      "avg.sst","avg.sst4","avg.678","avg.748","avg.1380","avg.3750","avg.3959","avg.4050",
-      "avg.6715","avg.7325","avg.8550","avg.11000","avg.12000",
-      "sd.sst","sd.sst4","sd.678","sd.748","sd.1380","sd.3750","sd.3959","sd.4050",
-      "sd.6715","sd.7325","sd.8550","sd.11000","sd.12000",
-      "buoy.pftime","buoy.lat","buoy.lon","buoy.id","buoy.sst",
-      "ref.type.1.SST")
+    keep.vars <- NULL
   } else if (matchup.format == 'MIA_L2GEN' && sensor == 'AVHRR') {
     # Matchup variables to KEEP
     # for format 'MIA_L2GEN' (aka 'new Miami' matchup format)
     # and for AVHRR sensor.
-    keep.vars <- c("buoy.date","buoy.time","buoy.pftime","buoy.lon","buoy.lat",
-      "buoy.type","buoy.id","buoy.sst","buoy.qual","buoy.wspd",
-      "buoy.wdir","buoy.airtmp",
-      "sat.id","sat.date","sat.time","sat.pftime","sat.lon","sat.lat",
-      "solz","satz","azimuth","aoi","sstflg",
-      "l2flg","qsst","sunside","glint",
-      "pixel","line","boxsizx","boxsizy",
-      "ray.ch1","ray.ch2","aer.ch1","aer.ch2",
-      "prt.avg","prt.1","prt.2","prt.3","prt.4",
-      "emis.ch3","emis.ch4","emis.ch5","slope.ch3","slope.ch4","slope.ch5",
-      "intcp.ch3","intcp.ch4","intcp.ch5",
-      "cen.sst",
-      "cen.630","cen.3750",
-      "cen.3959","cen.11000","cen.12000",
-      "med.sst",
-      "med.3750",
-      "med.11000","med.12000",
-      "min.sst",
-      "min.3750",
-      "min.3959",
-      "min.11000","min.12000",
-      "max.sst",
-      "max.3750",
-      "max.11000","max.12000",
-      "avg.sst","avg.3750",
-      "avg.11000","avg.12000",
-      "sd.sst",
-      "sd.3750",
-      "sd.11000","sd.12000",
-      "anc.type","anc.wspd","anc.wdir","anc.wv",
-      "matchup.version",
-      "ref.type.1","ref.type.1.SST",
-      "ref.type.2","ref.type.2.SST")
+    keep.vars <- NULL
   } else if (matchup.format == 'GSFC' && sensor == 'VIIRS') {
     # Matchup variables to KEEP
     # for format 'GSFC'
     # and for VIIRS sensor.
+    keep.vars <- NULL
   } else if (matchup.format == 'GSFC' && sensor == 'MODIS') {
     # Matchup variables to KEEP
     # for format 'GSFC' matchup format)
     # and for MODIS sensor.
     keep.vars <-  c("buoy.date","buoy.time","buoy.pftime","buoy.lon","buoy.lat",
-      "buoy.type","buoy.id","buoy.sst","buoy.qual","buoy.wspd","buoy.wdir","buoy.airtmp",
-      "sat.id","sat.date","sat.time","sat.pftime","sat.lon","sat.lat",
-      "solz","satz","qsst","qsst3b","sunside","glint",
-      "cen.sst","cen.sst3b","cen.3750","cen.4050","cen.11000","cen.12000",
-      "med.sst","med.sst3b","med.3750","med.4050",
+      "buoy.id","buoy.sst",
+      "sat.pftime","sat.lon","sat.lat",
+      "solz","satz","qsst","qsst4","sunside","glintflg",
+      "cen.sst","cen.sst4","cen.3750","cen.4050","cen.11000","cen.12000",
+      "med.sst","med.sst4","med.3750","med.4050",
       "med.11000","med.12000",
       "max.11000","max.12000",
       "min.11000","min.12000",
       "sd.11000","sd.12000",
-      "ref.type.1","ref.type.1.SST")
-    
+      "amsre.type","amsre.val",                 
+      "amsr2.type","amsr2.val",                 
+      "wsat.type","wsat.val",                  
+      "sat.timedate","buoy.timedate","doy",                       
+      "latband","satzint","bsstint",                 
+      "insitu.platform","insitu.source",             
+      "cell5deg","cell1deg",                  
+      "geo.location")
   } else if (matchup.format == 'GSFC' && sensor == 'AVHRR') {
     # Matchup variables to KEEP
-    # for format 'GSFC'
-    # and for AVHRR sensor.
+    # for format 'GSFC' and  AVHRR sensor.
     keep.vars <- NULL
   } # End of checking for combinations of matchup format and sensor
   
-  # --- Append variable names for ancillary data, such as data
-  # --- from AMSRE, AMSR2 and Windsat.
-  
-  if (ancillary.data == TRUE) {
-    keep.vars <- c(keep.vars,
-      "amsre.type", "amsre.val",
-      "amsr2.type", "amsr2.val",
-      "wsat.type", "wsat.val")
-  }
-  
   return(keep.vars)
-} # End of function keep_matchup_variables()
+  
+} # End of function keep_matchup_variables_collocation()
 # ------------------------------------------------------------------------------
 
 # -----------------------------------------------------------------------------#
@@ -845,6 +757,22 @@ decode_insitu_id <- function(id = NULL) {
 
 } # End of fucntion decode_insitu_id()
 # ------------------------------------------------------------------------------
+
+# -----------------------------------------------------------------------------#
+# --- Function degK.to.degC() ----
+
+# This function converts a value in degrees Kelvin to degrees Celsius
+# Input argument is temperature in degrees Kelvin.
+# Output is temperature in degrees Celsius.
+
+degK.to.degC <- function(temp.kelvin) {
+  temp.celsius <- temp.kelvin - 273.15
+  return(temp.celsius)
+  
+} # End of function degK.to.degC()
+# ------------------------------------------------------------------------------
+
+
 
 
 
