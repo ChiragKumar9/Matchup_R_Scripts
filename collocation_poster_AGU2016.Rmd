@@ -43,13 +43,18 @@ load("/home/ckk/Projects/Matchup_R_Scripts/Results/objects/Joined_AQUA_and_VIIRS
 ##Global Coverage of Joined and Filtered Matchups
   
 ```{r global_coverage, echo=FALSE}
+# Create base map
+mp <- NULL
+mapWorld <- borders("world", color = "gray50", fill = "gray50") # create a layer of borders
+mp <- ggplot() +   mapWorld
 
-#Create base map
-base_map <- ggmap::get_map(c(73.76, 41.16), source = "stamen", maptype = "watercolor", crop = FALSE)
+# Now layer the buoys on top with hexagonal binning
+mp + geom_hex(aes(x = buoy.lon.AQUA, y = buoy.lat.AQUA), data = orig_filtered, bins = 75, color = "blue") +
+  ggsave("/home/ckk/Projects/Matchup_R_Scripts/Results/figs/Collocation_Filtered_AQUA_VIIRS_Matchups_Hexbin_Distribution.png")
 
-#Plot points over map
-ggmap(base_map) + 
-  geom_point(mapping = aes(x = buoy.lon.AQUA, y = buoy.lat.AQUA), data = orig_filtered, alpha = .5, color = 'darkred', size = 3)
+# Or layer the buoys on top just as points and not bins
+mp + geom_point(aes(x = buoy.lon.AQUA, y = buoy.lat.AQUA), data = orig_filtered, color = "blue", size = 1)
+
 ```
 
   

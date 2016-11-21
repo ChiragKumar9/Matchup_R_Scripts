@@ -1,127 +1,340 @@
 ---
 title: "Triple Collocation of VIIRS, Aqua, and Buoy Matchups"
-output: html_notebook
+output:
+  html_notebook: default
+  html_document: default
 ---
-What is this notebook?
+
+This notebook describes the steps necessary to conduct a triple collocation
+study of SST values derived from (a) AQUA-MODIS, (b) Suomi_NPP-VIIRS and
+(c) in situ observations form moored and drifting buoys.
 
 ```{r prep_workspace, include=FALSE}
+# This chunk loads needed packages
+
 # Load necessary packages
 library(dplyr)
 library(ggplot2)
 library(mapview)
+library(futile.logger)
+library(lubridate)
+
 ggplot <- function(...) {ggplot2::ggplot(...) + theme_bw()}
-# Load Data
-# Load AQUA
-load("~/Projects/Matchup_R_Scripts/Results/objects/MODIS_Aqua_GSFC_SNB_Class_6.4.1_ao_2016_10_01.RData")
-# Load VIIRS
-VIIRS <- load("~/Projects/Matchup_R_Scripts/Results/objects/VIIRS_Suomi_NPP_MIA_L2GEN_ALL_Class_6.4.1_ao_2016_09_29_with_ancillary.Rdata")
-VIIRS <- `VIIRS_Suomi NPP_MIA_L2GEN_ALL_Class_6.4.1_ao_2016_09_29`
-# Load orig_j
-load("/home/ckk/Projects/Matchup_R_Scripts/Results/objects/Joined_AQUA_VIIRS_Matchups_No_Filtering.Rdata")
-# Load orig_solz_platform_time
-load("/home/ckk/Projects/Matchup_R_Scripts/Results/objects/Joined_AQUA_and_VIIRS_Matchups_filtered_by_solz_platform_and_timediff.Rdata")
-# Load orig_filtered
-load("/home/ckk/Projects/Matchup_R_Scripts/Results/objects/Joined_AQUA_and_VIIRS_Matchups_completely_filtered_including_qsst.Rdata")
+
+# Source own functions
+# Define direwctory where functions are for each operating system
+
+if (Sys.info()["sysname"] == 'Windows') {
+  fun.dir <- 'D:/matchups/r-projects/Matchup_R_Scripts/Functions/'
+} else if (Sys.info()["sysname"] == 'Linux') {
+  fun.dir <- '/home/ckk/Projects/Matchup_R_Scripts/Functions/'
+}
+
+fun.file <- paste0(fun.dir, 'common_functions.R')
+
+source(file = fun.file,
+  local = FALSE, echo = FALSE, verbose = FALSE)
+rm(fun.dir, fun.file)
+
 ```
+
 
 # Building a Dataset for Triple Collocation
 
-## Joining VIIRS and Aqua Matchups
+In a previous step, we read in matchups for AQUA and VIIRS and stored them in
+binary (.Rdata) objects. For Aqua, we modified the regular expression to list files so that only matchups from 2010 onwards were read.
+The first step is to restore those objects.
+Note that the name of the stored binary objects (.Rdata) contain the date in which they were created. Be sure to edit the names of the objects to ensure that the most recent versions are being used.  
 
-  We read in VIIRS matchups for the period between `r min(VIIRS$buoy.timedate.VIIRS)` and `r max(VIIRS$buoy.timedate.VIIRS)`. The original VIIRS dataset had `r nrow(VIIRS)` matchups. We also read Aqua matchups for the period between `r min(AQUA$buoy.timedate.AQUA)` and `r max(AQUA$buoy.timedate.AQUA)`. *For Aqua, we modified the regular expression to list files so that only matchups from 2010 onwards were read.* The number of Aqua matchups was `r nrow(AQUA)`. *VIIRS BTs, SSTs, and residuals are in degrees Kelvin whereas Aqua BTs, SSTs, and residuals are in degrees Celsius. We convert VIIRS values to degrees Celsius from degrees Kelvin.*
-  
-```{r convert_VIIRS_K_to_C, echo=TRUE}
+```{r load_VIIRS_AQUA_objects, include=FALSE}
 
-# Create as.celsius function
-as.celsius <- function(kelvin) {
-  celsius <- kelvin - 273.15
-  return(celsius)
-}
-# Convert VIIRS BTs from kelvin to celsius
-pattern = c('cen(.+?)', 'med(.+?)', 'max(.+?)', 'min(.+?)')
-pattern = paste(pattern, collapse = '|')
-for (uuu in seq(from = 1, to = length(names(VIIRS)), by = 1)) {
-  uu1 <- names(VIIRS)[uuu]
-  if (grepl(pattern, uu1)) {
-    VIIRS[uu1] <- as.celsius(VIIRS[uu1])
+# Load .Rdata object for VIIRS matchups resulting from script 01_read_matchups.R
+
+if (Sys.info()["sysname"] == 'Windows') {
+  # Windows directory for VIIRS matchups
+  win.dir <- 'D:/matchups/r-projects/R_MUDB/viirs/v641ao/mia/results/objects/'
+  # Name of .Rdata file (update as needed)
+  win.file <- 'VIIRS_Suomi_NPP_MIA_L2GEN_ALL_Class_6.4.1_ao_2016_11_19_with_ancillary.Rdata'
+  viirs.file <- paste0(win.dir, win.file)
+  if (!file.exists(viirs.file)) {
+    stop('Input file does not exist')
+  } else {
+    load(viirs.file, verbose = TRUE)
   }
+  rm(win.dir, win.file, viirs.file)
+} else if (Sys.info()["sysname"] == 'Linux') {
+  # Linux directory for VIIRS matchups
+  linux..dir <- '~/Projects/Matchup_R_Scripts/Results/objects/'
+  # Name of .Rdata file (update as needed)
+  linux.file <- 'VIIRS_Suomi_NPP_MIA_L2GEN_ALL_Class_6.4.1_ao_2016_11_19_with_ancillary.Rdata'
+  viirs.file <- paste0(linux.dir, linux.file)
+  if (!file.exists(viirs.file)) {
+    stop('Input file does not exist')
+  } else {
+    load(viirs.file, verbose = TRUE)
+  }
+  rm(linux.dir, linux.file, viirs.file)
 }
 
-# Convert VIIRS residuals from kelvin to celsius
-VIIRS$sst.minus.buoy.sst <- as.celsius(VIIRS$sst.minus.buoy.sst)
+# Create 'VIIRS' object so it has a shorter name
+VIIRS <- VIIRS_Suomi_NPP_MIA_L2GEN_ALL_Class_6.4.1_ao_2016_11_19
+rm(VIIRS_Suomi_NPP_MIA_L2GEN_ALL_Class_6.4.1_ao_2016_11_19)
+
+# Load .Rdata object for AQUA matchups resulting from script 01_read_matchups.R
+
+if (Sys.info()["sysname"] == 'Windows') {
+  # Windows directory for AQUA matchups
+  win.dir <- 'D:/matchups/r-projects/R_MUDB/modis/aqua/gsfc/l6cv6/results/objects/'
+  # Name of .Rdata file (update as needed)
+  win.file <- 'MODIS_Aqua_GSFC_ALL_Class_6.4.1_ao_2016_11_19_with_ancillary.Rdata'
+  viirs.file <- paste0(win.dir, win.file)
+  if (!file.exists(viirs.file)) {
+    stop('Input file does not exist')
+  } else {
+    load(viirs.file, verbose = TRUE)
+  }
+  rm(win.dir, win.file, viirs.file)
+} else if (Sys.info()["sysname"] == 'Linux') {
+  # Linux directory for VIIRS matchups
+  linux..dir <- '~/Projects/Matchup_R_Scripts/Results/objects/'
+  # Name of .Rdata file (update as needed)
+  linux.file <- 'MODIS_Aqua_GSFC_ALL_Class_6.4.1_ao_2016_11_19_with_ancillary.Rdata'
+  aqua.file <- paste0(linux.dir, linux.file)
+  if (!file.exists(aqua.file)) {
+    stop('Input file does not exist')
+  } else {
+    load(aqua.file, verbose = TRUE)
+  }
+  rm(linux.dir, linux.file, aqua.file)
+}
+
+# Create 'AQUA' object so it has a shorter name
+AQUA <- MODIS_Aqua_GSFC_ALL_Class_6.4.1_ao_2016_11_19
+rm(MODIS_Aqua_GSFC_ALL_Class_6.4.1_ao_2016_11_19)
 
 ```
 
-  
-  A collocation study requires data from at least three sources that are relatively coincident in space and time.
-We require that the three measurement techniques take SST measurements within an hour and at most a kilometer from each other.
-We have two SST measurements derived from satellite-based infrared radiometers (Suomi Npp - VIIRS and Aqua - MODIS). Since the buoy data is a common element to both VIIRS and Aqua matchups, we use them as a common key to join Aqua and VIIRS matchups. 
+The restored VIIRS matchups span the period between `r min(VIIRS$buoy.timedate)` and `rmax(VIIRS$buoy.timedate)`.The original VIIRS dataset had `r nrow(VIIRS)` matchups.
+We also read Aqua matchups for the period between `r min(AQUA$buoy.timedate)`
+and `r max(AQUA$buoy.timedate)`. The number of Aqua matchups was `r nrow(AQUA)`.
+
+These restored objects have many more variables than we need.
+The AQUA matchups have `r ncol(AQUA)` variables, and the VIIRS matchups have
+`r ncol(VIIRS)` columns. Therefore, a second step eliminates many variables
+or columns that are not needed for the collocation study.
+
+```{r filter_variables, include = FALSE}
+
+# Define variables that will be retained for collocation study for each sensor
+# and matchup format
+
+modis.colloc.vars <- keep_matchup_variables_collocation(matchup.format = 'GSFC',
+  sensor = 'MODIS', ancillary.data = TRUE)
+modis.colloc.vars <- paste0(modis.colloc.vars, ".AQUA")
+modis.colloc.vars["buoy.date.AQUA"] <- "buoy.date"
+modis.colloc.vars["buoy.id.AQUA"] <- "buoy.id"
+
+viirs.colloc.vars <- keep_matchup_variables_collocation(matchup.format = 'MIA_L2GEN',
+  sensor = 'VIIRS', ancillary.data = TRUE)
+
+AQUA.trimmed <- dplyr::select(AQUA, one_of(modis.colloc.vars))
+VIIRS.trimmed <- dplyr::select(VIIRS, one_of(viirs.colloc.vars))
+
+rm(modis.colloc.vars, viirs.colloc.vars)
+
+```
+
+After the reduction of unnecessary variables, the trimmed AQUA matchups
+have `r ncol(AQUA.trimmed)` variables, and the trimmed VIIRS matchups have
+`r ncol(VIIRS.trimmed)` columns. 
+
+The third preparatory step is to convert the VIIRS BTs and SSTs from degrees Kelvin to Celsius, whereas Aqua BTs, and SSTs already are expressed in Celsius. For consistency we  convert VIIRS values to degrees Celsius from degrees Kelvin.
+
+```{r convert_VIIRS_K_to_C, echo=FALSE}
+
+# Convert VIIRS BTs and SSTs from degrees Kelvin to Celsius
+
+# Identify columns of 'VIIRS.trimmed' that need to be converted from K to C
+pattern <- paste("^cen", "^med", "^max", "^min", sep = "|")
+tt1 <- which((grepl(pattern, names(VIIRS.trimmed))))
+
+# Convert selected columns from K to C
+VIIRS.trimmed[tt1] <- apply(VIIRS.trimmed[tt1], 2, FUN = degK.to.degC)
+
+rm(pattern, tt1)
+
+```
+
+To confirm that the conversion from Kelvin to Celsius was successful, we output the summary of the 'cen.sst' column before and after the conversion.
+
+```{r verify_K_to_C, echo = FALSE}
+cat('BEFORE K to C conversion\n')
+summary(VIIRS$cen.sst)
+cat('AFTER K to C conversion\n')
+summary(VIIRS.trimmed$cen.sst)
+
+```
+
+The final preparatory step before joining the VIIRS and AQUA matchups is to add
+a suffix to the variables of each data set indicating the source of the variable. For example, variable 'cen.sst' will be re named to 'cen.sst.vrs' if it corresponds to VIIRS and 'cen.sst.aqu' if it comes from the AQUA-MODIS matchups. We do not change the names of columns 'buoy.id' and 'buoy.date', as those are the common
+variables in both datasets that will be used to join them in the next section.
+
+```{r rename_columns, echo=FALSE}
+
+# Change column names of VIIRS and AQUA objects so that when we join
+# the source of each variable (VIIRS or AQUA) is clear.
+
+colnames(AQUA.trimmed) <- paste0(colnames(AQUA.trimmed), ".aqu")
+colnames(VIIRS.trimmed) <- paste0(colnames(VIIRS.trimmed), ".vrs")
+
+# We do not change the names of columns 'buoy.id' and 'buoy.date'
+# because they are used as common keys for joining VIIRS and AQUA data.
+
+tt1 <- colnames(AQUA.trimmed)
+tt2 <- which(tt1 %in% "buoy.date.aqu")
+colnames(AQUA.trimmed)[tt2] <- "buoy.date"
+tt3 <- which(tt1 %in% "buoy.id.aqu")
+colnames(AQUA.trimmed)[tt3] <- "buoy.id"
+
+tt1 <- colnames(VIIRS.trimmed)
+tt2 <- which(tt1 %in% "buoy.date.vrs")
+colnames(VIIRS.trimmed)[tt2] <- "buoy.date"
+tt3 <- which(tt1 %in% "buoy.id.vrs")
+colnames(VIIRS.trimmed)[tt3] <- "buoy.id"
+
+rm(tt1,tt2,tt3)
+
+# Output a few variables to confirm the renaming
+colnames(VIIRS.trimmed[1:10])
+colnames(AQUA.trimmed[1:10])
+
+```
+
+## Joining VIIRS and Aqua Matchups
+
+A collocation study requires data from at least three sources that are relatively coincident in space and time.
+We require that each collocated record include SST measurements from all three
+techniques collected within at most 60 minutes and one kilometer from each other.
+We have two SST measurements derived from satellite-based infrared radiometers (Suomi Npp - VIIRS and Aqua - MODIS). Since the buoy data are common elements to both VIIRS and Aqua matchups, we use them as a common key to join Aqua and VIIRS matchups. 
 
 ```{r join_VIIRS_and_AQUA, echo=TRUE}
 
 # Convert timedates from POSIXct objects to characters for the dplyr joining
-# dplyr does not accept date variables for joining
-VIIRS$buoy.timedate <- as.character(VIIRS$buoy.timedate)
-AQUA$buoy.timedate <- as.character(AQUA$buoy.timedate)
+# dplyr does not accept POSIXct variables for joining
 
-VIIRS$sat.timedate <- as.character(VIIRS$sat.timedate)
-AQUA$sat.timedate <- as.character(AQUA$sat.timedate)
-
-# Change column names of VIIRS and AQUA objects so that when we join, there is no ambiguity
-#colnames(AQUA) <- paste(colnames(AQUA), "AQUA", sep = ".")
-#colnames(VIIRS) <- paste(colnames(VIIRS), "VIIRS", sep = ".")
-
-# Don't change names of buoy.date or buoy.id as that is what we join by
-#colnames(AQUA)['buoy.date.AQUA'] = "buoy.date"
-#colnames(AQUA)['buoy.date.AQUA'] = "buoy.id"
-#colnames(VIIRS)['buoy.date.VIIRS'] = "buoy.date"
-#colnames(VIIRS)['buoy.id.VIIRS'] = "buoy.id"
+VIIRS.trimmed$buoy.timedate.vrs <- as.character(VIIRS.trimmed$buoy.timedate.vrs)
+VIIRS.trimmed$sat.timedate.vrs <- as.character(VIIRS.trimmed$sat.timedate.vrs)
+AQUA.trimmed$buoy.timedate.aqu <- as.character(AQUA.trimmed$buoy.timedate.aqu)
+AQUA.trimmed$sat.timedate.aqu <- as.character(AQUA.trimmed$sat.timedate.aqu)
 
 # Join VIIRS and AQUA into one object (orig_j)
 
-orig_j <- dplyr::inner_join(AQUA, VIIRS, by = c("buoy.date", "buoy.id"))
+orig_j <- dplyr::inner_join(VIIRS.trimmed, AQUA.trimmed,
+  by = c("buoy.date", "buoy.id"))
 
 # This line excludes non-exact matches and we lose too many potentially useful matchups
 #orig_j <- dplyr::inner_join(AQUA, VIIRS, by = c("buoy.pftime", "buoy.lon", "buoy.lat", "buoy.id"))
 
-# Convert timedates back from characters to POSIXct objects
-orig_j$buoy.timedate.AQUA <- lubridate::ymd_hms(orig_j$buoy.timedate.AQUA)
-orig_j$buoy.timedate.VIIRS <- lubridate::ymd_hms(orig_j$buoy.timedate.VIIRS)
-
-orig_j$sat.timedate.AQUA <- lubridate::ymd_hms(orig_j$sat.timedate.AQUA)
-orig_j$sat.timedate.VIIRS <- lubridate::ymd_hms(orig_j$sat.timedate.VIIRS)
-
 ```
 
-At this point, we have `r nrow(orig_j)` joined matchups. However, these matchups do not have enough spatial or temporal coincidence to meet our requirements stated above or for a triple collocation error analysis. We did not join by the buoy's timedate or latitude/longitude because the `dplyr::innerjoin()` only matches if respective values are exactly the same, thereby reducing the number of potentially useful matchups. We instead apply a series of filtering steps described in the next section to ensure the conditions stated above for a triple collocation error analysis.
+```{r dates_back_to_POSIX, echo=TRUE}
+# After the join, we convert back the timedate objects
+# from character into POSIXct objects
+
+orig_j$buoy.timedate.vrs <- lubridate::ymd_hms(orig_j$buoy.timedate.vrs)
+orig_j$sat.timedate.vrs <- lubridate::ymd_hms(orig_j$sat.timedate.vrs)
+orig_j$buoy.timedate.aqu <- lubridate::ymd_hms(orig_j$buoy.timedate.aqu)
+orig_j$sat.timedate.aqu <- lubridate::ymd_hms(orig_j$sat.timedate.aqu)
+```
 
 ## Filtering VIIRS and Aqua Matchups
 
-  To decrease the probability of having potentially cloud-contaminated SST retrievals, we use only SST matchups with a VIIRS and Aqua quality of 0. 
-  
-```{r filtering_orig_j, echo=TRUE}
+At this point, we have `r nrow(orig_j)` joined matchups. However, these matchups do not have enough spatial or temporal coincidence to meet our requirements stated above or for a triple collocation error analysis. We did not join by the buoy's timedate or latitude/longitude because the 'dplyr::inner_join' function only matches if key values are __exactly__ the same in both datasets, thereby reducing the number of potentially useful matchups. We instead apply a series of filtering steps to ensure the conditions stated above for a triple collocation error analysis.
+We also filter matchups that have good quality so that we minimize chances of
+errors in satellite SST retrievals due to cloud contamination.
 
-#Filter by solz, platform, time difference
-orig_solz_platform_time <- dplyr::tbl_df(orig_j) %>%
-  dplyr::filter(solz.AQUA >= 90 & solz.VIIRS >= 90) %>% #Allow only nighttime retrievals
-  dplyr::filter(insitu.platform.AQUA != "Ship") %>% #Allow only buoy retrievals
-  dplyr::filter(as.numeric(abs(sat.timedate.AQUA - sat.timedate.VIIRS)) <= 3600) %>% #VIIRS and AQUA passover times must be less than 1hr
-  dplyr::filter(as.numeric(abs(buoy.timedate.AQUA - buoy.timedate.VIIRS)) <= 300) %>% #Buoy retrievals for VIIRS and AQUA must be less than 5 min
-  dplyr::filter(geosphere::distVincentyEllipsoid(as.matrix(data.frame(sat.lon.AQUA, sat.lat.AQUA)), #Allow only retrievals with distance between sat and buoy less than 1 km
-    as.matrix(data.frame(buoy.lon.AQUA, buoy.lat.AQUA))) <= 1000) %>%
-  dplyr::filter(geosphere::distVincentyEllipsoid(as.matrix(data.frame(sat.lon.VIIRS, sat.lat.VIIRS)),
-    as.matrix(data.frame(buoy.lon.VIIRS, buoy.lat.VIIRS))) <= 1000)
+```{r filtering_orig_j, echo=FALSE}
 
-#Add filtering by quality
-orig_filtered <- orig_solz_platform_time %>%
-  dplyr::filter(qsst.AQUA == 0 & qsst.VIIRS == 0)
+# Filter collocated data by solz, platform, time difference
+
+orig_sz_plt_tim <- dplyr::tbl_df(orig_j) %>%
+  # Only nightime retrievals (solar zenith angle >= 90 degrees)
+  dplyr::filter(solz.aqu >= 90 & solz.vrs >= 90) %>%
+  # Allow only buoy SST measurements (not ships or radiometers) 
+  dplyr::filter(insitu.platform.aqu %in% c("DriftingBuoy","MooredBuoy")) %>%
+  # VIIRS and AQUA sat times must be less than 1hr (36000 secs) from each other
+  dplyr::filter(abs(sat.timedate.aqu - sat.timedate.vrs) <= 3600) %>%
+  # Buoy retrieval times for VIIRS and AQUA must be less than 1 min apart
+  # The buoy times should coincide but may have roundoff differences
+  dplyr::filter(abs(buoy.timedate.aqu - buoy.timedate.vrs) <= 60) %>%
+  # Eliminate SST qualities for AQUA and VIIRS less than 0 (best quality) 
+  dplyr::filter(qsst.aqu == 0 & qsst.vrs == 0)
+
+# Allow only retrievals for which distance between the buoy positions
+# listed in VIIRS and AQUA are less than 100 meters
+
+uu1 <- cbind(orig_sz_plt_tim$buoy.lon.vrs, orig_sz_plt_tim$buoy.lat.vrs)
+uu2 <- cbind(orig_sz_plt_tim$buoy.lon.aqu, orig_sz_plt_tim$buoy.lat.aqu)
+uu3 <- geosphere::distVincentyEllipsoid(uu1, uu2)
+cat('Distance between buoy positions in VIIRS and AQUA\n')
+summary(uu3)
+uu4 <- which(uu3 < 100) # Identify distances < 100 m
+orig_sz_plt_tim <- orig_sz_plt_tim[uu4, ] # Filter out distances >= 100 m
+rm(uu1,uu2,uu3,uu4)
+
+# Explore distances between satellite and buoy positions for VIIRS
+uu1 <- cbind(orig_sz_plt_tim$buoy.lon.vrs, orig_sz_plt_tim$buoy.lat.vrs)
+uu2 <- cbind(orig_sz_plt_tim$sat.lon.vrs, orig_sz_plt_tim$sat.lat.vrs)
+uu3 <- geosphere::distVincentyEllipsoid(uu1, uu2)
+cat('Distance between sat and buoy positions for VIIRS\n')
+summary(uu3)
+rm(uu1,uu2,uu3)
+
+# Explore distances between satellite and buoy positions for AQUA
+uu1 <- cbind(orig_sz_plt_tim$buoy.lon.aqu, orig_sz_plt_tim$buoy.lat.aqu)
+uu2 <- cbind(orig_sz_plt_tim$sat.lon.aqu, orig_sz_plt_tim$sat.lat.aqu)
+uu3 <- geosphere::distVincentyEllipsoid(uu1, uu2)
+cat('Distance between sat and buoy positions for AQUA\n')
+summary(uu3)
+rm(uu1,uu2,uu3)
+
+```
+
+After applying the various filters we are left with `r nrow(orig_sz_plt_tim)`
+matchups.
+
+## Spatial distribution of collocated matchups
+
+```{r points_on_map}
+library(maps)
+library(mapdata)
+
+maps::map("world",
+  col = "gray90",
+  fill = TRUE)
+
+points(orig_sz_plt_tim$buoy.lon.aqu, orig_sz_plt_tim$buoy.lat.aqu,
+  pch = '.', col = 'tomato')
+box()
+```
+
+```{r points_on_map_ggmap}
+# Plot location of collocated data 
+
+library(ggmap)
+mp <- NULL
+mapWorld <- borders("world", colour="gray50", fill="gray70") # create a layer of borders
+mp <- ggplot() +   mapWorld
+mp <- mp + ggplot2::labs(x = NULL, y = NULL)
+
+# Now layer the matchup locations on top
+mp <- mp + ggplot2::geom_point(data = orig_sz_plt_tim,
+  aes(x = buoy.lon.aqu, y = buoy.lat.aqu),
+  color = "tomato", size = 0.5, alpha = 0.2)
+plot(mp)
+
 ```
 
 
-## Description of Collocation Dataset
+## Temporal distribution of collocated matchups
 
-### Spatial Distribution of Collocated Data
-
-### Temporal Distribution of Collocated Data
-
-# Calculating Collocation Statistics
