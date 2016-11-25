@@ -29,8 +29,7 @@ crude.file.list <- list.files(path = list.dirs(config$matchups_base_indir,
   recursive = FALSE),
   pattern = '*.matchup',
   all.files = FALSE,
-  full.names = TRUE,
-  recursive = FALSE)
+  full.names = TRUE)
 
 Log.debug(paste('First filtering produces', length(crude.file.list),'files'))
 
@@ -849,7 +848,7 @@ orig$bsstint <- bsstint
 orig$refsstint <- refsstint
 
 rm(sat.timeDate, buoy.timeDate,
-   moyr, mon, yr, doy, latband, satzint,bssstint,refsstint); gc()
+   moyr, mon, yr, doy, latband, satzint,bsstint,refsstint); gc()
 # ------------------------------------------------------------------------------
 
 # -----------------------------------------------------------------------------#
@@ -928,7 +927,7 @@ tt2 <- raster::extract(x = grid1deg, y = pts, method = "simple")
 orig$cell5deg <- tt1  # Store cell number in 5-degree grid in dataframe orig
 orig$cell1deg <- tt2  # Store cell number in 1-degree grid in dataframe orig
 
-rm(crs.string, matchup.coords, grid1deg, grid5deg, tt1, tt2); gc()
+rm(crs.string, matchup.coords, coords.5, grid1deg, grid5deg, tt1, tt2); gc()
 # ------------------------------------------------------------------------------
 
 # -----------------------------------------------------------------------------#
@@ -985,7 +984,7 @@ orig$geo.location <- geo.location   # Store in dataframe orig
 
 rm(file, infile, zip.file, NE.url,geo.info,geo.location,
    tt0,tt1,pts,crs.string,curr.dir); gc()
-# # ------------------------------------------------------------------------------
+# ------------------------------------------------------------------------------
 
 #------------------------------------------------------------------------------#
 # --- Calculate SST residuals for this sensor ----

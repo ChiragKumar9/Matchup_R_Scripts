@@ -53,18 +53,21 @@ if (!require(rgdal)) {install.packages("rgdal"); library(rgdal)}
 args <- commandArgs(trailingOnly = TRUE) # Arguments passed via command line
 
 if (is.na(args[1])) {
+  
   if (Sys.info()["sysname"] == 'Windows') {
     # Directory for scripts and configuration file name in Windows ** CHANGE as needed
     script.dir <- 'D:/matchups/r-projects/Matchup_R_scripts/'
-    config.file.name <- 'config_file_read_VIIRS_L2GEN_matchups_Windows.yml'
-    #config.file.name <- 'config_file_read_MODIS_GSFC_matchups_Windows.yml'
+    #config.file.name <- 'config_file_read_VIIRS_L2GEN_matchups_Windows.yml'
+    config.file.name <- 'config_file_read_MODIS_GSFC_matchups_Windows.yml'
     config.file <- paste0(script.dir, config.file.name)
+  
   } else if (Sys.info()["sysname"] == 'Linux') {
     # Directory for scripts and configuration file name in Linux ** CHANGE as needed
     script.dir <- '/home/ckk/Projects/MODIS/Matchups/MODIS_R_Scripts/Read_Matchups/'
     config.file.name <- 'config_file_read_VIIRS_L2GEN_matchups_Windows.yml'
     #config.file.name <- 'config_file_read_MODIS_GSFC_matchups_Linux.yml'
     config.file <- paste0(script.dir, config.file.name)
+  
   } else {
     stop('Operating system not recognized...')
   }
