@@ -60,7 +60,6 @@ bias <- function(source1, source2, source3) {
 #directly for the variance of error in a single observation type.
 
 variance <- function(source1, source2, source3) {
-  #CHECK INSTEAD WITH as.vector()
   #if (!is.null(nrow(aqua)) | !is.null(nrow(viirs)) | !is.null(nrow(buoy)) | length(aqua) <= 1 | length(viirs) <= 1 | length(buoy) <= 1) {
    # stop("Only vectors can be passed as arguments in the variance function.")
   #}
@@ -188,6 +187,7 @@ orig_solz_platform_time$buoy.sst.VIIRS = orig_solz_platform_time$buoy.sst.VIIRS 
 
 orig_filtered$buoy.sst.AQUA = orig_filtered$buoy.sst.AQUA - .17
 orig_filtered$buoy.sst.VIIRS = orig_filtered$buoy.sst.VIIRS - .17
+
 #Tables showing spread of qualities for the different sensors
 xtabs(~ qsst.AQUA + qsst.VIIRS, data = orig_j)
 
@@ -219,7 +219,7 @@ mapview::mapview(pts, alpha = .2, cex = 1)
 fit_aquaviirsresiduals <- lm(orig_filtered$sst.minus.buoy.sst.AQUA ~ orig_filtered$sst.minus.buoy.sst.VIIRS)
 
 #Try to predict SST in one observation type from another observation type
-fit_aquaviirstsst <- lm(orig_filtered$cen.sst.AQUA ~ orig_filtered$cen.sst.VIIRS)
+fit_aquaviirssst <- lm(orig_filtered$cen.sst.AQUA ~ orig_filtered$cen.sst.VIIRS)
 
 fit_aquabuoysst <- lm(orig_filtered$cen.sst.AQUA ~ orig_filtered$buoy.sst.AQUA)
 
@@ -270,30 +270,204 @@ bank.full <- dplyr::full_join(names.codes, codes.money) #all rows and all column
 #Not what we want
 
 
-#Testing collocation functions
-truthx <- seq(1, 1000)
+# Testing collocation functions
+nobs <- 10000
+  
+truthx <- runif(n = nobs, min = 0, max = 30)
 
-epsi1 <- rnorm(1000, 0, 1)
-epsi2 <- rnorm(1000, 0, 2)
-epsi3 <- rnorm(1000, 0, 3)
+epsi1 <- rnorm(nobs, 0, 1)
+epsi2 <- rnorm(nobs, 0, 2)
+epsi3 <- rnorm(nobs, 0, 3)
 
 alpha1 <- 5
-
 alpha2 <- 3
-
 alpha3 <- 7
 
 meas1 <- truthx + alpha1 + epsi1
-
 meas2 <- truthx + alpha2 + epsi2
-
 meas3 <- truthx + alpha3 + epsi3
 
+variances <- variance(meas1, meas2, meas3)
+
+biases <- bias(meas1, meas2, meas3)
+
+
+meas.uncor <- cbind(meas1 - mean(truthx + alpha1), meas2 - mean(truthx + alpha2), meas3 - mean(truthx + alpha3))
+
+
+sqrt(.5 * (var(meas2 - meas3) + var(meas1 - meas2) - var(meas1 - meas3)))
+
+tt1 <- meas1 - mean(truthx + alpha1)
+tt2 <- meas1 - mean(meas1)
+plot(tt1, tt2)
 
 
 
 
-biases <- as.data.frame(t(t(as.matrix(bias(aqua, viirs, buoy))) %*% bias.coefs))
+# Generating Correlated Epsilons
+nobs <- 65000
+
+truthx <- runif(n = nobs, min = 0, max = 30)
+
+alpha1 <- 0
+alpha2 <- 0
+alpha3 <- 0
+
+#R <- matrix(cbind(1,.70,.0,  .70,1,.0,  .0,.0,1),nrow=3)
+
+R <- matrix(cbind(1,.999,.0,  .999,1,.0,  .0,.0,1),nrow=3)
+
+U <- t(chol(R))
+nvars <- dim(U)[1]
+#set.seed(1)
+set.seed(128)
+
+# This is uncorrellated errors
+noi1 <- rnorm(nobs, 0, .4)
+noi2 <- rnorm(nobs, 0, .4)
+noi3 <- rnorm(nobs, 0, .25)
+
+# Make the errors correlated
+random.normal <- t(cbind(noi1, noi2, noi3))
+X <- U %*% random.normal
+newX <- t(X)
+raw <- as.data.frame(newX)
+
+# Correlated errors
+epsi1 <- raw[, 1]
+epsi2 <- raw[, 2]
+epsi3 <- raw[, 3]
+
+# Create datasets with correlated errors
+meas1 <- truthx + alpha1 + epsi1
+meas2 <- truthx + alpha2 + epsi2
+meas3 <- truthx + alpha3 + epsi3
+
+variances <- variance(meas1, meas2, meas3)
+
+biases <- bias(meas1, meas2, meas3)
+
+round(sqrt(abs(variances)), 3)
+
+variances
+
+sqrt(.5 * (var(meas2 - meas3) + var(meas1 - meas2) - var(meas1 - meas3)))
 
 
-tt1 <- (as.numeric(orig_solz_platform_time$sat.timedate.AQUA - orig_solz_platform_time$sat.timedate.VIIRS) > 3000)
+corr <- seq(from = 0, to = 1, by = .1)
+prop1 <- c(.401, .381, .359, .336, .311, .283, .253, .219, .179, .126, .401) / .401 * 100
+prop2 <- c(.399, .378, .357, .339, .319, .282, .253, .218, .179, .127, .399) / .399 * 100
+prop3 <- c(.253, .283, .310, .335, .359, .380, .401, .421, .439, .457, .253) / .253 * 100
+
+plot(corr, prop1, type = 'o', col = 'tomato', ylim = c(0, 200))
+lines(corr, prop2, col = 'steelblue')
+lines(corr, prop3, col = 'darkgreen')
+
+
+
+
+# Create an empirical curve for the over/under-estimation of variances with varying correlations
+
+# Set seed so findings are reproducible
+set.seed(2)
+
+nobs <- 65000 # Number of observations
+ntrials <- 100 # Number of trials
+corr_increments <- seq(from = 0, to = .99, by = .01) # Increments of correlation to test
+
+# Truth variable
+truthx <- runif(n = nobs, min = 0, max = 30)
+
+# Biases
+alpha1 <- 0
+alpha2 <- 0
+alpha3 <- 0
+
+# Dataframe to store predicted variances per correlation
+preds_case <- as.data.frame(matrix(999, ncol = 3, nrow = length(corr_increments)))
+colnames(preds_case) <- c("meas1", "meas2", "meas3")
+rownames(preds_case) <- as.character(corr_increments)
+
+for (corrs in corr_increments) {
+  # Create correlation matrix
+  R <- matrix(cbind(1.0,corrs,0.0,  corrs,1.0,0.0,  0.0,0.0,1.0),nrow=3)
+  U <- t(chol(R))
+  
+  # Create dataframe to store predicted variances
+  preds_trials <- as.data.frame(matrix(999, ncol = 3, nrow = ntrials))
+  colnames(preds_trials) <- c("Meas1", "Meas2", "Meas3")
+  rownames(preds_trials) <- as.character(seq(from = 1, to = ntrials, by = 1))
+  
+  for (trials in seq(from = 1, to = ntrials, by = 1)) {
+    if (trials %in% c(1, 50, 100)) {
+      cat('Trial', trials, 'of correlation value', corrs, '\n')
+    }
+    # Create uncorrelated errors
+    noi1 <- rnorm(nobs, 0, .4)
+    noi2 <- rnorm(nobs, 0, .4)
+    noi3 <- rnorm(nobs, 0, .25)
+    
+    # Correlate the uncorrelated errors
+    random.normal <- t(cbind(noi1, noi2, noi3))
+    X <- U %*% random.normal
+    newX <- t(X)
+    raw <- as.data.frame(newX)
+    
+    # Correlatted errors
+    epsi1 <- raw[, 1]
+    epsi2 <- raw[, 2]
+    epsi3 <- raw[, 3]
+    
+    # Create 3 datasets with biases and correlated errors
+    meas1 <- truthx + alpha1 + epsi1
+    meas2 <- truthx + alpha2 + epsi2
+    meas3 <- truthx + alpha3 + epsi3
+    
+    # Compute predicted variances
+    variances <- round(sqrt(abs(variance(meas1, meas2, meas3))), 3)
+    
+    # Store predicted variances in a dataframe
+    preds_trials[trials, ] <- variances
+  }
+  # Take the median of each dataset's predicted variance and store in a dataframe
+  cat('Taking the median of all trials for correlation value', corrs, '\n')
+  if (corrs == .29) {
+    preds_case[30, 1] <- median(preds_trials[, 1])
+    preds_case[30, 2] <- median(preds_trials[, 2])
+    preds_case[30, 3] <- median(preds_trials[, 3])
+  } else if(corrs == .58) {
+    preds_case[59, 1] <- median(preds_trials[, 1])
+    preds_case[59, 2] <- median(preds_trials[, 2])
+    preds_case[59, 3] <- median(preds_trials[, 3])
+  } else {
+    preds_case[((corrs * ntrials) + 1), 1] <- median(preds_trials[, 1])
+    preds_case[((corrs * ntrials) + 1), 2] <- median(preds_trials[, 2])
+    preds_case[((corrs * ntrials) + 1), 3] <- median(preds_trials[, 3])
+  }
+}
+
+# Prep dataframe for plotting
+prop1 <- preds_case[, 1] / preds_case[1, 1] * 100
+prop2 <- preds_case[, 2] / preds_case[1, 2] * 100
+prop3 <- preds_case[, 3] / preds_case[1, 3] * 100
+
+# Linear models fitting the proportions as a function of correlation
+fit_prop1 <- lm(prop1 ~ corr)
+fit_prop2 <- lm(prop2 ~ corr)
+fit_prop3 <- lm(prop3 ~ corr)
+
+int1 <- fit_prop1$coefficients[1]
+slo1 <- fit_prop1$coefficients[2]
+
+int2 <- fit_prop2$coefficients[1]
+slo2 <- fit_prop2$coefficients[2]
+
+# Plot proportions & Linear Models
+ggplot2::ggplot() +
+  geom_point(aes(corr_increments, prop1), colour = 'blue', alpha = 0.3, pch = 19) +
+  geom_point(aes(corr_increments, prop2), colour = 'red', alpha = 0.3, pch = 24) +
+  geom_point(aes(corr_increments, prop3), colour = 'green', alpha = 0.3) +
+  ylim(c(0, 200)) +
+  geom_abline(int1, slo1, colour = 'red') +
+  geom_abline(fit_prop2$coefficients[1], fit_prop2$coefficients[2], colour = 'black')
+

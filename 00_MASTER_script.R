@@ -53,21 +53,21 @@ if (!require(rgdal)) {install.packages("rgdal"); library(rgdal)}
 args <- commandArgs(trailingOnly = TRUE) # Arguments passed via command line
 
 if (is.na(args[1])) {
+  
   if (Sys.info()["sysname"] == 'Windows') {
     # Directory for scripts and configuration file name in Windows ** CHANGE as needed
-    script.dir <- 'D:/matchups/r-projects/R_scripts/R_master_scripts/read_matchups/'
-
-    config.file.name <- 'config_file_read_VIIRS_L2GEN_matchups_Windows.yml'
+    script.dir <- 'D:/matchups/r-projects/Matchup_R_scripts/'
+    #config.file.name <- 'config_file_read_VIIRS_L2GEN_matchups_Windows.yml'
+    config.file.name <- 'config_file_read_MODIS_GSFC_matchups_Windows.yml'
     config.file <- paste0(script.dir, config.file.name)
+  
   } else if (Sys.info()["sysname"] == 'Linux') {
     # Directory for scripts and configuration file name in Linux ** CHANGE as needed
-    script.dir <- '/home/ckk/Projects/MODIS/Matchups/MODIS_R_Scripts/Read_Matchups/'
-
-    #config.file.name <- 'config_file_read_VIIRS_L2GEN_matchups_Linux.yml'
-    
+    script.dir <- '/home/ckk/Projects/Matchup_R_Scripts/'
+    #config.file.name <- 'config_file_read_VIIRS_L2GEN_matchups_Windows.yml'
     config.file.name <- 'config_file_read_MODIS_GSFC_matchups_Linux.yml'
-
     config.file <- paste0(script.dir, config.file.name)
+  
   } else {
     stop('Operating system not recognized...')
   }
@@ -97,7 +97,7 @@ setwd(config$working_dir)
 
 # --- Remove all objects EXCEPT 'config'
 
-rm(list=setdiff(ls(), 'config'))
+rm(list = setdiff(ls(), 'config'))
 # ------------------------------------------------------------------------------
 
 # -----------------------------------------------------------------------------#
@@ -238,26 +238,18 @@ if (lhdr != n.of.vars) { 	# Check length of header vector
 # --- and therefore are filled with missing values (e.g., '-999.0')
 # --- This step defines WHICH variables will be kept for a given sensor.
 
-
-if (config$collocation) {
-  vars.to.keep <- keep_matchup_variables_collocation(matchup.format = config$matchups$format,
-    sensor = config$sensor, ancillary.data = config$use_ancillary_data)
-  Log.info(paste(length(vars.to.keep), 'variables will be kept for collocation studies using',
+if (config$keep_all_vars) {
+  # Keep ALL variables in matchups
+  # (including those that are not relevant for sensor, e.g., for testing purposes)
+  vars.to.keep <- matchup.vars
+  Log.info(paste('Keep ALL variables in matchup records for',
     config$sensor, 'matchups in', config$matchups$format, 'format'))
-} else if (!config$collocation) {
-  if (config$keep_all_vars) {
-    # Keep ALL variables in matchups
-    # (including those that are not relevant for sensor, e.g., for testing purposes)
-    vars.to.keep <- matchup.vars
-    Log.info(paste('Keep ALL variables in matchup records for',
-      config$sensor, 'matchups in', config$matchups$format, 'format'))
-  } else {
-    # Keep only the variables that correspond to a given sensor variables
-    vars.to.keep <- keep_matchup_variables(matchup.format = config$matchups$format,
-      sensor = config$sensor, ancillary.data = config$use_ancillary_data)
-    Log.info(paste(length(vars.to.keep), 'variables will be kept for',
-      config$sensor, 'matchups in', config$matchups$format, 'format'))
-  }
+} else {
+  # Keep only the variables that correspond to a given sensor
+  vars.to.keep <- keep_matchup_variables(matchup.format = config$matchups$format,
+    sensor = config$sensor, ancillary.data = config$use_ancillary_data)
+  Log.info(paste(length(vars.to.keep), 'variables will be kept for',
+    config$sensor, 'matchups in', config$matchups$format, 'format'))
 }
 
 # TO DO: Fill in for All formats and sensors

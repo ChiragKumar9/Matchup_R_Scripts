@@ -18,6 +18,7 @@ library(ggplot2)
 library(mapview)
 library(futile.logger)
 library(lubridate)
+library(tidyr)
 
 ggplot <- function(...) {ggplot2::ggplot(...) + theme_bw()}
 
@@ -54,7 +55,7 @@ if (Sys.info()["sysname"] == 'Windows') {
   # Windows directory for VIIRS matchups
   win.dir <- 'D:/matchups/r-projects/R_MUDB/viirs/v641ao/mia/results/objects/'
   # Name of .Rdata file (update as needed)
-  win.file <- 'VIIRS_Suomi_NPP_MIA_L2GEN_ALL_Class_6.4.1_ao_2016_11_19_with_ancillary.Rdata'
+  win.file <- 'VIIRS_Suomi_NPP_MIA_L2GEN_ALL_Class_6.4.1_ao_2016_11_23_with_ancillary.Rdata'
   viirs.file <- paste0(win.dir, win.file)
   if (!file.exists(viirs.file)) {
     stop('Input file does not exist')
@@ -64,9 +65,9 @@ if (Sys.info()["sysname"] == 'Windows') {
   rm(win.dir, win.file, viirs.file)
 } else if (Sys.info()["sysname"] == 'Linux') {
   # Linux directory for VIIRS matchups
-  linux..dir <- '~/Projects/Matchup_R_Scripts/Results/objects/'
+  linux.dir <- '~/Projects/Matchup_R_Scripts/Results/objects/'
   # Name of .Rdata file (update as needed)
-  linux.file <- 'VIIRS_Suomi_NPP_MIA_L2GEN_ALL_Class_6.4.1_ao_2016_11_19_with_ancillary.Rdata'
+  linux.file <- 'VIIRS_Suomi_NPP_MIA_L2GEN_ALL_Class_6.4.1_ao_2016_11_23_with_ancillary.Rdata'
   viirs.file <- paste0(linux.dir, linux.file)
   if (!file.exists(viirs.file)) {
     stop('Input file does not exist')
@@ -77,8 +78,8 @@ if (Sys.info()["sysname"] == 'Windows') {
 }
 
 # Create 'VIIRS' object so it has a shorter name
-VIIRS <- VIIRS_Suomi_NPP_MIA_L2GEN_ALL_Class_6.4.1_ao_2016_11_19
-rm(VIIRS_Suomi_NPP_MIA_L2GEN_ALL_Class_6.4.1_ao_2016_11_19)
+VIIRS <- VIIRS_Suomi_NPP_MIA_L2GEN_ALL_Class_6.4.1_ao_2016_11_23
+rm(VIIRS_Suomi_NPP_MIA_L2GEN_ALL_Class_6.4.1_ao_2016_11_23)
 
 # Load .Rdata object for AQUA matchups resulting from script 01_read_matchups.R
 
@@ -86,7 +87,7 @@ if (Sys.info()["sysname"] == 'Windows') {
   # Windows directory for AQUA matchups
   win.dir <- 'D:/matchups/r-projects/R_MUDB/modis/aqua/gsfc/l6cv6/results/objects/'
   # Name of .Rdata file (update as needed)
-  win.file <- 'MODIS_Aqua_GSFC_ALL_Class_6.4.1_ao_2016_11_19_with_ancillary.Rdata'
+  win.file <- 'MODIS_Aqua_GSFC_ALL_Class_6.4.1_ao_2016_11_23_with_ancillary.Rdata'
   viirs.file <- paste0(win.dir, win.file)
   if (!file.exists(viirs.file)) {
     stop('Input file does not exist')
@@ -96,9 +97,9 @@ if (Sys.info()["sysname"] == 'Windows') {
   rm(win.dir, win.file, viirs.file)
 } else if (Sys.info()["sysname"] == 'Linux') {
   # Linux directory for VIIRS matchups
-  linux..dir <- '~/Projects/Matchup_R_Scripts/Results/objects/'
+  linux.dir <- '~/Projects/Matchup_R_Scripts/Results/objects/'
   # Name of .Rdata file (update as needed)
-  linux.file <- 'MODIS_Aqua_GSFC_ALL_Class_6.4.1_ao_2016_11_19_with_ancillary.Rdata'
+  linux.file <- 'MODIS_Aqua_GSFC_ALL_Class_6.4.1_ao_2016_11_23_with_ancillary.Rdata'
   aqua.file <- paste0(linux.dir, linux.file)
   if (!file.exists(aqua.file)) {
     stop('Input file does not exist')
@@ -109,12 +110,12 @@ if (Sys.info()["sysname"] == 'Windows') {
 }
 
 # Create 'AQUA' object so it has a shorter name
-AQUA <- MODIS_Aqua_GSFC_ALL_Class_6.4.1_ao_2016_11_19
-rm(MODIS_Aqua_GSFC_ALL_Class_6.4.1_ao_2016_11_19)
+AQUA <- MODIS_Aqua_GSFC_ALL_Class_6.4.1_ao_2016_11_23
+rm(MODIS_Aqua_GSFC_ALL_Class_6.4.1_ao_2016_11_23)
 
 ```
 
-The restored VIIRS matchups span the period between `r min(VIIRS$buoy.timedate)` and `rmax(VIIRS$buoy.timedate)`.The original VIIRS dataset had `r nrow(VIIRS)` matchups.
+The restored VIIRS matchups span the period between `r min(VIIRS$buoy.timedate)` and `r max(VIIRS$buoy.timedate)`.The original VIIRS dataset had `r nrow(VIIRS)` matchups.
 We also read Aqua matchups for the period between `r min(AQUA$buoy.timedate)`
 and `r max(AQUA$buoy.timedate)`. The number of Aqua matchups was `r nrow(AQUA)`.
 
@@ -130,9 +131,6 @@ or columns that are not needed for the collocation study.
 
 modis.colloc.vars <- keep_matchup_variables_collocation(matchup.format = 'GSFC',
   sensor = 'MODIS', ancillary.data = TRUE)
-modis.colloc.vars <- paste0(modis.colloc.vars, ".AQUA")
-modis.colloc.vars["buoy.date.AQUA"] <- "buoy.date"
-modis.colloc.vars["buoy.id.AQUA"] <- "buoy.id"
 
 viirs.colloc.vars <- keep_matchup_variables_collocation(matchup.format = 'MIA_L2GEN',
   sensor = 'VIIRS', ancillary.data = TRUE)
@@ -150,7 +148,7 @@ have `r ncol(AQUA.trimmed)` variables, and the trimmed VIIRS matchups have
 
 The third preparatory step is to convert the VIIRS BTs and SSTs from degrees Kelvin to Celsius, whereas Aqua BTs, and SSTs already are expressed in Celsius. For consistency we  convert VIIRS values to degrees Celsius from degrees Kelvin.
 
-```{r convert_VIIRS_K_to_C, echo=FALSE}
+```{r convert_VIIRS_K_to_C, echo = FALSE}
 
 # Convert VIIRS BTs and SSTs from degrees Kelvin to Celsius
 
@@ -172,6 +170,16 @@ cat('BEFORE K to C conversion\n')
 summary(VIIRS$cen.sst)
 cat('AFTER K to C conversion\n')
 summary(VIIRS.trimmed$cen.sst)
+
+```
+
+Because VIIRS and Aqua SSTs are calculated as 'skin' values, we neeed to add back 0.17 degC
+to each of these SSTs to make them compatible with the buoys' 'bulk' SST.
+
+```{r skin_to_bulk}
+
+VIIRS.trimmed$cen.sst <- VIIRS.trimmed$cen.sst + 0.17
+AQUA.trimmed$cen.sst <- AQUA.trimmed$cen.sst + 0.17
 
 ```
 
@@ -238,18 +246,36 @@ orig_j <- dplyr::inner_join(VIIRS.trimmed, AQUA.trimmed,
 ```
 
 ```{r dates_back_to_POSIX, echo=TRUE}
-# After the join, we convert back the timedate objects
-# from character into POSIXct objects
 
-orig_j$buoy.timedate.vrs <- lubridate::ymd_hms(orig_j$buoy.timedate.vrs)
-orig_j$sat.timedate.vrs <- lubridate::ymd_hms(orig_j$sat.timedate.vrs)
-orig_j$buoy.timedate.aqu <- lubridate::ymd_hms(orig_j$buoy.timedate.aqu)
-orig_j$sat.timedate.aqu <- lubridate::ymd_hms(orig_j$sat.timedate.aqu)
+# After join, we convert back the timedate objects
+# from character into POSIXct objects so they can be used in time calculations
+
+tt1 <- orig_j %>% dplyr::select(buoy.timedate.aqu)
+tt2 <- as.vector(tt1[[1]])
+tt3 <- lubridate::ymd_hms(tt2)
+orig_j$buoy.timedate.aqu <- tt3
+
+tt1 <- orig_j %>% dplyr::select(sat.timedate.aqu)
+tt2 <- as.vector(tt1[[1]])
+tt3 <- lubridate::ymd_hms(tt2)
+orig_j$sat.timedate.aqu <- tt3
+
+tt1 <- orig_j %>% dplyr::select(buoy.timedate.vrs)
+tt2 <- as.vector(tt1[[1]])
+tt3 <- lubridate::ymd_hms(tt2)
+orig_j$buoy.timedate.vrs <- tt3
+
+tt1 <- orig_j %>% dplyr::select(sat.timedate.vrs)
+tt2 <- as.vector(tt1[[1]])
+tt3 <- lubridate::ymd_hms(tt2)
+orig_j$sat.timedate.vrs <- tt3
+
+rm(tt1,tt2,tt3)
 ```
 
 ## Filtering VIIRS and Aqua Matchups
 
-At this point, we have `r nrow(orig_j)` joined matchups. However, these matchups do not have enough spatial or temporal coincidence to meet our requirements stated above or for a triple collocation error analysis. We did not join by the buoy's timedate or latitude/longitude because the 'dplyr::inner_join' function only matches if key values are __exactly__ the same in both datasets, thereby reducing the number of potentially useful matchups. We instead apply a series of filtering steps to ensure the conditions stated above for a triple collocation error analysis.
+At this point, we have `r nrow(orig_j)` joined matchups. However, these matchups do not have enough spatial or temporal coincidence to meet our requirements stated above or for a triple collocation error analysis. We did not join by the buoy's timedate or latitude/longitude because the 'dplyr::inner_join' function only matches if key values are *exactly* the same in both datasets, thereby reducing the number of potentially useful matchups. We instead apply a series of filtering steps to ensure the conditions stated above for a triple collocation error analysis.
 We also filter matchups that have good quality so that we minimize chances of
 errors in satellite SST retrievals due to cloud contamination.
 
@@ -257,50 +283,58 @@ errors in satellite SST retrievals due to cloud contamination.
 
 # Filter collocated data by solz, platform, time difference
 
-orig_sz_plt_tim <- dplyr::tbl_df(orig_j) %>%
+orig_filtered <- dplyr::tbl_df(orig_j) %>%
   # Only nightime retrievals (solar zenith angle >= 90 degrees)
   dplyr::filter(solz.aqu >= 90 & solz.vrs >= 90) %>%
   # Allow only buoy SST measurements (not ships or radiometers) 
   dplyr::filter(insitu.platform.aqu %in% c("DriftingBuoy","MooredBuoy")) %>%
-  # VIIRS and AQUA sat times must be less than 1hr (36000 secs) from each other
+  # Eliminate SST qualities for AQUA and VIIRS less than 0 (best quality) 
+  dplyr::filter(qsst.aqu == 0 & qsst.vrs == 0) %>%
+  # VIIRS and AQUA sat times must be less or equal than 1hr (3600 secs) from each other
   dplyr::filter(abs(sat.timedate.aqu - sat.timedate.vrs) <= 3600) %>%
   # Buoy retrieval times for VIIRS and AQUA must be less than 1 min apart
   # The buoy times should coincide but may have roundoff differences
-  dplyr::filter(abs(buoy.timedate.aqu - buoy.timedate.vrs) <= 60) %>%
-  # Eliminate SST qualities for AQUA and VIIRS less than 0 (best quality) 
-  dplyr::filter(qsst.aqu == 0 & qsst.vrs == 0)
+  dplyr::filter(abs(buoy.timedate.aqu - buoy.timedate.vrs) <= 60)
 
 # Allow only retrievals for which distance between the buoy positions
 # listed in VIIRS and AQUA are less than 100 meters
 
-uu1 <- cbind(orig_sz_plt_tim$buoy.lon.vrs, orig_sz_plt_tim$buoy.lat.vrs)
-uu2 <- cbind(orig_sz_plt_tim$buoy.lon.aqu, orig_sz_plt_tim$buoy.lat.aqu)
+uu1 <- cbind(orig_filtered$buoy.lon.vrs, orig_filtered$buoy.lat.vrs)
+uu2 <- cbind(orig_filtered$buoy.lon.aqu, orig_filtered$buoy.lat.aqu)
 uu3 <- geosphere::distVincentyEllipsoid(uu1, uu2)
 cat('Distance between buoy positions in VIIRS and AQUA\n')
 summary(uu3)
 uu4 <- which(uu3 < 100) # Identify distances < 100 m
-orig_sz_plt_tim <- orig_sz_plt_tim[uu4, ] # Filter out distances >= 100 m
+orig_filtered <- orig_filtered[uu4, ] # Filter out distances >= 100 m
 rm(uu1,uu2,uu3,uu4)
 
 # Explore distances between satellite and buoy positions for VIIRS
-uu1 <- cbind(orig_sz_plt_tim$buoy.lon.vrs, orig_sz_plt_tim$buoy.lat.vrs)
-uu2 <- cbind(orig_sz_plt_tim$sat.lon.vrs, orig_sz_plt_tim$sat.lat.vrs)
+uu1 <- cbind(orig_filtered$buoy.lon.vrs, orig_filtered$buoy.lat.vrs)
+uu2 <- cbind(orig_filtered$sat.lon.vrs, orig_filtered$sat.lat.vrs)
 uu3 <- geosphere::distVincentyEllipsoid(uu1, uu2)
 cat('Distance between sat and buoy positions for VIIRS\n')
 summary(uu3)
 rm(uu1,uu2,uu3)
 
 # Explore distances between satellite and buoy positions for AQUA
-uu1 <- cbind(orig_sz_plt_tim$buoy.lon.aqu, orig_sz_plt_tim$buoy.lat.aqu)
-uu2 <- cbind(orig_sz_plt_tim$sat.lon.aqu, orig_sz_plt_tim$sat.lat.aqu)
+uu1 <- cbind(orig_filtered$buoy.lon.aqu, orig_filtered$buoy.lat.aqu)
+uu2 <- cbind(orig_filtered$sat.lon.aqu, orig_filtered$sat.lat.aqu)
 uu3 <- geosphere::distVincentyEllipsoid(uu1, uu2)
 cat('Distance between sat and buoy positions for AQUA\n')
 summary(uu3)
 rm(uu1,uu2,uu3)
 
+# Explore distances between VIIRS and AQUA pixel positions
+uu1 <- cbind(orig_filtered$sat.lon.vrs, orig_filtered$sat.lat.vrs)
+uu2 <- cbind(orig_filtered$sat.lon.aqu, orig_filtered$sat.lat.aqu)
+uu3 <- geosphere::distVincentyEllipsoid(uu1, uu2)
+cat('Distance between satellite pixel positions for AQUA and VIIRS\n')
+summary(uu3)
+rm(uu1,uu2,uu3)
+
 ```
 
-After applying the various filters we are left with `r nrow(orig_sz_plt_tim)`
+After applying the various filters we are left with `r nrow(orig_j)`
 matchups.
 
 ## Spatial distribution of collocated matchups
@@ -309,13 +343,19 @@ matchups.
 library(maps)
 library(mapdata)
 
+CairoSVG(file = 'matchups_map.ps',
+         width = 9, height = 6, onefile = TRUE,
+         bg = "transparent", pointsize = 18)
+
 maps::map("world",
-  col = "gray90",
+  col = "gray70",
   fill = TRUE)
 
-points(orig_sz_plt_tim$buoy.lon.aqu, orig_sz_plt_tim$buoy.lat.aqu,
+points(orig_filtered$buoy.lon.aqu, orig_filtered$buoy.lat.aqu,
   pch = '.', col = 'tomato')
 box()
+dev.off()
+
 ```
 
 ```{r points_on_map_ggmap}
@@ -328,13 +368,269 @@ mp <- ggplot() +   mapWorld
 mp <- mp + ggplot2::labs(x = NULL, y = NULL)
 
 # Now layer the matchup locations on top
-mp <- mp + ggplot2::geom_point(data = orig_sz_plt_tim,
+mp <- mp + ggplot2::geom_point(data = orig_filtered,
   aes(x = buoy.lon.aqu, y = buoy.lat.aqu),
-  color = "tomato", size = 0.5, alpha = 0.2)
+  color = "tomato", size = 0.7, alpha = 0.2)
+ggplot2::ggsave(filename = 'point_distribution.ps', device = 'ps',
+       width = 8, height = 6, units = 'in')
+
+
++
+ggplot2::scale_x_continuous(breaks = seq(from = -180, to = 180, by = 60)) +
+ggplot2::scale_y_continuous(breaks = seq(from = -90, to = 90, by = 30)) +
+
+
 plot(mp)
 
 ```
 
+```{r map_with_hexbinning}
+
+# Create base map
+require(ggmap)
+
+mp <- NULL
+mapWorld <- borders("world", colour = "gray50", fill = "gray70") # create a layer of borders
+mp <- ggplot() +  mapWorld +
+  ggplot2::scale_x_continuous(breaks = seq(from = -180, to = 180, by = 60)) +
+  ggplot2::scale_y_continuous(breaks = seq(from = -90, to = 90, by = 30)) +
+  coord_fixed(ratio = 1)
+
+
+# Now layer the buoys on top with hexagonal binning
+mp <- mp + 
+  ggplot2::stat_binhex(data = orig_filtered,
+    aes(x = buoy.lon.aqu, # Use hexagonal binning command and give x and y input
+    y = buoy.lat.aqu,
+    fill = cut(..value.., c(0, 100, 500, 1000, 1500, Inf))), # Divides matchups per bin into discrete chunks and colors likewise
+    binwidth = c(10, 10)) +
+  mapWorld + labs(x = NULL, y = NULL) +
+  #scale_fill_hue('value') + # Standard colors with discrete chunking
+  scale_fill_brewer(palette = 'YlOrRd') + # Change colors to Yellow, Orange, and Red - many diff 
+  guides(fill = guide_legend(title = "N of matchups"))
+
+ggplot2::ggsave(filename = 'point_distribution.ps', device = 'ps',
+       width = 8, height = 6, units = 'in')
+
+```
 
 ## Temporal distribution of collocated matchups
+
+```{r heatmap_of_matchups}
+
+yy <- lubridate::year(orig_filtered$buoy.timedate.vrs)     # Year
+mm <- lubridate::month(orig_filtered$buoy.timedate.vrs)    # Month
+
+tt1 <- cbind(yy, mm)
+
+tt2 <- dplyr::tbl_df(tt1) %>%
+  dplyr::group_by(yy, mm) %>%
+  dplyr::summarise(n = n()) %>%
+  dplyr::arrange(yy, mm)
+
+yy.vals <- sort(unique(yy))
+mm.vals <- sort(unique(mm))
+tt3 <- expand.grid(mm = mm.vals, yy = yy.vals)
+
+tt4 <- dplyr::left_join(tt3, tt2) %>%
+  dplyr::select(yy, mm, n)
+
+brks <- pretty(tt4$n, n = 5)
+#brks <- floor(quantile(tt4$n, probs = seq(0, 1, 0.25), na.rm = TRUE))
+
+tt4$n <- cut(tt4$n, breaks = brks)
+tt4$mm <- ordered(tt4$mm, labels = month.abb)
+tt4$yy <- ordered(tt4$yy)
+
+hm <- ggplot2::ggplot(data = tt4, aes(mm, yy)) +
+  ggplot2::geom_tile(aes(fill = n), colour = "white") +
+  ggplot2::scale_fill_brewer(type = "seq", palette = 'YlOrRd', direction = 1) +
+  ggplot2::theme_bw() +
+  ggplot2::theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank())+
+  ggplot2::ggsave("Temporal_heatmap.ps", device = 'ps',
+       width = 8, height = 6, units = 'in')
+
+
+
+```
+
+## Association between all SST sources
+
+```{r viirs_aqua_sst, echo=FALSE}
+
+ccc <- RColorBrewer::brewer.pal(n = 8, name = 'YlOrRd')
+ddd <- orig_filtered$cen.sst.aqu - orig_filtered$cen.sst.vrs
+
+ggplot(data = orig_filtered, mapping = aes(x = cen.sst.aqu, y = ddd)) +
+  stat_bin2d(binwidth = c(0.2, 0.1)) +
+  scale_fill_gradientn(colours = ccc) +
+  geom_abline(intercept = 0, slope = 0, color = 'steelblue') +
+  lims(x = c(-2, 32), y = c(-3,3)) +
+  ggplot2::labs(title = "VIIRS and AQUA SSTs", x = 'AQUA SST', y = 'VIIRS SST minus AQUA SST') +
+  ggplot2::ggsave(filename = 'AQUA_and_VIIRS.ps', device = 'ps',
+       width = 8, height = 6, units = 'in') +
+  theme(text = element_text(size = 16))
+
+fit_aqua_viirs_sst <- lm(cen.sst.aqu ~ cen.sst.vrs, data = orig_filtered)
+
+# Compute robust standard deviation
+
+RSD_aqua_viirs <- IQR(fit_aqua_viirs_sst$residuals) / 1.348
+
+```
+
+```{r viirs_buoy_sst, echo=FALSE}
+ccc <- RColorBrewer::brewer.pal(n = 8, name = 'YlOrRd')
+ddd <- orig_filtered$cen.sst.vrs - orig_filtered$buoy.sst.vrs
+
+ggplot(data = orig_filtered, mapping = aes(x = cen.sst.vrs, y = ddd)) +
+  stat_bin2d(binwidth = c(0.2, 0.1)) +
+  scale_fill_gradientn(colours = ccc) +
+  geom_abline(intercept = 0, slope = 0, color = 'steelblue') +
+  lims(x = c(-2, 32), y = c(-3,3)) +
+  ggplot2::labs(title = "VIIRS and Buoy SSTs", x = 'VIIRS SST', y = 'VIIRS SST minus Buoy SST') +
+  ggplot2::ggsave(filename = 'VIIRS_and_Buoy.ps', device = 'ps',
+       width = 8, height = 6, units = 'in') +
+  theme(text = element_text(size = 16))
+
+fit_viirs__buoy_sst <- lm(cen.sst.vrs ~ buoy.sst.vrs, data = orig_filtered)
+
+# Compute robust standard deviation
+
+RSD_viirs_buoy <- IQR(fit_viirs__buoy_sst$residuals) / 1.348
+```
+
+```{r aqua_buoy_sst, echo=FALSE}
+ccc <- RColorBrewer::brewer.pal(n = 8, name = 'YlOrRd')
+ddd <- orig_filtered$cen.sst.aqu - orig_filtered$buoy.sst.vrs
+
+ggplot(data = orig_filtered, mapping = aes(x = cen.sst.aqu, y = ddd)) +
+  stat_bin2d(binwidth = c(0.2, 0.1)) +
+  scale_fill_gradientn(colours = ccc) +
+  geom_abline(intercept = 0, slope = 0, color = 'steelblue') +
+  lims(x = c(-2, 32), y = c(-3,3)) +
+  ggplot2::labs(title = "AQUA and Buoy SSTs", x = 'AQUA SST', y = 'AQUA SST minus Buoy SST') +
+  ggplot2::ggsave(filename = 'AQUA_and_Buoy.ps', device = 'ps',
+       width = 8, height = 6, units = 'in') +
+  theme(text = element_text(size = 16))
+
+fit_aqua_buoy_sst <- lm(cen.sst.aqu ~ buoy.sst.vrs, data = orig_filtered)
+
+# Compute robust standard deviation
+
+RSD_aqua_buoy <- IQR(fit_aqua_buoy_sst$residuals) / 1.348
+```
+
+# Error estimation using triple collocation
+
+## Global experiment: all matchups in collocated DB (CDB)
+
+```{r collocation_functions, include=FALSE}
+
+calculate_bias <- function(source1, source2, source3) {
+  if (!is.null(nrow(source1)) |
+    !is.null(nrow(source2)) |
+    !is.null(nrow(source3)) |
+    length(source1) <= 1 |
+    length(source2) <= 1 |
+    length(source3) <= 1) {
+    stop("Only vectors can be passed as arguments to the calculate_bias function.")
+  }
+
+  bias_source1source3 <- mean(source1) - mean(source3) #Bias between source1 and source2
+  
+  bias_source2source3 <- mean(source2) - mean(source3) #Bias between source2 and source3
+  
+  # Return a dataframe of biases that can re-scale each observation type
+  
+  biases <- c(bias_source1source3, bias_source2source3)
+  names(biases) <- c("bias_src1src3", "bias_src2src3")
+  
+  return(biases)
+}   # End of calculate_bias
+
+
+calculate_variance <- function(source1, source2, source3) {
+  if (!is.null(nrow(source1)) |
+    !is.null(nrow(source2)) |
+    !is.null(nrow(source3)) |
+    length(source1) <= 1 |
+    length(source2) <= 1 |
+    length(source3) <= 1) {
+    stop("Only vectors can be passed as arguments to the calculate_variance function")
+  }
+  
+  # Call bias function to re-scale measurements
+  biases <- calculate_bias(source1, source2, source3)
+  
+  #PUT A COMMENT
+  source1_scaled <- source1 - biases['bias_src1src3']
+  source2_scaled <- source2 - biases['bias_src2src3']
+  
+  # Variance of errors in observation types
+  variance_source1 <- mean((source1_scaled - source2_scaled) * (source1_scaled - source3))              # Variance of source1
+  variance_source2 <- mean((source1_scaled - source2_scaled) * (source2_scaled - source3))              # Variance of source2
+  variance_source3 <- mean((source1_scaled - source3) * (source2_scaled - source3))                     # Variance of source3
+  
+  # Take all the individual variances and return them as a dataframe
+  variances <- data.frame(variance_source1, variance_source2, variance_source3)
+  colnames(variances) <- c("variance_source1", "variance_source2", "variance_source3")
+  return(variances)
+} # end of calculate_variance
+
+```
+
+```{r run_collocation_global}
+
+# Make sure the last argument to calculate_variance corresponds to the buoy SSTs
+
+variances_global <- calculate_variance(orig_filtered$cen.sst.vrs,
+  orig_filtered$cen.sst.aqu,
+  orig_filtered$buoy.sst.vrs)
+
+biases_global <- calculate_bias(orig_filtered$cen.sst.vrs,
+  orig_filtered$cen.sst.aqu,
+  orig_filtered$buoy.sst.vrs)
+
+
+```
+
+```{r}
+
+tt1 <- orig_filtered$cen.sst.aqu - orig_filtered$buoy.sst.vrs
+tt2 <- orig_filtered$cen.sst.vrs - orig_filtered$buoy.sst.vrs
+ccc <- RColorBrewer::brewer.pal(n = 9, name = 'YlOrRd')[3:9]
+
+errors <- ggplot(mapping = aes(x = tt1, y = tt2)) +
+  stat_bin2d(binwidth = c(0.1, 0.1)) +
+  scale_fill_gradientn(colours = ccc) +
+  geom_abline(intercept = 0, slope = 1, color = 'steelblue') +
+  lims(x = c(-3, 3), y = c(-3,3)) +
+  ggplot2::labs(title = "AQUA and VIIRS SST Errors", x = 'AQUA SST minus Buoy SST', y = 'VIIRS SST minus Buoy SST') +
+  ggplot2::ggsave(filename = 'AQUA_and_VIIRS_errors.ps', device = 'ps',
+       width = 8, height = 8, units = 'in') +
+  theme(text = element_text(size = 16))
+
+fit_aqua_viirs_errors <- lm(tt1 ~ tt2)
+
+# Compute robust standard deviation
+
+RSD_aqua_viirs_errors <- IQR(fit_aqua_viirs_errors$residuals) / 1.348
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
