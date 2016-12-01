@@ -21,66 +21,58 @@ rm(`VIIRS_Suomi NPP_MIA_L2GEN_ALL_Class_6.4.1_ao_2016_09_29`); gc()
 # --------------------------------------------------------------------------------
 
 # -----------------------------------------------------------------------------#
-# --- Create as.celsius() function ----
-
-# The as.celsius() function takes Kelvin temperatures as input and returns them in celsius
-as.celsius <- function(kelvin) {
-  celsius <- kelvin - 273.15
-  return(celsius)
-}
-# -------------------------------------------------------------------------------
-
-# -----------------------------------------------------------------------------#
 # --- Create collocation functions ----
-#Bias
-#This function computes the systematic error, or bias, between two different observation types. By subtracting the
-#means of one observation type from the mean of another observation type, the bias between those two observation 
-#types can be computed.
 
-bias <- function(source1, source2, source3) {
-  if (!is.null(nrow(source1)) | !is.null(nrow(source2)) | !is.null(nrow(source3)) | length(source1) <= 1 | length(source2) <= 1 | length(source3) <= 1) {
-    stop("Only vectors can be passed as arguments in the bias function.")
+compute_bias <- function(source1, source2, source3) {
+  if (!is.null(nrow(source1)) |
+      !is.null(nrow(source2)) |
+      !is.null(nrow(source3)) |
+      length(source1) <= 1 |
+      length(source2) <= 1 |
+      length(source3) <= 1) {
+    stop("Only vectors can be passed as arguments to the compute_bias function.")
   }
-
+  
   bias_source1source3 <- mean(source1) - mean(source3) #Bias between source1 and source2
   
   bias_source2source3 <- mean(source2) - mean(source3) #Bias between source2 and source3
   
-  #Return a dataframe of biases that can re-scale each observation type
+  # Return a dataframe of biases that can re-scale each observation type
+  
   biases <- c(bias_source1source3, bias_source2source3)
-  names(biases) <- c("bias_source1source3", "bias_source2source3")
+  names(biases) <- c("bias_src1src3", "bias_src2src3")
+  
   return(biases)
-}
+}   # End of compute_bias
 
 
-#Variance
-#This function computes the variance of error in one observation type by computing the variance between the 
-#difference in two error types. The bias and mean of two observation types can be used to compute the variance of 
-#the difference in the observation types. The variance of differences in the observation type can be used to solve
-#directly for the variance of error in a single observation type.
-
-variance <- function(source1, source2, source3) {
-  #if (!is.null(nrow(aqua)) | !is.null(nrow(viirs)) | !is.null(nrow(buoy)) | length(aqua) <= 1 | length(viirs) <= 1 | length(buoy) <= 1) {
-   # stop("Only vectors can be passed as arguments in the variance function.")
-  #}
+compute_variance <- function(source1, source2, source3) {
+  if (!is.null(nrow(source1)) |
+      !is.null(nrow(source2)) |
+      !is.null(nrow(source3)) |
+      length(source1) <= 1 |
+      length(source2) <= 1 |
+      length(source3) <= 1) {
+    stop("Only vectors can be passed as arguments to the compute_variance function")
+  }
   
-  #Call bias function to re-scale measurements
-  biases <- bias(source1, source2, source3)
+  # Call bias function to re-scale measurements
+  biases <- compute_bias(source1, source2, source3)
   
-  #PUT A COMMENT
-  source1_scaled <- source1 - biases['bias_source1source3']
-  source2_scaled <- source2 - biases['bias_source2source3']
+  #Scale dataset to one of three sources for variance computing
+  source1_scaled <- source1 - biases['bias_src1src3']
+  source2_scaled <- source2 - biases['bias_src2src3']
   
-  #Variance of errors in observation types
-  variance_source1 <- mean((source1_scaled - source2_scaled) * (source1_scaled - source3))     #Variance of source1
-  variance_source2 <- mean((source1_scaled - source2_scaled) * (source2_scaled - source3))     #Variance of source2
-  variance_source3 <- mean((source1_scaled - source3) * (source2_scaled - source3))            #Variance of source3
+  # Variance of errors in observation types
+  variance_source1 <- mean((source1_scaled - source2_scaled) * (source1_scaled - source3))              # Variance of source1
+  variance_source2 <- mean((source1_scaled - source2_scaled) * (source2_scaled - source3))              # Variance of source2
+  variance_source3 <- mean((source1_scaled - source3) * (source2_scaled - source3))                     # Variance of source3
   
-  #Take all the individual variances and return them as a dataframe
+  # Take all the individual variances and return them as a dataframe
   variances <- data.frame(variance_source1, variance_source2, variance_source3)
   colnames(variances) <- c("variance_source1", "variance_source2", "variance_source3")
   return(variances)
-}
+} # end of compute_variance
 # -------------------------------------------------------------------------------
 
 # -----------------------------------------------------------------------------#
@@ -315,7 +307,7 @@ alpha3 <- 0
 
 #R <- matrix(cbind(1,.70,.0,  .70,1,.0,  .0,.0,1),nrow=3)
 
-R <- matrix(cbind(1,.999,.0,  .999,1,.0,  .0,.0,1),nrow=3)
+R <- matrix(cbind(1,.5,.0,  .5,1,.0,  .0,.0,1),nrow=3)
 
 U <- t(chol(R))
 nvars <- dim(U)[1]
@@ -372,8 +364,8 @@ lines(corr, prop3, col = 'darkgreen')
 set.seed(2)
 
 nobs <- 65000 # Number of observations
-ntrials <- 100 # Number of trials
-corr_increments <- seq(from = 0, to = .99, by = .01) # Increments of correlation to test
+ntrials <- 100.00 # Number of trials
+corr_values <- seq(from = 0, to = .99, by = .01) # Increments of correlation to test
 
 # Truth variable
 truthx <- runif(n = nobs, min = 0, max = 30)
@@ -383,14 +375,19 @@ alpha1 <- 0
 alpha2 <- 0
 alpha3 <- 0
 
-# Dataframe to store predicted variances per correlation
-preds_case <- as.data.frame(matrix(999, ncol = 3, nrow = length(corr_increments)))
-colnames(preds_case) <- c("meas1", "meas2", "meas3")
-rownames(preds_case) <- as.character(corr_increments)
+# SDs for each observation source
+sd_aq <- .4
+sd_vi <- .4 # sd_aq should roughly equal sd_vi
+sd_bu <- .25
 
-for (corrs in corr_increments) {
+# Dataframe to store predicted variances per correlation
+preds_case <- as.data.frame(matrix(999, ncol = 3, nrow = length(corr_values)))
+colnames(preds_case) <- c("meas1", "meas2", "meas3")
+rownames(preds_case) <- as.character(corr_values)
+
+for (i in 1:length(corr_values)) {
   # Create correlation matrix
-  R <- matrix(cbind(1.0,corrs,0.0,  corrs,1.0,0.0,  0.0,0.0,1.0),nrow=3)
+  R <- matrix(cbind(1.0,corr_values[i],0.0,  corr_values[i],1.0,0.0,  0.0,0.0,1.0),nrow=3)
   U <- t(chol(R))
   
   # Create dataframe to store predicted variances
@@ -400,12 +397,12 @@ for (corrs in corr_increments) {
   
   for (trials in seq(from = 1, to = ntrials, by = 1)) {
     if (trials %in% c(1, 50, 100)) {
-      cat('Trial', trials, 'of correlation value', corrs, '\n')
+      cat('Trial', trials, 'of correlation value', corr_values[i], '\n')
     }
     # Create uncorrelated errors
-    noi1 <- rnorm(nobs, 0, .4)
-    noi2 <- rnorm(nobs, 0, .4)
-    noi3 <- rnorm(nobs, 0, .25)
+    noi1 <- rnorm(nobs, 0, sd_aq)
+    noi2 <- rnorm(nobs, 0, sd_vi)
+    noi3 <- rnorm(nobs, 0, sd_bu)
     
     # Correlate the uncorrelated errors
     random.normal <- t(cbind(noi1, noi2, noi3))
@@ -413,7 +410,7 @@ for (corrs in corr_increments) {
     newX <- t(X)
     raw <- as.data.frame(newX)
     
-    # Correlatted errors
+    # Correlated errors
     epsi1 <- raw[, 1]
     epsi2 <- raw[, 2]
     epsi3 <- raw[, 3]
@@ -424,37 +421,37 @@ for (corrs in corr_increments) {
     meas3 <- truthx + alpha3 + epsi3
     
     # Compute predicted variances
-    variances <- round(sqrt(abs(variance(meas1, meas2, meas3))), 3)
+    variances <- round(sqrt(abs(compute_variance(meas1, meas2, meas3))), 3)
     
     # Store predicted variances in a dataframe
     preds_trials[trials, ] <- variances
   }
   # Take the median of each dataset's predicted variance and store in a dataframe
-  cat('Taking the median of all trials for correlation value', corrs, '\n')
-  if (corrs == .29) {
-    preds_case[30, 1] <- median(preds_trials[, 1])
-    preds_case[30, 2] <- median(preds_trials[, 2])
-    preds_case[30, 3] <- median(preds_trials[, 3])
-  } else if(corrs == .58) {
-    preds_case[59, 1] <- median(preds_trials[, 1])
-    preds_case[59, 2] <- median(preds_trials[, 2])
-    preds_case[59, 3] <- median(preds_trials[, 3])
-  } else {
-    preds_case[((corrs * ntrials) + 1), 1] <- median(preds_trials[, 1])
-    preds_case[((corrs * ntrials) + 1), 2] <- median(preds_trials[, 2])
-    preds_case[((corrs * ntrials) + 1), 3] <- median(preds_trials[, 3])
-  }
+  cat('Taking the median of all trials for correlation value', corr_values[i], '\n')
+  #if (corrs == .29) {
+  #  preds_case[30, 1] <- median(preds_trials[, 1])
+  #  preds_case[30, 2] <- median(preds_trials[, 2])
+  #  preds_case[30, 3] <- median(preds_trials[, 3])
+  #} else if(corrs == .58) {
+  #  preds_case[59, 1] <- median(preds_trials[, 1])
+  #  preds_case[59, 2] <- median(preds_trials[, 2])
+  #  preds_case[59, 3] <- median(preds_trials[, 3])
+  #} else {
+  preds_case[i, 1] <- median(preds_trials[, 1])
+  preds_case[i, 2] <- median(preds_trials[, 2])
+  preds_case[i, 3] <- median(preds_trials[, 3])
+  #}
 }
 
 # Prep dataframe for plotting
-prop1 <- preds_case[, 1] / preds_case[1, 1] * 100
-prop2 <- preds_case[, 2] / preds_case[1, 2] * 100
-prop3 <- preds_case[, 3] / preds_case[1, 3] * 100
+prop1 <- preds_case[, 1] / preds_case[1, 1]
+prop2 <- preds_case[, 2] / preds_case[1, 2]
+prop3 <- preds_case[, 3] / preds_case[1, 3]
 
 # Linear models fitting the proportions as a function of correlation
-fit_prop1 <- lm(prop1 ~ corr)
-fit_prop2 <- lm(prop2 ~ corr)
-fit_prop3 <- lm(prop3 ~ corr)
+fit_prop1 <- lm(prop1 ~ corr_values)
+fit_prop2 <- lm(prop2 ~ corr_values)
+fit_prop3 <- lm(prop3 ~ corr_values)
 
 int1 <- fit_prop1$coefficients[1]
 slo1 <- fit_prop1$coefficients[2]
@@ -462,12 +459,12 @@ slo1 <- fit_prop1$coefficients[2]
 int2 <- fit_prop2$coefficients[1]
 slo2 <- fit_prop2$coefficients[2]
 
-# Plot proportions & Linear Models
+# Plot proportions
 ggplot2::ggplot() +
-  geom_point(aes(corr_increments, prop1), colour = 'blue', alpha = 0.3, pch = 19) +
-  geom_point(aes(corr_increments, prop2), colour = 'red', alpha = 0.3, pch = 24) +
-  geom_point(aes(corr_increments, prop3), colour = 'green', alpha = 0.3) +
-  ylim(c(0, 200)) +
-  geom_abline(int1, slo1, colour = 'red') +
-  geom_abline(fit_prop2$coefficients[1], fit_prop2$coefficients[2], colour = 'black')
-
+  geom_line(aes(corr_values, prop1, size = 1.25), colour = 'blue') +
+  geom_line(aes(corr_values, prop2, size = 1.25), colour = 'red') +
+  geom_line(aes(corr_values, prop3, size = 1.25), colour = 'green') +
+  ylim(c(0, 300)) + 
+  labs(x = "Correlation between AQUA - Buoy and VIIRS - Buoy SSTs", y = "Proportion of Actual Variance Predicted") +
+  ggsave("Correlation_sim.ps", device = 'ps',
+    width = 8, height = 8, units = 'in')

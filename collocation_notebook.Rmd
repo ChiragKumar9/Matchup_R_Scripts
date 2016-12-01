@@ -67,7 +67,7 @@ if (Sys.info()["sysname"] == 'Windows') {
   # Linux directory for VIIRS matchups
   linux.dir <- '~/Projects/Matchup_R_Scripts/Results/objects/'
   # Name of .Rdata file (update as needed)
-  linux.file <- 'VIIRS_Suomi_NPP_MIA_L2GEN_ALL_Class_6.4.1_ao_2016_11_23_with_ancillary.Rdata'
+  linux.file <- 'VIIRS_Suomi_NPP_MIA_L2GEN_ALL_Class_6.4.1_ao_2016_11_22_with_ancillary.Rdata'
   viirs.file <- paste0(linux.dir, linux.file)
   if (!file.exists(viirs.file)) {
     stop('Input file does not exist')
@@ -99,7 +99,7 @@ if (Sys.info()["sysname"] == 'Windows') {
   # Linux directory for VIIRS matchups
   linux.dir <- '~/Projects/Matchup_R_Scripts/Results/objects/'
   # Name of .Rdata file (update as needed)
-  linux.file <- 'MODIS_Aqua_GSFC_ALL_Class_6.4.1_ao_2016_11_23_with_ancillary.Rdata'
+  linux.file <- 'MODIS_Aqua_GSFC_ALL_Class_6.4.1_ao_2016_11_26_with_ancillary.Rdata'
   aqua.file <- paste0(linux.dir, linux.file)
   if (!file.exists(aqua.file)) {
     stop('Input file does not exist')
@@ -493,11 +493,11 @@ ggplot(data = orig_filtered, mapping = aes(x = cen.sst.vrs, y = ddd)) +
        width = 8, height = 6, units = 'in') +
   theme(text = element_text(size = 16))
 
-fit_viirs__buoy_sst <- lm(cen.sst.vrs ~ buoy.sst.vrs, data = orig_filtered)
+fit_viirs_buoy_sst <- lm(cen.sst.vrs ~ buoy.sst.vrs, data = orig_filtered)
 
 # Compute robust standard deviation
 
-RSD_viirs_buoy <- IQR(fit_viirs__buoy_sst$residuals) / 1.348
+RSD_viirs_buoy <- IQR(fit_viirs_buoy_sst$residuals) / 1.348
 ```
 
 ```{r aqua_buoy_sst, echo=FALSE}
@@ -527,7 +527,7 @@ RSD_aqua_buoy <- IQR(fit_aqua_buoy_sst$residuals) / 1.348
 
 ```{r collocation_functions, include=FALSE}
 
-calculate_bias <- function(source1, source2, source3) {
+compute_bias <- function(source1, source2, source3) {
   if (!is.null(nrow(source1)) |
     !is.null(nrow(source2)) |
     !is.null(nrow(source3)) |
@@ -547,10 +547,10 @@ calculate_bias <- function(source1, source2, source3) {
   names(biases) <- c("bias_src1src3", "bias_src2src3")
   
   return(biases)
-}   # End of calculate_bias
+}   # End of compute_bias
 
 
-calculate_variance <- function(source1, source2, source3) {
+compute_variance <- function(source1, source2, source3) {
   if (!is.null(nrow(source1)) |
     !is.null(nrow(source2)) |
     !is.null(nrow(source3)) |
@@ -561,9 +561,9 @@ calculate_variance <- function(source1, source2, source3) {
   }
   
   # Call bias function to re-scale measurements
-  biases <- calculate_bias(source1, source2, source3)
+  biases <- compute_bias(source1, source2, source3)
   
-  #PUT A COMMENT
+  #Scale sources to one source to compute variance
   source1_scaled <- source1 - biases['bias_src1src3']
   source2_scaled <- source2 - biases['bias_src2src3']
   
@@ -576,7 +576,7 @@ calculate_variance <- function(source1, source2, source3) {
   variances <- data.frame(variance_source1, variance_source2, variance_source3)
   colnames(variances) <- c("variance_source1", "variance_source2", "variance_source3")
   return(variances)
-} # end of calculate_variance
+} # end of compute_variance
 
 ```
 
@@ -584,18 +584,19 @@ calculate_variance <- function(source1, source2, source3) {
 
 # Make sure the last argument to calculate_variance corresponds to the buoy SSTs
 
-variances_global <- calculate_variance(orig_filtered$cen.sst.vrs,
-  orig_filtered$cen.sst.aqu,
+variances_global <- compute_variance(orig_filtered$cen.sst.aqu,
+  orig_filtered$cen.sst.vrs,
   orig_filtered$buoy.sst.vrs)
 
-biases_global <- calculate_bias(orig_filtered$cen.sst.vrs,
-  orig_filtered$cen.sst.aqu,
+biases_global <- compute_bias(orig_filtered$cen.sst.aqu,
+  orig_filtered$cen.sst.vrs,
   orig_filtered$buoy.sst.vrs)
 
+sd_global <- round(sqrt(abs(variances_global)), 3)
 
 ```
 
-```{r}
+```{r aqua_viirs_errors}
 
 tt1 <- orig_filtered$cen.sst.aqu - orig_filtered$buoy.sst.vrs
 tt2 <- orig_filtered$cen.sst.vrs - orig_filtered$buoy.sst.vrs
@@ -619,10 +620,138 @@ RSD_aqua_viirs_errors <- IQR(fit_aqua_viirs_errors$residuals) / 1.348
 
 ```
 
+```{r  colloc_corr_assumptions_sim, echo=FALSE}
+
+# Create an empirical curve for the over/under-estimation of variances with varying correlations
+
+# Set seed so findings are reproducible
+set.seed(2)
+
+nobs <- 65000 # Number of observations
+ntrials <- 100.00 # Number of trials
+corr_values <- seq(from = 0, to = .99, by = .01) # Increments of correlation to test
+
+# Truth variable
+truthx <- runif(n = nobs, min = 0, max = 30)
+
+# Biases
+alpha1 <- 3
+alpha2 <- 5
+alpha3 <- 07
+
+# SDs for each observation source
+sd_aq <- .4
+sd_vi <- .4 # sd_aq should roughly equal sd_vi
+sd_bu <- .25
+
+# Dataframe to store predicted variances per correlation
+preds_case <- as.data.frame(matrix(999, ncol = 3, nrow = length(corr_values)))
+colnames(preds_case) <- c("meas1", "meas2", "meas3")
+rownames(preds_case) <- as.character(corr_values)
+
+for (i in 1:length(corr_values)) {
+  # Create correlation matrix
+  R <- matrix(cbind(1.0,corr_values[i],0.0,  corr_values[i],1.0,0.0,  0.0,0.0,1.0),nrow=3)
+  U <- t(chol(R))
+  
+  # Create dataframe to store predicted variances
+  preds_trials <- as.data.frame(matrix(999, ncol = 3, nrow = ntrials))
+  colnames(preds_trials) <- c("Meas1", "Meas2", "Meas3")
+  rownames(preds_trials) <- as.character(seq(from = 1, to = ntrials, by = 1))
+  
+  for (trials in seq(from = 1, to = ntrials, by = 1)) {
+    if (trials %in% c(1, 50, 100)) {
+      cat('Trial', trials, 'of correlation value', corr_values[i], '\n')
+    }
+    # Create uncorrelated errors
+    noi1 <- rnorm(nobs, 0, sd_aq)
+    noi2 <- rnorm(nobs, 0, sd_vi)
+    noi3 <- rnorm(nobs, 0, sd_bu)
+    
+    # Correlate the uncorrelated errors
+    random.normal <- t(cbind(noi1, noi2, noi3))
+    X <- U %*% random.normal
+    newX <- t(X)
+    raw <- as.data.frame(newX)
+    
+    # Correlated errors
+    epsi1 <- raw[, 1]
+    epsi2 <- raw[, 2]
+    epsi3 <- raw[, 3]
+    
+    # Create 3 datasets with biases and correlated errors
+    meas1 <- truthx + alpha1 + epsi1
+    meas2 <- truthx + alpha2 + epsi2
+    meas3 <- truthx + alpha3 + epsi3
+    
+    # Compute predicted variances
+    variances <- round(sqrt(abs(compute_variance(meas1, meas2, meas3))), 3)
+    
+    # Store predicted variances in a dataframe
+    preds_trials[trials, ] <- variances
+  }
+  # Take the median of each dataset's predicted variance and store in a dataframe
+  cat('Taking the median of all trials for correlation value', corr_values[i], '\n')
+  #if (corrs == .29) {
+  #  preds_case[30, 1] <- median(preds_trials[, 1])
+  #  preds_case[30, 2] <- median(preds_trials[, 2])
+  #  preds_case[30, 3] <- median(preds_trials[, 3])
+  #} else if(corrs == .58) {
+  #  preds_case[59, 1] <- median(preds_trials[, 1])
+  #  preds_case[59, 2] <- median(preds_trials[, 2])
+  #  preds_case[59, 3] <- median(preds_trials[, 3])
+  #} else {
+  preds_case[i, 1] <- median(preds_trials[, 1])
+  preds_case[i, 2] <- median(preds_trials[, 2])
+  preds_case[i, 3] <- median(preds_trials[, 3])
+  #}
+}
+
+# Prep dataframe for plotting
+prop1 <- preds_case[, 1] / preds_case[1, 1]
+prop2 <- preds_case[, 2] / preds_case[1, 2]
+prop3 <- preds_case[, 3] / preds_case[1, 3]
+
+# Linear models fitting the proportions as a function of correlation
+fit_prop1 <- lm(prop1 ~ corr_values)
+fit_prop2 <- lm(prop2 ~ corr_values)
+fit_prop3 <- lm(prop3 ~ corr_values)
+
+int1 <- fit_prop1$coefficients[1]
+slo1 <- fit_prop1$coefficients[2]
+
+int2 <- fit_prop2$coefficients[1]
+slo2 <- fit_prop2$coefficients[2]
+
+# Plot proportions
+corr_sim <- ggplot2::ggplot() +
+  geom_line(aes(corr_values, prop1), size = 1.5, colour = 'blue') +
+  geom_line(aes(corr_values, prop2), size = 1.5, colour = 'red') +
+  geom_line(aes(corr_values, prop3), size = 1.5, colour = 'green') +
+  ylim(c(0, 2)) + 
+  labs(x = "Correlation between AQUA - Buoy and VIIRS - Buoy SSTs", y = "Proportion of Actual Variance Predicted") +
+  ggsave("Correlation_sim.ps", device = 'ps',
+    width = 8, height = 8, units = 'in')
+
+```
 
 
+```{r correcting_glob_experi_for_corr}
 
+corrections <- c(prop1[71], prop2[71], prop3[71]) # Correlation between aqua and viirs errors ~ 0.7 - get correction values for 0.7
+sd_global_corrected <- sd_global / corrections # Correct sds
 
+```
+
+```{r}
+mm1 <- orig_filtered$amsr2.val.vrs
+mm2 <- which(mm1 != -999.000)
+mm1 <- mm1[mm2]
+qq1 <- mm1 - orig_filtered$buoy.sst.vrs[mm2]
+fit_amsr2_aqua_errors <- lm(qq1 ~ tt1[mm2])
+fit_amsr2_viirs_errors <- lm(qq1 ~ tt2[mm2])
+
+```
 
 
 
