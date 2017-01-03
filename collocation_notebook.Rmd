@@ -1,12 +1,13 @@
 ---
 title: "Triple Collocation of VIIRS, Aqua, and Buoy Matchups"
 output:
-  html_notebook: default
-  html_document: default
+  html_notebook:
+    toc: True
+    theme: united
 ---
 
 This notebook describes the steps necessary to conduct a triple collocation
-study of SST values derived from (a) AQUA-MODIS, (b) Suomi_NPP-VIIRS and
+study of SST values derived from (a) Aqua - MODIS, (b) Suomi_NPP - VIIRS and
 (c) in situ observations form moored and drifting buoys.
 
 ```{r prep_workspace, include=FALSE}
@@ -40,10 +41,12 @@ rm(fun.dir, fun.file)
 
 # Building a Dataset for Triple Collocation
 
-In a previous step, we read in matchups for AQUA and VIIRS and stored them in
-binary (.Rdata) objects. For Aqua, we modified the regular expression to list files so that only matchups from 2010 onwards were read.
-The first step is to restore those objects.
-Note that the name of the stored binary objects (.Rdata) contain the date in which they were created. Be sure to edit the names of the objects to ensure that the most recent versions are being used.  
+In a previous step, we read in matchups for Aqua and VIIRS and stored them in
+binary (.Rdata) objects. For Aqua, we modified the regular expression to list 
+files so that only matchups from 2010 onwards were read. The first step is to
+restore those objects. Note that the name of the stored binary objects (.Rdata)
+contain the date in which they were created. Be sure to edit the names of the
+objects to ensure that the most recent versions are being used.  
 
 ```{r load_VIIRS_AQUA_objects, include=FALSE}
 
@@ -118,7 +121,7 @@ We also read Aqua matchups for the period between `r min(AQUA$buoy.timedate)`
 and `r max(AQUA$buoy.timedate)`. The number of Aqua matchups was `r nrow(AQUA)`.
 
 These restored objects have many more variables than we need.
-The AQUA matchups have `r ncol(AQUA)` variables, and the VIIRS matchups have
+The Aqua matchups have `r ncol(AQUA)` variables, and the VIIRS matchups have
 `r ncol(VIIRS)` columns. Therefore, a second step eliminates many variables
 or columns that are not needed for the collocation study.
 
@@ -140,11 +143,13 @@ rm(modis.colloc.vars, viirs.colloc.vars)
 
 ```
 
-After the reduction of unnecessary variables, the trimmed AQUA matchups
+After the reduction of unnecessary variables, the trimmed Aqua matchups
 have `r ncol(AQUA.trimmed)` variables, and the trimmed VIIRS matchups have
 `r ncol(VIIRS.trimmed)` columns. 
 
-The third preparatory step is to convert the VIIRS BTs and SSTs from degrees Kelvin to Celsius, whereas Aqua BTs, and SSTs already are expressed in Celsius. For consistency we  convert VIIRS values to degrees Celsius from degrees Kelvin.
+The third preparatory step is to convert the VIIRS BTs and SSTs from degrees 
+Kelvin to Celsius, whereas Aqua BTs, and SSTs already are expressed in Celsius.
+For consistency we convert VIIRS values to degrees Celsius from degrees Kelvin.
 
 ```{r convert_VIIRS_K_to_C, echo = FALSE}
 
@@ -161,7 +166,8 @@ rm(pattern, tt1)
 
 ```
 
-To confirm that the conversion from Kelvin to Celsius was successful, we output the summary of the 'cen.sst' column before and after the conversion.
+To confirm that the conversion from Kelvin to Celsius was successful, we output
+the summary of the 'cen.sst' column before and after the conversion.
 
 ```{r verify_K_to_C, echo = FALSE}
 cat('BEFORE K to C conversion\n')
@@ -181,9 +187,13 @@ AQUA.trimmed$cen.sst <- AQUA.trimmed$cen.sst + 0.17
 
 ```
 
-The final preparatory step before joining the VIIRS and AQUA matchups is to add
-a suffix to the variables of each data set indicating the source of the variable. For example, variable 'cen.sst' will be re named to 'cen.sst.vrs' if it corresponds to VIIRS and 'cen.sst.aqu' if it comes from the AQUA-MODIS matchups. We do not change the names of columns 'buoy.id' and 'buoy.date', as those are the common
-variables in both datasets that will be used to join them in the next section.
+The final preparatory step before joining the VIIRS and Aqua matchups is to add
+a suffix to the variables of each data set indicating the source of the variable.
+This allows us to see the source of a variable when we join For example, variable
+'cen.sst' will be re named to 'cen.sst.vrs' if it corresponds to VIIRS and 'cen.sst.aqu'
+if it comes from the Aqua - MODIS matchups. We do not change the names of columns 'buoy.id'
+and 'buoy.date', as those are the common variables in both datasets that will be used
+to join them in the next section.
 
 ```{r rename_columns, echo=FALSE}
 
@@ -218,10 +228,13 @@ colnames(AQUA.trimmed[1:10])
 
 ## Joining VIIRS and Aqua Matchups
 
-A collocation study requires data from at least three sources that are relatively coincident in space and time.
-We require that each collocated record include SST measurements from all three
-techniques collected within at most 60 minutes and one kilometer from each other.
-We have two SST measurements derived from satellite-based infrared radiometers (Suomi Npp - VIIRS and Aqua - MODIS). Since the buoy data are common elements to both VIIRS and Aqua matchups, we use them as a common key to join Aqua and VIIRS matchups. 
+A collocation study requires data from at least three sources that are relatively 
+coincident in space and time. We require that each collocated record include SST
+measurements from all three techniques collected within at most 60 minutes and one 
+kilometer from each other. We have two SST measurements derived from satellite-based
+infrared radiometers (Suomi Npp - VIIRS and Aqua - MODIS). Since the buoy data are
+common elements to both VIIRS and Aqua matchups, we use them as a common key to 
+join Aqua and VIIRS matchups. 
 
 ```{r join_VIIRS_and_AQUA, echo=TRUE}
 
@@ -273,9 +286,15 @@ rm(tt1,tt2,tt3)
 
 ## Filtering VIIRS and Aqua Matchups
 
-At this point, we have `r nrow(orig_j)` joined matchups. However, these matchups do not have enough spatial or temporal coincidence to meet our requirements stated above or for a triple collocation error analysis. We did not join by the buoy's timedate or latitude/longitude because the 'dplyr::inner_join' function only matches if key values are *exactly* the same in both datasets, thereby reducing the number of potentially useful matchups. We instead apply a series of filtering steps to ensure the conditions stated above for a triple collocation error analysis.
-We also filter matchups that have good quality so that we minimize chances of
-errors in satellite SST retrievals due to cloud contamination.
+At this point, we have `r nrow(orig_j)` joined matchups. However, these matchups
+do not have enough spatial or temporal coincidence to meet our requirements stated 
+above or for a triple collocation error analysis. We did not join by the buoy's 
+timedate or latitude/longitude because the 'dplyr::inner_join' function only matches
+if key values are *exactly* the same in both datasets, thereby reducing the number of
+potentially useful matchups. We instead apply a series of filtering steps to ensure the
+conditions stated above for a triple collocation error analysis. We also filter matchups
+so we only have good quality retrievals to minimize the chances of errors in satellite
+SST retrievals due to cloud contamination.
 
 ```{r filtering_orig_j, echo=FALSE}
 
@@ -332,11 +351,17 @@ rm(uu1,uu2,uu3)
 
 ```
 
-After applying the various filters we are left with `r nrow(orig_j)` matchups. These matchups now have enough spatial and temporal coincidence for us to apply the collocation techniques.
+After applying the various filters we are left with `r nrow(orig_j)` matchups. 
+These matchups now have enough spatial and temporal coincidence for us to apply
+the collocation techniques.
 
 ## Spatial distribution of collocated matchups
 
-Here we explore the geospatial distribution of the final matchups we will use for collocation. We show that collocated matchups exist all over the world with enough incidence in different regions for us to interpret the results of a global collocation experiment without bias.
+Now that we a collocated database with enough temporal and spatial similarity to
+be used in collocation, we explore the nature of this database. Here we explore
+the geospatial distribution collocated matchups. We show that collocated matchups
+exist all over the world with enough incidence in different regions for us to interpret
+the results of a global collocation experiment without bias.
 
 A standard Mercator map with points for collocated matchups.
 ```{r points_on_map}
@@ -385,7 +410,8 @@ plot(mp)
 
 ```
 
-This is the standard Mercator projection of a map with hexagonal bins overlayed showing the relative density of points per bin.
+This is the standard Mercator projection of a map with hexagonal bins overlayed showing
+the density of points per bin.
 
 ```{r map_with_hexbinning}
 # Create base map
@@ -418,7 +444,13 @@ ggplot2::ggsave(filename = 'point_distribution.ps', device = 'ps',
 
 ## Temporal distribution of collocated matchups
 
-In order to interpret the global collocation properly, we must understand the temporal distribution of matchups. Algorithm changes will effect the accuracy of SST retrievals and SST accuracy is dependent on seasonal atmospheres (hence the recomputation of algorithms coefficients on a seasonal bases). We show that there are more matchups during the summer months in North America than the winter months. This finding allows us to interpret the results of the global collocation with the appropriate understanding that the global standard deviation of random errors will be biased towards the standard deviation of errors in summer months.
+In order to interpret the global collocation properly, we must understand the temporal 
+distribution of matchups. Algorithm changes will effect the accuracy of SST retrievals
+and SST accuracy is dependent on seasonal atmospheres (hence the recomputation of algorithms
+coefficients on a seasonal bases). We show that there are more matchups during the North American
+summer months than the winter months. This finding allows us to interpret the results of
+the global collocation with the appropriate understanding that the global standard deviation
+of random errors will be biased towards the standard deviation of errors in summer months.
 ```{r heatmap_of_matchups}
 
 yy <- lubridate::year(orig_filtered$buoy.timedate.vrs)     # Year
@@ -459,7 +491,12 @@ hm <- ggplot2::ggplot(data = tt4, aes(mm, yy)) +
 
 ## Association between all SST sources
 
-A key assumption in collocation is that the random errors must be uncorrelated. Because MODIS and VIIRS are two very similar instruments that use similar retrieval techniques and view extraordinarily similar atmospheres (see high temporal and spatial similarity explored above), we hypothesize that MODIS and VIIRS retrieval random errors are highly correlated. We attempt to explore the validity of no correlation assumption within our data. We start by exploring the correlation between retrievals in each of the three sensors.
+A key assumption in collocation is that the random errors must be uncorrelated. Because
+MODIS and VIIRS are two very similar instruments that use similar retrieval techniques (i.e.
+both are infrared radiometers) and view extraordinarily similar atmospheres (see high temporal
+and spatial similarity explored above), we hypothesize that Aqua and VIIRS retrieval random
+errors are highly correlated. We attempt to explore the validity of no correlation assumption
+within our data. We start by exploring just the correlation between retrievals in each of the three sensors.
 
 ```{r viirs_aqua_sst, echo=FALSE}
 
@@ -526,9 +563,15 @@ fit_aqua_buoy_sst <- lm(cen.sst.aqu ~ buoy.sst.vrs, data = orig_filtered)
 RSD_aqua_buoy <- IQR(fit_aqua_buoy_sst$residuals) / 1.348
 ```
 
-The correlation between SST sources is extraordinarily high. However, this still does not tell us what the correlation between random errors in retrievals may be. We attempt to estimate this parameter by finding the correlation between MODIS - buoy SSTs and VIIRS - buoy SSTs.
+The correlation between SST sources is extraordinarily high. However, this still does 
+not tell us what the correlation between random errors in retrievals may be. We attempt
+to estimate this parameter by finding the correlation between Aqua minus buoy SSTs and
+VIIRS - buoy SSTs. Because of the validity of buoy SSTs, we can assume the buoy
+SST to be the true value of the measured SST variable. Aqua minus buoy SST and VIIRS
+minus buoy SST are then approximations for the random error. We find the correlation
+in the approximate random error.
 
-## Correlation between MODIS and VIIRS Errors
+## Correlation between Aqua and VIIRS Errors
 ```{r aqua_viirs_errors}
 
 tt1 <- orig_filtered$cen.sst.aqu - orig_filtered$buoy.sst.vrs
@@ -553,13 +596,18 @@ RSD_aqua_viirs_errors <- IQR(fit_aqua_viirs_errors$residuals) / 1.348
 
 ```
 
-Because of the assumed validity of buoy SSTs, we can estimate the random error in a retrieval by subtracting the buoy retrieval value from the satellite retrieval. We show that the correlation between MODIS and VIIRS errors is extraordinarily high, almost 0.7, for two sources whose errors should be uncorrelated for collocation.
+We show that the correlation between Aqua and VIIRS errors is extraordinarily high, 
+almost 0.7, for two sources whose errors should be uncorrelated for collocation to work 
+correctly. We now conduct the collocation experiment and explore our results, knowing that
+Aqua and VIIRS errors are correlated.
 
 # Error estimation using triple collocation
 
 ## Global experiment: all matchups in collocated DB (CDB)
 
-We explore the collocation-outputed values of standard deviation in a global experiment, knowing that the random error in MODIS and VIIRS retrievals is highly correlated. We notice that this value does not agree with previous experiments to quantify the random error.
+We find that the collocation estimated standard deviations do not agree with previous
+experiments to quantify the random error. We determine correlation between random errors of
+Aqua and VIIRS to be the cause for this apparent discrepancy.
 
 ```{r collocation_functions, include=FALSE}
 
@@ -630,11 +678,21 @@ biases_global <- compute_bias(orig_filtered$cen.sst.aqu,
 
 sd_global <- round(sqrt(abs(variances_global)), 3)
 
+sd_global
+
 ```
 
 ## Correlation Simulation
 
-We explore the quantity of misprediction in collocation standard deviation when errors are known to be correlated. We create three sets of random errors and systematically change the correlation in these sets. We then plot the ratio of predicted standard deviation to the correct standard deviation with the varying values of correlation. Note that we keep the standard deviation of the random error the same throughout the experiments. However, the standard deviations we use is based on previous analysis of possible standard deviations of random errors in MODIS and VIIRST SSTs.
+We explore the quantity of misprediction in collocation standard deviations when errors
+are known to be correlated. We create three datasets that are similar to the two
+satellite and one buoy dataset we are using for collocation. The datasets contain
+60,000 measurements, range from 0 C to 30 C, and have standard deviations of 
+0.4 for Aqua and VIIRS and 0.25 for buoy. We then systematically change the
+random error correlation in these datasets. We plot the ratio of predicted standard
+deviation to the correct standard deviation with the varying values of correlation.
+Note that we keep the standard deviation of the random error the same throughout the
+experiments.
 
 ```{r  colloc_corr_assumptions_sim, echo=FALSE}
 
@@ -751,17 +809,22 @@ corr_sim <- ggplot2::ggplot() +
 
 ```
 
-By having an estimation of the correlation of random errors between MODIS and VIIRS (0.7) and knowledge of how correlation effects collocation-estimated standard deviations, we can compute standard deviations on our correlated dataset and correct by dividing by the factor of predicted standard deviation to actual standard deviation determined from our above numerical analysis
+## Correcting for Correlation in Collocation
+
+By having an estimation of the correlation of random errors between Aqua and VIIRS (0.7)
+and knowledge of how correlation effects collocation-estimated standard deviations, we can
+compute standard deviations on our correlated dataset and correct by dividing by the factor 
+of predicted standard deviation to actual standard deviation determined from our above numerical analysis.
 
 ```{r correcting_glob_experi_for_corr}
 
 corrections <- c(prop1[71], prop2[71], prop3[71]) # Correlation between aqua and viirs errors ~ 0.7 - get correction values for 0.7
 sd_global_corrected <- sd_global / corrections # Correct sds
-
+sd_global_corrected
 ```
 
 
-
+# Analysis and further experiments
 
 
 
