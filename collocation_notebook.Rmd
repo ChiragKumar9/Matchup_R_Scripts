@@ -332,11 +332,13 @@ rm(uu1,uu2,uu3)
 
 ```
 
-After applying the various filters we are left with `r nrow(orig_j)`
-matchups.
+After applying the various filters we are left with `r nrow(orig_j)` matchups. These matchups now have enough spatial and temporal coincidence for us to apply the collocation techniques.
 
 ## Spatial distribution of collocated matchups
 
+Here we explore the geospatial distribution of the final matchups we will use for collocation. We show that collocated matchups exist all over the world with enough incidence in different regions for us to interpret the results of a global collocation experiment without bias.
+
+A standard Mercator map with points for collocated matchups.
 ```{r points_on_map}
 library(maps)
 library(mapdata)
@@ -356,6 +358,7 @@ dev.off()
 
 ```
 
+The same plots as above just using **ggplot** instead.
 ```{r points_on_map_ggmap}
 # Plot location of collocated data 
 
@@ -382,8 +385,9 @@ plot(mp)
 
 ```
 
-```{r map_with_hexbinning}
+This is the standard Mercator projection of a map with hexagonal bins overlayed showing the relative density of points per bin.
 
+```{r map_with_hexbinning}
 # Create base map
 require(ggmap)
 
@@ -414,6 +418,7 @@ ggplot2::ggsave(filename = 'point_distribution.ps', device = 'ps',
 
 ## Temporal distribution of collocated matchups
 
+In order to interpret the global collocation properly, we must understand the temporal distribution of matchups. Algorithm changes will effect the accuracy of SST retrievals and SST accuracy is dependent on seasonal atmospheres (hence the recomputation of algorithms coefficients on a seasonal bases). We show that there are more matchups during the summer months in North America than the winter months. This finding allows us to interpret the results of the global collocation with the appropriate understanding that the global standard deviation of random errors will be biased towards the standard deviation of errors in summer months.
 ```{r heatmap_of_matchups}
 
 yy <- lubridate::year(orig_filtered$buoy.timedate.vrs)     # Year
@@ -453,6 +458,8 @@ hm <- ggplot2::ggplot(data = tt4, aes(mm, yy)) +
 ```
 
 ## Association between all SST sources
+
+A key assumption in collocation is that the random errors must be uncorrelated. Because MODIS and VIIRS are two very similar instruments that use similar retrieval techniques and view extraordinarily similar atmospheres (see high temporal and spatial similarity explored above), we hypothesize that MODIS and VIIRS retrieval random errors are highly correlated. We attempt to explore the validity of no correlation assumption within our data. We start by exploring the correlation between retrievals in each of the three sensors.
 
 ```{r viirs_aqua_sst, echo=FALSE}
 
@@ -519,9 +526,40 @@ fit_aqua_buoy_sst <- lm(cen.sst.aqu ~ buoy.sst.vrs, data = orig_filtered)
 RSD_aqua_buoy <- IQR(fit_aqua_buoy_sst$residuals) / 1.348
 ```
 
+The correlation between SST sources is extraordinarily high. However, this still does not tell us what the correlation between random errors in retrievals may be. We attempt to estimate this parameter by finding the correlation between MODIS - buoy SSTs and VIIRS - buoy SSTs.
+
+## Correlation between MODIS and VIIRS Errors
+```{r aqua_viirs_errors}
+
+tt1 <- orig_filtered$cen.sst.aqu - orig_filtered$buoy.sst.vrs
+tt2 <- orig_filtered$cen.sst.vrs - orig_filtered$buoy.sst.vrs
+ccc <- RColorBrewer::brewer.pal(n = 9, name = 'YlOrRd')[3:9]
+
+errors <- ggplot(mapping = aes(x = tt1, y = tt2)) +
+  stat_bin2d(binwidth = c(0.1, 0.1)) +
+  scale_fill_gradientn(colours = ccc) +
+  geom_abline(intercept = 0, slope = 1, color = 'steelblue') +
+  lims(x = c(-3, 3), y = c(-3,3)) +
+  ggplot2::labs(title = "AQUA and VIIRS SST Errors", x = 'AQUA SST minus Buoy SST', y = 'VIIRS SST minus Buoy SST') +
+  ggplot2::ggsave(filename = 'AQUA_and_VIIRS_errors.ps', device = 'ps',
+       width = 8, height = 8, units = 'in') +
+  theme(text = element_text(size = 16))
+
+fit_aqua_viirs_errors <- lm(tt1 ~ tt2)
+
+# Compute robust standard deviation
+
+RSD_aqua_viirs_errors <- IQR(fit_aqua_viirs_errors$residuals) / 1.348
+
+```
+
+Because of the assumed validity of buoy SSTs, we can estimate the random error in a retrieval by subtracting the buoy retrieval value from the satellite retrieval. We show that the correlation between MODIS and VIIRS errors is extraordinarily high, almost 0.7, for two sources whose errors should be uncorrelated for collocation.
+
 # Error estimation using triple collocation
 
 ## Global experiment: all matchups in collocated DB (CDB)
+
+We explore the collocation-outputed values of standard deviation in a global experiment, knowing that the random error in MODIS and VIIRS retrievals is highly correlated. We notice that this value does not agree with previous experiments to quantify the random error.
 
 ```{r collocation_functions, include=FALSE}
 
@@ -594,29 +632,9 @@ sd_global <- round(sqrt(abs(variances_global)), 3)
 
 ```
 
-```{r aqua_viirs_errors}
+## Correlation Simulation
 
-tt1 <- orig_filtered$cen.sst.aqu - orig_filtered$buoy.sst.vrs
-tt2 <- orig_filtered$cen.sst.vrs - orig_filtered$buoy.sst.vrs
-ccc <- RColorBrewer::brewer.pal(n = 9, name = 'YlOrRd')[3:9]
-
-errors <- ggplot(mapping = aes(x = tt1, y = tt2)) +
-  stat_bin2d(binwidth = c(0.1, 0.1)) +
-  scale_fill_gradientn(colours = ccc) +
-  geom_abline(intercept = 0, slope = 1, color = 'steelblue') +
-  lims(x = c(-3, 3), y = c(-3,3)) +
-  ggplot2::labs(title = "AQUA and VIIRS SST Errors", x = 'AQUA SST minus Buoy SST', y = 'VIIRS SST minus Buoy SST') +
-  ggplot2::ggsave(filename = 'AQUA_and_VIIRS_errors.ps', device = 'ps',
-       width = 8, height = 8, units = 'in') +
-  theme(text = element_text(size = 16))
-
-fit_aqua_viirs_errors <- lm(tt1 ~ tt2)
-
-# Compute robust standard deviation
-
-RSD_aqua_viirs_errors <- IQR(fit_aqua_viirs_errors$residuals) / 1.348
-
-```
+We explore the quantity of misprediction in collocation standard deviation when errors are known to be correlated. We create three sets of random errors and systematically change the correlation in these sets. We then plot the ratio of predicted standard deviation to the correct standard deviation with the varying values of correlation. Note that we keep the standard deviation of the random error the same throughout the experiments. However, the standard deviations we use is based on previous analysis of possible standard deviations of random errors in MODIS and VIIRST SSTs.
 
 ```{r  colloc_corr_assumptions_sim, echo=FALSE}
 
@@ -733,6 +751,7 @@ corr_sim <- ggplot2::ggplot() +
 
 ```
 
+By having an estimation of the correlation of random errors between MODIS and VIIRS (0.7) and knowledge of how correlation effects collocation-estimated standard deviations, we can compute standard deviations on our correlated dataset and correct by dividing by the factor of predicted standard deviation to actual standard deviation determined from our above numerical analysis
 
 ```{r correcting_glob_experi_for_corr}
 
@@ -741,15 +760,6 @@ sd_global_corrected <- sd_global / corrections # Correct sds
 
 ```
 
-```{r}
-mm1 <- orig_filtered$amsr2.val.vrs
-mm2 <- which(mm1 > -999.000)
-mm1 <- mm1[mm2]
-qq1 <- mm1 - orig_filtered$buoy.sst.vrs[mm2]
-fit_amsr2_aqua_errors <- lm(qq1 ~ tt1[mm2])
-fit_amsr2_viirs_errors <- lm(qq1 ~ tt2[mm2])
-
-```
 
 
 
