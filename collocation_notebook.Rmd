@@ -10,8 +10,6 @@ study of SST values derived from (a) AQUA-MODIS, (b) Suomi_NPP-VIIRS and
 (c) in situ observations form moored and drifting buoys.
 
 ```{r prep_workspace, include=FALSE}
-# This chunk loads needed packages
-
 # Load necessary packages
 library(dplyr)
 library(ggplot2)
@@ -635,9 +633,9 @@ corr_values <- seq(from = 0, to = .99, by = .01) # Increments of correlation to 
 truthx <- runif(n = nobs, min = 0, max = 30)
 
 # Biases
-alpha1 <- 3
-alpha2 <- 5
-alpha3 <- 07
+alpha1 <- 0
+alpha2 <- 0
+alpha3 <- 0
 
 # SDs for each observation source
 sd_aq <- .4
@@ -745,7 +743,7 @@ sd_global_corrected <- sd_global / corrections # Correct sds
 
 ```{r}
 mm1 <- orig_filtered$amsr2.val.vrs
-mm2 <- which(mm1 != -999.000)
+mm2 <- which(mm1 > -999.000)
 mm1 <- mm1[mm2]
 qq1 <- mm1 - orig_filtered$buoy.sst.vrs[mm2]
 fit_amsr2_aqua_errors <- lm(qq1 ~ tt1[mm2])
