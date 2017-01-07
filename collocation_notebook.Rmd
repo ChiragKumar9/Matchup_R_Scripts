@@ -51,6 +51,7 @@ objects to ensure that the most recent versions are being used.
 ```{r load_VIIRS_AQUA_objects, include=FALSE}
 
 # Load .Rdata object for VIIRS matchups resulting from script 01_read_matchups.R
+# We assume... TO DO
 
 if (Sys.info()["sysname"] == 'Windows') {
   # Windows directory for VIIRS matchups
@@ -424,7 +425,8 @@ mp <- ggplot() +  mapWorld +
   ggplot2::scale_y_continuous(breaks = seq(from = -90, to = 90, by = 30)) +
   coord_fixed(ratio = 1)
 
-
+# WARNING: Be careful as this worked with ggplot2 2.1.0 on Linux
+# Try to work on different machines with varying versions of ggplot2
 # Now layer the buoys on top with hexagonal binning
 mp <- mp + 
   ggplot2::stat_binhex(data = orig_filtered,
@@ -451,6 +453,7 @@ coefficients on a seasonal bases). We show that there are more matchups during t
 summer months than the winter months. This finding allows us to interpret the results of
 the global collocation with the appropriate understanding that the global standard deviation
 of random errors will be biased towards the standard deviation of errors in summer months.
+
 ```{r heatmap_of_matchups}
 
 yy <- lubridate::year(orig_filtered$buoy.timedate.vrs)     # Year
@@ -484,8 +487,6 @@ hm <- ggplot2::ggplot(data = tt4, aes(mm, yy)) +
   ggplot2::theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank())+
   ggplot2::ggsave("Temporal_heatmap.ps", device = 'ps',
        width = 8, height = 6, units = 'in')
-
-
 
 ```
 
@@ -597,7 +598,7 @@ RSD_aqua_viirs_errors <- IQR(fit_aqua_viirs_errors$residuals) / 1.348
 ```
 
 We show that the correlation between Aqua and VIIRS errors is extraordinarily high, 
-almost 0.7, for two sources whose errors should be uncorrelated for collocation to work 
+almost `r cor(tt1, tt2)`, for two sources whose errors should be uncorrelated for collocation to work 
 correctly. We now conduct the collocation experiment and explore our results, knowing that
 Aqua and VIIRS errors are correlated.
 
@@ -682,7 +683,7 @@ sd_global
 
 ```
 
-## Correlation Simulation
+## Impact of Correlation in Random Errors on Triple Collocation Standard Deviations
 
 We explore the quantity of misprediction in collocation standard deviations when errors
 are known to be correlated. We create three datasets that are similar to the two
@@ -809,7 +810,7 @@ corr_sim <- ggplot2::ggplot() +
 
 ```
 
-## Correcting for Correlation in Collocation
+## Correcting Collocation Estimates for Correlation in Errors of Different SST Sources
 
 By having an estimation of the correlation of random errors between Aqua and VIIRS (0.7)
 and knowledge of how correlation effects collocation-estimated standard deviations, we can
@@ -825,12 +826,5 @@ sd_global_corrected
 
 
 # Analysis and further experiments
-
-
-
-
-
-
-
 
 
