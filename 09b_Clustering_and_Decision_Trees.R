@@ -2,7 +2,6 @@
 #Clustering allows quantifying the expected residual of a retrieval based on the median ± IQR of the cluster the retrieval is part of
 #Decision Trees were created to visualize what combinations of geophyisical variables led to very high and low residual points
 
-
 #Import necessary packages
 require(dplyr)
 require(readr)
@@ -23,7 +22,7 @@ require(rpart.plot)
 secant.deg <- function(x) {1 / (cos(rad(x)))}
 
 #Define robust scaling function
-#3 Methods: Scaling with median and MAD, median and IQR, and mea
+#3 Methods: Scaling with median and MAD, median and IQR, and mean
 scale.robust <- function(x, method) {
   if (method == "MAD") {
     for (i in seq(1, ncol(x))) {
