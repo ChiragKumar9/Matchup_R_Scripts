@@ -444,6 +444,25 @@ ggplot2::ggsave(filename = 'point_distribution.ps', device = 'ps',
 
 ```
 
+An interactive map.
+```{r interactive_map, echo=TRUE}
+matchup.coords <- as.matrix(cbind(lon = orig_filtered[, 'buoy.lon.aqu'],
+  lat = orig_filtered[, 'buoy.lat.aqu']))
+
+crs.string <- "+proj=longlat +datum=WGS84 +no_defs +ellps=WGS84 +towgs84=0,0,0"
+
+pts <- sp::SpatialPoints(coords = matchup.coords,
+  proj4string = sp::CRS(crs.string))
+
+pts <- as.data.frame(pts)
+pts <- data.frame(pts, orig_filtered$insitu.platform.aqu, orig_filtered$buoy.id)
+sp::coordinates(pts) <- ~ buoy.lon.aqu + buoy.lat.aqu
+sp::proj4string(pts) <- sp::CRS(crs.string)
+
+mapview::mapview(pts, alpha = .2, cex = 1)
+```
+
+
 ## Temporal distribution of collocated matchups
 
 In order to interpret the global collocation properly, we must understand the temporal 
