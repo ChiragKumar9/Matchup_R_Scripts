@@ -7,13 +7,7 @@
 # ------------------------------------------------------------------------------#
 # ---- Prep workspace -----------------------------------------------------------
 # Import necessary packages
-=======
-#This code performs clustering on SST Matchups to identify geophysically similar regions of the hypercube.
-#Clustering allows quantifying the expected residual of a retrieval based on the median ± IQR of the cluster the retrieval is part of
-#Decision Trees were created to visualize what combinations of geophyisical variables led to very high and low residual points
 
-#Import necessary packages
->>>>>>> 644b5d2a8cdf40836d4cf9f87b1f4efec3a4d328
 require(dplyr)
 require(readr)
 require(circular)
@@ -33,13 +27,8 @@ require(ggplot2)
 # Define secant function
 secant.deg <- function(x) {1 / (cos(rad(x)))}
 
-<<<<<<< HEAD
 # Define robust scaling function
 # 3 Methods: Scaling with median and MAD, median and IQR, and mean normalization
-=======
-#Define robust scaling function
-#3 Methods: Scaling with median and MAD, median and IQR, and mean
->>>>>>> 644b5d2a8cdf40836d4cf9f87b1f4efec3a4d328
 scale.robust <- function(x, method) {
   if (method == "MAD") {
     for (i in seq(1, ncol(x))) {
@@ -59,7 +48,7 @@ scale.robust <- function(x, method) {
     }
     return(x)
   }
-  #Standard is 
+  # Standard is mean normalization
   if (method == "standard") {
     x <- as.matrix(x)
     x_scaled <- scale(x, center = TRUE, scale = TRUE)
@@ -71,8 +60,9 @@ scale.robust <- function(x, method) {
 }
 
 # Read AQUA Matchups file (2002-2010) - from 01read_matchups.R script
-orig <- readr::read_csv("/home/ckk/Projects/Matchup_R_Scripts/Results/objects/MODIS_Aqua_GSFC_ALL_Class_6.4.1_ao_2016_01_23.csv")
-
+load('/home/ckk/Projects/Matchup_R_Scripts/Results/objects/MODIS_Aqua_GSFC_ALL_Class_6.4.1_ao_2016_11_26_with_ancillary.Rdata')
+orig <- `MODIS_Aqua_GSFC_ALL_Class_6.4.1_ao_2016_11_26`
+rm(`MODIS_Aqua_GSFC_ALL_Class_6.4.1_ao_2016_11_26`)
 #--------------------------------------------------------------------------------
 
 # ------------------------------------------------------------------------------#
