@@ -7,6 +7,13 @@
 # ------------------------------------------------------------------------------#
 # ---- Prep workspace -----------------------------------------------------------
 # Import necessary packages
+=======
+#This code performs clustering on SST Matchups to identify geophysically similar regions of the hypercube.
+#Clustering allows quantifying the expected residual of a retrieval based on the median ± IQR of the cluster the retrieval is part of
+#Decision Trees were created to visualize what combinations of geophyisical variables led to very high and low residual points
+
+#Import necessary packages
+>>>>>>> 644b5d2a8cdf40836d4cf9f87b1f4efec3a4d328
 require(dplyr)
 require(readr)
 require(circular)
@@ -26,8 +33,13 @@ require(ggplot2)
 # Define secant function
 secant.deg <- function(x) {1 / (cos(rad(x)))}
 
+<<<<<<< HEAD
 # Define robust scaling function
 # 3 Methods: Scaling with median and MAD, median and IQR, and mean normalization
+=======
+#Define robust scaling function
+#3 Methods: Scaling with median and MAD, median and IQR, and mean
+>>>>>>> 644b5d2a8cdf40836d4cf9f87b1f4efec3a4d328
 scale.robust <- function(x, method) {
   if (method == "MAD") {
     for (i in seq(1, ncol(x))) {
