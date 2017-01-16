@@ -19,10 +19,14 @@ require(ggplot2)
 require(ROCR)
 require(misc3d)
 require(hypervolume)
-require(DeducerExtras)
-require(Deducer)
+#require(DeducerExtras) #TO DO: Figure out how to install on linux...
+#require(Deducer)
 require(rpart.plot)
-require(ggplot2)
+require(ggmap)
+require(caret)
+require(clue)
+
+ggplot <- function(...) {ggplot2::ggplot(...) + theme_bw()}
 
 # Define secant function
 secant.deg <- function(x) {1 / (cos(rad(x)))}
@@ -60,21 +64,24 @@ scale.robust <- function(x, method) {
 }
 
 # Read AQUA Matchups file (2002-2010) - from 01read_matchups.R script
-load('/home/ckk/Projects/Matchup_R_Scripts/Results/objects/MODIS_Aqua_GSFC_ALL_Class_6.4.1_ao_2016_11_26_with_ancillary.Rdata')
-orig <- `MODIS_Aqua_GSFC_ALL_Class_6.4.1_ao_2016_11_26`
-rm(`MODIS_Aqua_GSFC_ALL_Class_6.4.1_ao_2016_11_26`)
+load('/home/ckk/Projects/Matchup_R_Scripts/Results/objects/MODIS_Aqua_GSFC_ALL_Class_6.4.1_ao_2017_01_14_with_ancillary.Rdata')
+orig <- `MODIS_Aqua_GSFC_ALL_Class_6.4.1_ao_2017_01_14`
+rm(`MODIS_Aqua_GSFC_ALL_Class_6.4.1_ao_2017_01_14`)
 #--------------------------------------------------------------------------------
 
 # ------------------------------------------------------------------------------#
 # ---- Prep matchups and generate features for analysis ------------------------
 
-# Filter for only nighttime data - avaoid sunglint contamination
-orig_solz <- dplyr::tbl_df(orig) %>% 
+# Filter for only nighttime data - avoid sunglint contamination
+orig$buoy.timedate <- as.character(orig$buoy.timedate)
+orig$sat.timedate <- as.character(orig$sat.timedate)
+orig <- dplyr::tbl_df(orig) %>% 
+  dplyr::filter(lubridate::year(lubridate::ymd_hms(sat.timedate)) <= 2010) %>% # For Google recreation
   dplyr::filter(solz >= 90)
 
 # Select variables - variables to generate terms in NLSST and other variables that
 # are useful in determining SST retrieval accuracy 
-orig2 <- dplyr::tbl_df(orig_solz) %>%
+orig2 <- dplyr::tbl_df(orig) %>%
   dplyr::select(satz,
     cen.11000,
     cen.12000,
@@ -127,83 +134,115 @@ orig3 <- dplyr::tbl_df(orig2) %>%
     range12 = max.12000 - min.12000,
     diff.med.min11 = med.11000 - min.11000,
     diff.med.min12 = med.12000 - min.12000, 
-    SST.resid = (buoy.sst-.17) - cen.sst) %>% 
+    SST.resid = (buoy.sst + .17) - cen.sst) %>% 
   dplyr::select(x1, x2, x3, lat, sd11, sd12, range11, range12, diff.med.min11, diff.med.min12, SST.resid)
 
+# -------------------------------------------------------------------------------
+
+# ------------------------------------------------------------------------------#
+# ---- Explore distribution of matchups ----
+
+# Spatial distribution
+mp <- NULL
+mapWorld <- borders("world", colour = "gray50", fill = "gray70") # create a layer of borders
+mp <- ggplot() +  mapWorld +
+  ggplot2::scale_x_continuous(breaks = seq(from = -180, to = 180, by = 60)) +
+  ggplot2::scale_y_continuous(breaks = seq(from = -90, to = 90, by = 30)) +
+  coord_fixed(ratio = 1)
+
+# WARNING: Be careful as this worked with ggplot2 2.1.0 on Linux
+# Try to work on different machines with varying versions of ggplot2
+# Now layer the buoys on top with hexagonal binning
+mp <- mp + 
+  ggplot2::stat_binhex(data = orig,
+    aes(x = buoy.lon, # Use hexagonal binning command and give x and y input
+      y = buoy.lat,
+      fill = cut(..value.., c(0, 500, 1000, 2000, 3000, 4000, 5000, Inf))), # Divides matchups per bin into discrete chunks and colors likewise
+    binwidth = c(10, 10)) +
+  mapWorld + labs(x = NULL, y = NULL) +
+  #scale_fill_hue('value') + # Standard colors with discrete chunking
+  scale_fill_brewer(palette = 'YlOrRd') + # Change colors to Yellow, Orange, and Red - many diff 
+  guides(fill = guide_legend(title = "N of matchups"))
+
+ggplot2::ggsave(filename = 'point_distribution_modis.ps', device = 'ps',
+  width = 8, height = 6, units = 'in')
+
+# Temporal distribution
+
+orig$sat.timedate <- lubridate::ymd_hms(orig$sat.timedate)
+orig$buoy.timedate <- lubridate::ymd_hms(orig$buoy.timedate)
+yy <- lubridate::year(orig$buoy.timedate)     # Year
+mm <- lubridate::month(orig$buoy.timedate)    # Month
+
+tt1 <- cbind(yy, mm)
+
+tt2 <- dplyr::tbl_df(tt1) %>%
+  dplyr::group_by(yy, mm) %>%
+  dplyr::summarise(n = n()) %>%
+  dplyr::arrange(yy, mm)
+
+yy.vals <- sort(unique(yy))
+mm.vals <- sort(unique(mm))
+tt3 <- expand.grid(mm = mm.vals, yy = yy.vals)
+
+tt4 <- dplyr::left_join(tt3, tt2) %>%
+  dplyr::select(yy, mm, n)
+
+brks <- pretty(tt4$n, n = 5)
+#brks <- floor(quantile(tt4$n, probs = seq(0, 1, 0.25), na.rm = TRUE))
+
+tt4$n <- cut(tt4$n, breaks = brks)
+tt4$mm <- ordered(tt4$mm, labels = month.abb)
+tt4$yy <- ordered(tt4$yy)
+
+hm <- ggplot2::ggplot(data = tt4, aes(mm, yy)) +
+  ggplot2::geom_tile(aes(fill = n), colour = "white") +
+  ggplot2::scale_fill_brewer(type = "seq", palette = 'YlOrRd', direction = 1) +
+  ggplot2::theme_bw() +
+  ggplot2::theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank())+
+  ggplot2::ggsave("Temporal_heatmap_modis.ps", device = 'ps',
+    width = 8, height = 6, units = 'in')
 # -------------------------------------------------------------------------------
 
 # ------------------------------------------------------------------------------#
 # ---- Test varying number of clusters and features ----
 
 # Testing different cluster and feature choices
-cluster.choices <- c(10, 20, 30, 40, 50, 100, 150, 200, 250, 500)
-feature.num.choices <- seq(3, 8, 1)
-evaluation.withinss <- data.frame(rep(999, 6),
-                                  rep(999, 6),
-                                  rep(999, 6),
-                                  rep(999, 6),
-                                  rep(999, 6),
-                                  rep(999, 6),
-                                  rep(999, 6),
-                                  rep(999, 6),
-                                  rep(999, 6),
-                                  rep(999, 6),
-                                  rep(999, 6))
-median.best <- data.frame(rep(999, 6),
-                          rep(999, 6),
-                          rep(999, 6),
-                          rep(999, 6),
-                          rep(999, 6),
-                          rep(999, 6),
-                          rep(999, 6),
-                          rep(999, 6),
-                          rep(999, 6),
-                          rep(999, 6),
-                          rep(999, 6))
-IQR.best <- data.frame(rep(999, 6),
-                       rep(999, 6),
-                       rep(999, 6),
-                       rep(999, 6),
-                       rep(999, 6),
-                       rep(999, 6),
-                       rep(999, 6),
-                       rep(999, 6),
-                       rep(999, 6),
-                       rep(999, 6),
-                       rep(999, 6))
-median.IQR.match <- data.frame(rep(999, 6),
-                               rep(999, 6),
-                               rep(999, 6),
-                               rep(999, 6),
-                               rep(999, 6),
-                               rep(999, 6),
-                               rep(999, 6),
-                               rep(999, 6),
-                               rep(999, 6),
-                               rep(999, 6),
-                               rep(999, 6))
-colnames(evaluation) <- c("3f", "4f", "5f", "6f", "7f", "8f")
-rownames(evaluation) <- c("10c", "20c", "30c", "40c", "50c", "75c", "100c", "150c", "200c", "250c", "500c")
+cluster.choices <- c(10, 20, 30, 40, 50, 60, 70, 80, 90, 100, 150, 200)
+feature.num.choices <- seq(3, 10, 1)
+evaluation.withinss <- data.frame(matrix(NA, length(cluster.choices), length(feature.num.choices)))
+median.best <- data.frame(matrix(NA, length(cluster.choices), length(feature.num.choices)))
+IQR.best <- data.frame(matrix(NA, length(cluster.choices), length(feature.num.choices)))
+median.IQR.match <- data.frame(matrix(NA, length(cluster.choices), length(feature.num.choices)))
+
+colnames(evaluation.withinss) <- c("3f", "4f", "5f", "6f", "7f", "8f", "9f", "10f")
+rownames(evaluation.withinss) <- c("10c", "20c", "30c", "40c", "50c", "60c", "70c", "80c", "90c", "100c", "150c", "200c")
+colnames(median.best) <- c("3f", "4f", "5f", "6f", "7f", "8f", "9f", "10f")
+rownames(median.best) <- c("10c", "20c", "30c", "40c", "50c", "60c", "70c", "80c", "90c", "100c", "150c", "200c")
+colnames(IQR.best) <- c("3f", "4f", "5f", "6f", "7f", "8f", "9f", "10f")
+rownames(IQR.best) <- c("10c", "20c", "30c", "40c", "50c", "60c", "70c", "80c", "90c", "100c", "150c", "200c")
+colnames(median.IQR.match) <- c("3f", "4f", "5f", "6f", "7f", "8f", "9f", "10f")
+rownames(median.IQR.match) <- c("10c", "20c", "30c", "40c", "50c", "60c", "70c", "80c", "90c", "100c", "150c", "200c")
+
 for (nfeatures in feature.num.choices) {
-  for (nclusters in clusterchoices) {
+  for (nclusters in cluster.choices) {
     # Scale and apply clustering
     scaled_orig <- scale.robust(as.matrix(orig3[ , 1:nfeatures]), "IQR")
     fit <- kmeans(scaled_orig, nclusters)
     # Store total within sum of squares for later analysis
-    evaluation.withinss[match(nfeatures, feature.num.choices), match(nclusters, clusterchoices)] <- fit$tot.withinss
+    evaluation.withinss[match(nclusters, cluster.choices), match(nfeatures, feature.num.choices)] <- fit$tot.withinss
     # Compute median of residuals in best cluster and store for later analysis
-    qqq <- data.frame(orig3[ , 1:nfeatures], fit.cluster = fit$cluster)
+    qqq <- data.frame(orig3[ , 1:nfeatures], SST.resid = orig3$SST.resid, fit.cluster = fit$cluster)
     meds <- tapply(qqq$SST.resid, qqq$fit.cluster, median)
-    median.best.clus <- min(meds)
-    median.best[match(nfeatures, feature.num.choices), match(nclusters, clusterchoices)] <- median.best.clus
+    median.best.clus <- min(abs(meds))
+    median.best[match(nclusters, cluster.choices), match(nfeatures, feature.num.choices)] <- median.best.clus
     med.index <- match(median.best.clus, meds)
     # Compute IQR of residuals in best cluster and store for later analysis
     IQRs <- tapply(qqq$SST.resid, qqq$fit.cluster, IQR)
-    IQR.best.clus <- min(IQRs)
-    IQR.best[match(nfeatures, feature.num.choices), match(nclusters, clusterchoices)] <- IQR.best.clus
-    IQR.index <- match(IQR.best.clus, IQRs)
+    IQR.best.clus <- IQRs[med.index]
+    IQR.best[match(nclusters, cluster.choices), match(nfeatures, feature.num.choices)] <- IQR.best.clus
     # Check that the lowest median cluster is also the cluster with the lowest IQR
-    median.IQR.match[match(nfeatures, feature.num.choices), match(nclusters, clusterchoices)] <- median.index == IQR.index
+    paste(nfeatures + 3, "features and ", nclusters, "clusters.")
   }
 }
 
@@ -243,38 +282,62 @@ IQRs <- tapply(orig_clustering$SST.resid, orig_clustering$fit.cluster, IQR)
 lengths <- tapply(orig_clustering$SST.resid, orig_clustering$fit.cluster, length)
 
 # Histogram of the SST.resid for all clusters
-lattice::histogram(~SST.resid | factor(fit2.cluster), data = orig_clustering, breaks = seq(-12, 30))
+lattice::histogram(~SST.resid | factor(fit.cluster), data = orig_clustering, breaks = seq(-12, 30))
+
+ggplot2::ggplot(data = orig_clustering, aes(x = SST.resid)) +
+  geom_histogram(breaks = seq(-12, 30)) +
+  facet_wrap(~fit.cluster)
 
 # Good and bad clusters
 # Good = five clusters with lowest median residual
 # Bad = five clusters with highest median residual
-good.clusters <- c(match(quantile(medians, seq(0, 1, 0.1))[1:5], quantile(medians, seq(0, 1, 0.1))))
-bad.clusters <- c(match(quantile(medians, seq(0, 1, 0.1))[46:50], quantile(medians, seq(0, 1, 0.1))))
+best.values <- medians[medians <= quantile(medians, seq(0, 1, 0.1))[2]]
+worst.values <- medians[medians >= quantile(medians, seq(0, 1, 0.1))[10]]
+good.clusters <- c(match(best.values, medians))
+bad.clusters <- c(match(worst.values, medians))
 
 # For Plotting - can color code classes
-class_cluster <- factor(ifelse(orig_clustering$fit2.cluster %in% good.clusters,
+class_cluster <- factor(ifelse(orig_clustering$fit.cluster %in% good.clusters,
   'Good',
-  ifelse(orig_clustering$fit2.cluster %in% bad.clusters, 'Bad', 'So-so')))
+  ifelse(orig_clustering$fit.cluster %in% bad.clusters, 'Bad', 'Neither good nor bad')))
 
 # Just to identify good
-good <- factor(ifelse(orig_clustering$fit2.cluster %in% good.clusters,
+good <- factor(ifelse(orig_clustering$fit.cluster %in% good.clusters,
   'Good',
   'NotGood'))
 
 # Just to identify bad
-bad <- factor(ifelse(orig_clustering$fit2.cluster %in% bad.clusters,
+bad <- factor(ifelse(orig_clustering$fit.cluster %in% bad.clusters,
   'Bad',
   'NotBad'))
 
 # Good or bad based on residual
 
 group_resid <- factor(ifelse(abs(orig_clustering$SST.resid <= .3), "Good", "NotGood"))
-orig_clustering <- data.frame(orig3[tt2, ], fit2$cluster, class_cluster, good, bad, group_resid)
+orig_clustering <- data.frame(orig3[tt2, ], fit$cluster, class_cluster, good, bad, group_resid)
+
+xtabs(~ good + group_resid)
 
 # Explore each group and gain an intuition for residual distribution in each group
-table(abs(orig_clustering$SST.resid[orig_clustering$class_cluster=='So-so'])>.3)
+table(abs(orig_clustering$SST.resid[orig_clustering$class_cluster=='Neither good nor bad'])>.3)
 table(abs(orig_clustering$SST.resid[orig_clustering$class_cluster=='Bad'])>.3)
 table(abs(orig_clustering$SST.resid[orig_clustering$class_cluster=='Good'])>.3)
+
+# Hist of good group
+ggplot2::ggplot(data = orig_clustering[orig_clustering$class_cluster == 'Good' , ]) +
+  geom_histogram(aes(x = SST.resid), breaks = seq(-12, 30))
+
+# Statistical summary of good group
+summary(orig_clustering$SST.resid[orig_clustering$class_cluster == 'Good'])
+IQR(orig_clustering$SST.resid[orig_clustering$class_cluster == 'Good'])
+
+# Hist of bad group
+ggplot2::ggplot(data = orig_clustering[orig_clustering$class_cluster == 'Bad' , ]) +
+  geom_histogram(aes(x = SST.resid), breaks = seq(-12, 30))
+
+# Statistical summary of bad group
+summary(orig_clustering$SST.resid[orig_clustering$class_cluster == 'Bad'])
+IQR(orig_clustering$SST.resid[orig_clustering$class_cluster == 'Bad'])
 
 # -------------------------------------------------------------------------------
 
@@ -314,7 +377,7 @@ bgp <- predict(bad_tree,
   type = 'class',
   na.action = na.pass)
 
-bgcm <- caret::confusionMatrix(data = bgp, reference = orig_clustering$good, positive = "Bad")
+bgcm <- caret::confusionMatrix(data = bgp, reference = orig_clustering$bad, positive = "Bad")
 
 # -------------------------------------------------------------------------------
 
@@ -323,14 +386,17 @@ bgcm <- caret::confusionMatrix(data = bgp, reference = orig_clustering$good, pos
 
 # Test whether residual falls into a residual range defined by the cluster the retrieval fell into
 # The residual range is defined as median +/- IQR of  residuals in the cluster the retrieval is part of
-# Do on test data --> k-means was NOT fit with this data
+# Do on test data --> k-means was NOT initially fit with this data (i.e. cluster centroids were not
+# fit to incorporate this data)
+
 
 orig_test <- data.frame(scaled_orig[!tt2, ], SST.resid = SST.resid[!tt2])
+predictions <- clue::cl_predict(fit, orig_test)
 correctbias <- rep(999, length(predictions))
 
 for (i in seq(1, length(predictions))) {
-  medianpredict <- median(orig_clustering$SST.resid[orig_clustering$fit2.cluster == predictions[i]])
-  IQRpredict <- IQR(orig_clustering$SST.resid[orig_clustering$fit2.cluster == predictions[i]])
+  medianpredict <- median(orig_clustering$SST.resid[orig_clustering$fit.cluster == predictions[i]])
+  IQRpredict <- IQR(orig_clustering$SST.resid[orig_clustering$fit.cluster == predictions[i]])
   if (medianpredict + IQRpredict >= orig_test$SST.resid[i] & medianpredict - IQRpredict <= orig_test$SST.resid[i]) {
     correctbias[i] <- TRUE
   }
