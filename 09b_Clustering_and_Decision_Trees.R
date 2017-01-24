@@ -25,6 +25,7 @@ require(rpart.plot)
 require(ggmap)
 require(caret)
 require(clue)
+require(plot3D)
 
 ggplot <- function(...) {ggplot2::ggplot(...) + theme_bw()}
 
@@ -64,9 +65,12 @@ scale.robust <- function(x, method) {
 }
 
 # Read AQUA Matchups file (2002-2010) - from 01read_matchups.R script
-load('/home/ckk/Projects/Matchup_R_Scripts/Results/objects/MODIS_Aqua_GSFC_ALL_Class_6.4.1_ao_2017_01_14_with_ancillary.Rdata')
-orig <- `MODIS_Aqua_GSFC_ALL_Class_6.4.1_ao_2017_01_14`
-rm(`MODIS_Aqua_GSFC_ALL_Class_6.4.1_ao_2017_01_14`)
+#load('/home/ckk/Projects/Matchup_R_Scripts/Results/objects/MODIS_Aqua_GSFC_ALL_Class_6.4.1_ao_2017_01_14_with_ancillary.Rdata')
+#orig <- `MODIS_Aqua_GSFC_ALL_Class_6.4.1_ao_2017_01_14`
+#rm(`MODIS_Aqua_GSFC_ALL_Class_6.4.1_ao_2017_01_14`)
+
+# Exact Google Object
+orig <- readr::read_csv('/home/ckk/Projects/Matchup_R_Scripts/Results/objects/orig_filtered_google_recreation.csv')
 #--------------------------------------------------------------------------------
 
 # ------------------------------------------------------------------------------#
@@ -76,7 +80,7 @@ rm(`MODIS_Aqua_GSFC_ALL_Class_6.4.1_ao_2017_01_14`)
 orig$buoy.timedate <- as.character(orig$buoy.timedate)
 orig$sat.timedate <- as.character(orig$sat.timedate)
 orig <- dplyr::tbl_df(orig) %>% 
-  dplyr::filter(lubridate::year(lubridate::ymd_hms(sat.timedate)) <= 2010) %>% # For Google recreation
+  dplyr::filter(buoy.timedate <= lubridate::ymdhms('2010-05-08 23:57:59')) %>% # For Google recreation
   dplyr::filter(solz >= 90)
 
 # Select variables - variables to generate terms in NLSST and other variables that
@@ -157,14 +161,15 @@ mp <- mp +
   ggplot2::stat_binhex(data = orig,
     aes(x = buoy.lon, # Use hexagonal binning command and give x and y input
       y = buoy.lat,
-      fill = cut(..value.., c(0, 500, 1000, 2000, 3000, 4000, 5000, Inf))), # Divides matchups per bin into discrete chunks and colors likewise
+      fill = cut(..count.., c(0, 500, 1000, 2000, 3000, 4000, 5000, Inf))), # Divides matchups per bin into discrete chunks and colors likewise
     binwidth = c(10, 10)) +
   mapWorld + labs(x = NULL, y = NULL) +
   #scale_fill_hue('value') + # Standard colors with discrete chunking
   scale_fill_brewer(palette = 'YlOrRd') + # Change colors to Yellow, Orange, and Red - many diff 
-  guides(fill = guide_legend(title = "N of matchups"))
+  guides(fill = guide_legend(title = "Number of Matchups")) +
+  ggtitle('Spatial Distribution of Matchups')
 
-ggplot2::ggsave(filename = 'point_distribution_modis.ps', device = 'ps',
+ggplot2::ggsave(filename = 'point_distribution_modis.pdf', device = 'pdf',
   width = 8, height = 6, units = 'in')
 
 # Temporal distribution
@@ -199,9 +204,27 @@ hm <- ggplot2::ggplot(data = tt4, aes(mm, yy)) +
   ggplot2::geom_tile(aes(fill = n), colour = "white") +
   ggplot2::scale_fill_brewer(type = "seq", palette = 'YlOrRd', direction = 1) +
   ggplot2::theme_bw() +
-  ggplot2::theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank())+
-  ggplot2::ggsave("Temporal_heatmap_modis.ps", device = 'ps',
+  ggplot2::theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank()) +
+  guides(fill = guide_legend(title = "Number of Matchups")) +
+  ggtitle('Temporal Distribution of Matchups')
+  ggplot2::ggsave("Temporal_heatmap_modis.pdf", device = 'pdf',
     width = 8, height = 6, units = 'in')
+
+# Residual distribution in the 3D hypervolume
+ccc <- RColorBrewer::brewer.pal(n = 8, name = 'YlOrRd')
+
+plot3D::scatter3D(x = orig3$x1, y = orig3$x2, z = orig3$x3, colvar = abs(SST.resid),
+  pch = '.', cex = 2, bty = 'g', theta = 252.8, phi = 20,
+  col = plot3D::ramp.col(col = c(ccc[1], ccc[4:8])),
+  main = 'Residual Distribution in the 3D Space', xlab = 'x1', ylab = 'x2', zlab = 'x3', ticktype = 'detailed',
+  clab = c('abs(SST Residual)'))
+
+ggplot2::ggplot() +
+  geom_histogram(aes(x = SST.resid), breaks = seq(-12, 30)) +
+  ggtitle('Distribution of Residuals') + 
+  ggplot2::ggsave("Residual_histogram.pdf", device = 'pdf',
+    width = 8, height = 6, units = 'in')
+
 # -------------------------------------------------------------------------------
 
 # ------------------------------------------------------------------------------#
@@ -257,7 +280,7 @@ for (nfeatures in feature.num.choices) {
 # First apply scaling to improve convergence speeds
 to.drop <- c("sd12")
 orig3 <- orig3[ , !(names(orig3)) %in% to.drop]
-tt1 <- as.matrix(orig3)
+tt1 <- as.matrix(orig3[ , !(names(orig3)) %in% c('SST.resid')])
 scaled_orig <- scale.robust(tt1, "IQR")
 
 # Creating Test and Train Sets
@@ -272,7 +295,7 @@ tt2 <- row.numbers %in% train.set.row.numbers
 # Fit k-means to only train set
 # Leave test set for later evaluation of clustering
 fit <- kmeans(scaled_orig[tt2, ], 50)
-orig_clustering <- data.frame(orig3[tt2, ], SST.resid = SST.resid[tt2], fit$cluster)
+orig_clustering <- data.frame(orig3[tt2, ], fit$cluster)
 
 # Info on each cluster - used as evaluation metrics    
 means <- tapply(X = orig_clustering$SST.resid, INDEX = orig_clustering$fit.cluster, FUN = mean)
@@ -286,15 +309,20 @@ lattice::histogram(~SST.resid | factor(fit.cluster), data = orig_clustering, bre
 
 ggplot2::ggplot(data = orig_clustering, aes(x = SST.resid)) +
   geom_histogram(breaks = seq(-12, 30)) +
-  facet_wrap(~fit.cluster)
+  facet_wrap(~fit.cluster) +
+  ggtitle('Residual Distribution by Cluster') +
+  ggsave(filename = 'Residual_distribution_cluster.pdf', device = 'pdf',
+    width = 8, height = 6, units = 'in')
 
-# Good and bad clusters
+# Good and bad groups
 # Good = five clusters with lowest median residual
 # Bad = five clusters with highest median residual
 best.values <- medians[medians <= quantile(medians, seq(0, 1, 0.1))[2]]
 worst.values <- medians[medians >= quantile(medians, seq(0, 1, 0.1))[10]]
 good.clusters <- c(match(best.values, medians))
 bad.clusters <- c(match(worst.values, medians))
+best.median.cluster <- match(min(medians), medians)
+worst.median.cluster <- match(max(medians), medians)
 
 # For Plotting - can color code classes
 class_cluster <- factor(ifelse(orig_clustering$fit.cluster %in% good.clusters,
@@ -318,6 +346,22 @@ orig_clustering <- data.frame(orig3[tt2, ], fit$cluster, class_cluster, good, ba
 
 xtabs(~ good + group_resid)
 
+# Histogram of lowest median cluster
+ggplot2::ggplot(data = orig_clustering[orig_clustering$fit.cluster == best.median.cluster, ]) +
+  geom_histogram(aes(x = SST.resid), breaks = seq(-12, 30)) +
+  #ggtitle('Residual Distribution of Lowest Residual Median Cluster') +
+  ylim(c(0, 20000)) +
+  ggsave(filename = 'Residual_distribution_best_cluster.pdf', device = 'pdf',
+width = 8, height = 6, units = 'in')
+
+# Histogram of highest median cluster
+ggplot2::ggplot(data = orig_clustering[orig_clustering$fit.cluster == worst.median.cluster, ]) +
+  geom_histogram(aes(x = SST.resid), breaks = seq(-12, 30)) +
+  ylim(c(0, 20000)) +
+  #ggtitle('Residual Distribution of Highest Residual Median Cluster') +
+  ggsave(filename = 'Residual_distribution_worst_cluster.pdf', device = 'pdf',
+    width = 8, height = 6, units = 'in')
+
 # Explore each group and gain an intuition for residual distribution in each group
 table(abs(orig_clustering$SST.resid[orig_clustering$class_cluster=='Neither good nor bad'])>.3)
 table(abs(orig_clustering$SST.resid[orig_clustering$class_cluster=='Bad'])>.3)
@@ -325,7 +369,10 @@ table(abs(orig_clustering$SST.resid[orig_clustering$class_cluster=='Good'])>.3)
 
 # Hist of good group
 ggplot2::ggplot(data = orig_clustering[orig_clustering$class_cluster == 'Good' , ]) +
-  geom_histogram(aes(x = SST.resid), breaks = seq(-12, 30))
+  geom_histogram(aes(x = SST.resid), breaks = seq(-12, 30)) +
+  ggtitle('Residual Distribution of the Good Group') + 
+  ggsave(filename = 'Residual_distribution_good_group.pdf', device = 'pdf',
+    width = 8, height = 6, units = 'in')
 
 # Statistical summary of good group
 summary(orig_clustering$SST.resid[orig_clustering$class_cluster == 'Good'])
@@ -333,11 +380,41 @@ IQR(orig_clustering$SST.resid[orig_clustering$class_cluster == 'Good'])
 
 # Hist of bad group
 ggplot2::ggplot(data = orig_clustering[orig_clustering$class_cluster == 'Bad' , ]) +
-  geom_histogram(aes(x = SST.resid), breaks = seq(-12, 30))
+  geom_histogram(aes(x = SST.resid), breaks = seq(-12, 30)) + 
+  ggtitle('Residual Distribution of Bad Group') +
+  ggsave(filename = 'Residual_distribution_bad_group.pdf', device = 'pdf',
+    width = 8, height = 6, units = 'in')
 
 # Statistical summary of bad group
 summary(orig_clustering$SST.resid[orig_clustering$class_cluster == 'Bad'])
 IQR(orig_clustering$SST.resid[orig_clustering$class_cluster == 'Bad'])
+
+
+# Hist of neither good nor bad group
+ggplot2::ggplot(data = orig_clustering[orig_clustering$class_cluster == 'Neither good nor bad' , ]) +
+  geom_histogram(aes(x = SST.resid), breaks = seq(-12, 30)) + 
+  ggtitle('Residual Distribution of Neither Good nor Bad Group') +
+  ggsave(filename = 'Residual_distribution_neither_good_nor_bad_group.pdf', device = 'pdf',
+    width = 8, height = 6, units = 'in')
+
+# Statistical summary of neither good nor bad group
+summary(orig_clustering$SST.resid[orig_clustering$class_cluster == 'Neither good nor bad'])
+IQR(orig_clustering$SST.resid[orig_clustering$class_cluster == 'Neither good nor bad'])
+
+# Location of groups in 3D hypervolume
+# TO DO
+# WORK IN PROGRESS...
+plot3D::scatter3D(x = orig3[tt2, ]$x1,
+  y = orig3[tt2, ]$x2,
+  z = orig3[tt2, ]$x3,
+  colvar = as.integer(orig_clustering$class_cluster),
+  pch = '.', cex = 2, bty = 'g', theta = 252.8, phi = 20, alpha = 0.6,
+  main = 'Location of Residual Groups in 3D Space', xlab = 'x1', ylab = 'x2', zlab = 'x3',
+  ticktype = 'detailed',
+  col = c(ccc[2], ccc[5], ccc[8]),
+  colkey = list(at = c(2, 3, 4), side = 4, 
+    addlines = TRUE, length = 0.5, width = 0.5,
+    labels = c("Neither Good nor Bad", "Bad", "Good")))
 
 # -------------------------------------------------------------------------------
 
@@ -389,23 +466,42 @@ bgcm <- caret::confusionMatrix(data = bgp, reference = orig_clustering$bad, posi
 # Do on test data --> k-means was NOT initially fit with this data (i.e. cluster centroids were not
 # fit to incorporate this data)
 
+orig_test <- data.frame(scaled_orig[!tt2, ])
+predictions_cl <- clue::cl_predict(fit, orig_test)
+correctbias <- rep(999, length(predictions_cl))
+medianpredict <- rep(999, length(predictions_cl))
+IQRpredict <- rep(999, length(predictions_cl))
+windowmin <- rep(999, length(predictions_cl))
+windowmax <- rep(999, length(predictions_cl))
 
-orig_test <- data.frame(scaled_orig[!tt2, ], SST.resid = SST.resid[!tt2])
-predictions <- clue::cl_predict(fit, orig_test)
-correctbias <- rep(999, length(predictions))
-
-for (i in seq(1, length(predictions))) {
-  medianpredict <- median(orig_clustering$SST.resid[orig_clustering$fit.cluster == predictions[i]])
-  IQRpredict <- IQR(orig_clustering$SST.resid[orig_clustering$fit.cluster == predictions[i]])
-  if (medianpredict + IQRpredict >= orig_test$SST.resid[i] & medianpredict - IQRpredict <= orig_test$SST.resid[i]) {
+for (i in seq(1, length(pred_train))) {
+  medianpredict[i] <- median(abs(orig_clustering$SST.resid[orig_clustering$fit.cluster == predictions_cl[i]]))
+  IQRpredict[i] <- IQR(abs(orig_clustering$SST.resid[orig_clustering$fit.cluster == predictions_cl[i]]))
+  windowmin[i] <- medianpredict[i] - IQRpredict[i]
+  windowmax[i] <- medianpredict[i] + IQRpredict[i]
+  if (windowmax[i] >= SST.resid[!tt2][i] & windowmin[i] <= SST.resid[!tt2][i]) {
     correctbias[i] <- TRUE
   }
   else {
     correctbias[i] <- FALSE
   }
+  cat('Trial: ', i, ' of ', length(predictions_cl), '\n')
 }
 
 table(correctbias)
+
+ccc <- RColorBrewer::brewer.pal(n = 9, name = 'YlOrRd')[3:9]
+
+ggplot2::ggplot() +
+  stat_bin2d(aes(x = medianpredict, y = SST.resid[!tt2])) +
+  scale_fill_gradientn(colours = ccc) + 
+  xlim(0, 2) + 
+  ylim(-5, 5) +
+ geom_errorbar(aes(x = medianpredict, ymin = windowmin, ymax = windowmax), width = 0.05) +
+  xlab("Predicted SST Residual") +
+  ylab("Actual SST Residual") +
+  ggsave(filename = 'accuracy_predictions.pdf', device = 'pdf',
+    width = 8, height = 6, units = 'in')
 
 # TO DO: Test how accurate a window of median +/- 1 deg would be
 # --------------------------------------------------------------------------------
