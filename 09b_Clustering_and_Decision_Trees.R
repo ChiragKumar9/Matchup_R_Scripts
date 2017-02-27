@@ -77,11 +77,11 @@ rm(`MODIS_Aqua_GSFC_ALL_Class_6.4.1_ao_2017_02_23`)
 # ------------------------------------------------------------------------------#
 # ---- Prep matchups and generate features for analysis ------------------------
 
-# Filter for only nighttime data - avoid sunglint contamination
+# Filter for only nighttime data - avoid diurnal heating
 orig$buoy.timedate <- as.character(orig$buoy.timedate)
 orig$sat.timedate <- as.character(orig$sat.timedate)
 orig <- dplyr::tbl_df(orig) %>% 
-  dplyr::filter(buoy.timedate <= lubridate::ymdhms('2010-05-08 23:57:59')) %>% # For Google recreation
+  #dplyr::filter(buoy.timedate <= lubridate::ymdhms('2010-05-08 23:57:59')) %>% # For Google recreation
   dplyr::filter(solz >= 90)
 
 # Select variables - variables to generate terms in NLSST and other variables that
@@ -163,7 +163,7 @@ mp <- mp +
   ggplot2::stat_binhex(data = orig,
     aes(x = buoy.lon, # Use hexagonal binning command and give x and y input
       y = buoy.lat,
-      fill = cut(..count.., c(0, 500, 1000, 2000, 3000, 4000, 5000, Inf))), # Divides matchups per bin into discrete chunks and colors likewise
+      fill = cut(..count.., c(0, 1000, 2000, 3000, 4000, 5000, 10000, Inf))), # Divides matchups per bin into discrete chunks and colors likewise
     binwidth = c(10, 10)) +
   mapWorld + labs(x = NULL, y = NULL) +
   #scale_fill_hue('value') + # Standard colors with discrete chunking
@@ -352,7 +352,7 @@ xtabs(~ good + group_resid)
 ggplot2::ggplot(data = orig_clustering[orig_clustering$fit.cluster == best.median.cluster, ]) +
   geom_histogram(aes(x = SST.resid), breaks = seq(-12, 30)) +
   #ggtitle('Residual Distribution of Lowest Residual Median Cluster') +
-  ylim(c(0, 20000)) +
+  ylim(c(0, 40000)) +
   ggsave(filename = 'Residual_distribution_best_cluster.pdf', device = 'pdf',
 width = 8, height = 6, units = 'in')
 
