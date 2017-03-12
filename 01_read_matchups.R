@@ -207,7 +207,7 @@ assign(jj2, get(jj1)[!tt3]) # which dates are missing
 if (length(get(jj2)) > 0) {
   Log.warn(paste('There are', length(get(jj2)), 'days without',
     config$insitu_source, 'matchups'))
-  Log.warn(paste('missing dates', str_join(get(jj2),collapse=",")))
+  Log.warn(paste('missing dates', stringr::str_c(get(jj2),collapse=",")))
 } else {
   Log.info(paste('No dates seem to be missing for available',
     config$insitu_source, 'matchup files'))

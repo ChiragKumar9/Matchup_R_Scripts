@@ -1,0 +1,119 @@
+---
+title: "Triple Collocation of VIIRS, AMSR-2, and Buoy Matchups"
+output:
+  html_notebook:
+    toc: True
+    theme: united
+---
+
+
+This notebook describes the steps necessary to conduct a triple collocation
+study of SST values derived from (a) Suomi_NPP - VIIRS, (b) GCOM-W - AMSR-2 and
+(c) in situ observations form moored and drifting buoys.
+
+```{r prep_workspace, include=FALSE}
+# Load necessary packages
+library(dplyr)
+library(ggplot2)
+library(mapview)
+library(futile.logger)
+library(lubridate)
+library(tidyr)
+
+ggplot <- function(...) {ggplot2::ggplot(...) + theme_bw()}
+
+# Source own functions
+# Define direwctory where functions are for each operating system
+
+if (Sys.info()["sysname"] == 'Windows') {
+  fun.dir <- 'D:/matchups/r-projects/Matchup_R_Scripts/Functions/'
+} else if (Sys.info()["sysname"] == 'Linux') {
+  fun.dir <- '/home/ckk/Projects/Matchup_R_Scripts/Functions/'
+}
+
+fun.file <- paste0(fun.dir, 'common_functions.R')
+
+source(file = fun.file,
+  local = FALSE, echo = FALSE, verbose = FALSE)
+rm(fun.dir, fun.file)
+```
+
+
+# Building a Dataset for Triple Collocation
+
+In a previous step, we read in matchups for Aqua and VIIRS and stored them in
+binary (.Rdata) objects. For Aqua, we modified the regular expression to list 
+files so that only matchups from 2010 onwards were read. The first step is to
+restore those objects. Note that the name of the stored binary objects (.Rdata)
+contain the date in which they were created. Be sure to edit the names of the
+objects to ensure that the most recent versions are being used.  
+
+```{r load_VIIRS_AQUA_objects, include=FALSE}
+
+# Load .Rdata object for VIIRS matchups resulting from script 01_read_matchups.R
+# We assume... TO DO
+
+if (Sys.info()["sysname"] == 'Windows') {
+  # Windows directory for VIIRS matchups
+  win.dir <- 'D:/matchups/r-projects/R_MUDB/viirs/v641ao/mia/results/objects/'
+  # Name of .Rdata file (update as needed)
+  win.file <- 'VIIRS_Suomi_NPP_MIA_L2GEN_ALL_Class_6.4.1_ao_2016_11_23_with_ancillary.Rdata'
+  viirs.file <- paste0(win.dir, win.file)
+  if (!file.exists(viirs.file)) {
+    stop('Input file does not exist')
+  } else {
+    load(viirs.file, verbose = TRUE)
+  }
+  rm(win.dir, win.file, viirs.file)
+} else if (Sys.info()["sysname"] == 'Linux') {
+  # Linux directory for VIIRS matchups
+  linux.dir <- '~/Projects/Matchup_R_Scripts/Results/objects/'
+  # Name of .Rdata file (update as needed)
+  linux.file <- 'VIIRS_Suomi_NPP_MIA_L2GEN_ALL_Class_6.4.1_ao_2016_11_22_with_ancillary.Rdata'
+  viirs.file <- paste0(linux.dir, linux.file)
+  if (!file.exists(viirs.file)) {
+    stop('Input file does not exist')
+  } else {
+    load(viirs.file, verbose = TRUE)
+  }
+  rm(linux.dir, linux.file, viirs.file)
+}
+
+# Create 'VIIRS' object so it has a shorter name
+VIIRS <- VIIRS_Suomi_NPP_MIA_L2GEN_ALL_Class_6.4.1_ao_2016_11_22
+rm(VIIRS_Suomi_NPP_MIA_L2GEN_ALL_Class_6.4.1_ao_2016_11_22)
+
+# Load .Rdata object for AQUA matchups resulting from script 01_read_matchups.R
+
+if (Sys.info()["sysname"] == 'Windows') {
+  # Windows directory for AQUA matchups
+  win.dir <- 'D:/matchups/r-projects/R_MUDB/modis/aqua/gsfc/l6cv6/results/objects/'
+  # Name of .Rdata file (update as needed)
+  win.file <- 'MODIS_Aqua_GSFC_ALL_Class_6.4.1_ao_2016_11_23_with_ancillary.Rdata'
+  viirs.file <- paste0(win.dir, win.file)
+  if (!file.exists(viirs.file)) {
+    stop('Input file does not exist')
+  } else {
+    load(viirs.file, verbose = TRUE)
+  }
+  rm(win.dir, win.file, viirs.file)
+} else if (Sys.info()["sysname"] == 'Linux') {
+  # Linux directory for VIIRS matchups
+  linux.dir <- '~/Projects/Matchup_R_Scripts/Results/objects/'
+  # Name of .Rdata file (update as needed)
+  #linux.file <- 'MODIS_Aqua_GSFC_ALL_Class_6.4.1_ao_2016_11_26_with_ancillary.Rdata'
+  linux.file <- 'MODIS_Aqua_GSFC_ALL_Class_6.4.1_ao_2017_03_11_with_ancillary.Rdata'
+  aqua.file <- paste0(linux.dir, linux.file)
+  if (!file.exists(aqua.file)) {
+    stop('Input file does not exist')
+  } else {
+    load(aqua.file, verbose = TRUE)
+  }
+  rm(linux.dir, linux.file, aqua.file)
+}
+
+# Create 'AQUA' object so it has a shorter name
+AQUA <- MODIS_Aqua_GSFC_ALL_Class_6.4.1_ao_2017_03_11
+rm(`MODIS_Aqua_GSFC_ALL_Class_6.4.1_ao_2017_03_11`)
+```
+

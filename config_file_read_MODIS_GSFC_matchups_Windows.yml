@@ -163,7 +163,7 @@ keep_all_vars  :  FALSE   # Only SOME variables will be retained
 # Decide if matchups are being used for a collocation study
 # -----------------------------------------------------------------------------------
 
-collocation  :  TRUE  # Matchups used in collocation studies
+collocation  :  FALSE  # Matchups used in collocation studies
 
 # -----------------------------------------------------------------------------------
 
