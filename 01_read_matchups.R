@@ -26,7 +26,7 @@
 # --- It includes all file names that end with '.matchup'.
 
 crude.file.list <- list.files(path = list.dirs(config$matchups_base_indir,
-  recursive = FALSE),
+  recursive = TRUE),
   pattern = '*.matchup',
   all.files = FALSE,
   full.names = TRUE)
@@ -41,18 +41,27 @@ Log.debug(paste('First filtering produces', length(crude.file.list),'files'))
 
 uu1 <- rep(FALSE, times = length(crude.file.list))
 
-uu.temp <- grepl(pattern = config$file_selection_strings,
+# Take the multiple file selection strings from the config
+# and join them as one string, separated by ors ('|')
+
+pattern_collapsed = paste(config$file_selection_strings, collapse = '|')
+
+# grepl reads this as the string we are matching can match
+# one of the multiple file selections strings we concatened together
+# using '|'
+
+uu.temp <- grepl(pattern = pattern_collapsed,
   crude.file.list,
   ignore.case = TRUE, fixed = FALSE, perl = TRUE)
 
 uu1 <- uu1 | uu.temp
 
-for (pattern in config$file_selection_strings) {
-    uu.temp <- grepl(pattern = pattern,
-    crude.file.list,
-    ignore.case = TRUE, fixed = FALSE, perl = TRUE)
-  uu1 <- uu1 | uu.temp
-}
+#for (pattern in config$file_selection_strings) {
+#    uu.temp <- grepl(pattern = pattern,
+#    crude.file.list,
+#    ignore.case = TRUE, fixed = FALSE, perl = TRUE)
+#  uu1 <- uu1 | uu.temp
+#}
 
 # --- List files that match at least one of the patterns
 # --- specified in configuration pattern.

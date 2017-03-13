@@ -74,7 +74,7 @@ functions_dir  :  '/home/ckk/Projects/Matchup_R_Scripts/Functions/'
 
 # This directory holds folders for each year, with compressed archive files
 
-matchups_base_indir  :  '/media/ckk/hdd1/MODIS_Data/'
+matchups_base_indir  :  '/media/ckk/hdd1/MODIS_Data'
 
 # -----------------------------------------------------------------------------------
 # Specify matchup files to be read through one or more patterns

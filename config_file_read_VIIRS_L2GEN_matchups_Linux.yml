@@ -76,7 +76,7 @@ functions_dir  :  '/home/ckk/Projects/Matchup_R_Scripts/Functions/'
 
 # This directory holds folders for each year, with compressed archive files
 
-matchups_base_indir  :  '/media/ckk/hdd1/VIIRS_Data/'
+matchups_base_indir  :  '/media/ckk/hdd1/VIIRS_Data'
 
 # -----------------------------------------------------------------------------------
 
