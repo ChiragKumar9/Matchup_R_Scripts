@@ -297,10 +297,10 @@ get_matchup_variables <- function(matchup.format = c('MIA_L2GEN','GSFC'),
       "sat","granule","sstflg","sst4flg",
       "l1blutver",
       "source","buoy.pftime","buoy.lat","buoy.lon","buoy.id","buoy.sst",
-      "spare2")
-    # "amsre.type","amsre.val",
-    # "amsr2.type","amsr2.val",
-    # "wsat.type","wsat.val"
+      "spare2",
+      "amsre.type","amsre.val",
+      "amsr2.type","amsr2.val",
+      "wsat.type","wsat.val")
   } else if (matchup.format == 'GSFC' && sensor == 'AVHRR') {
     # Matchup variables
     # for format 'GSFC' (made at Goddard Space Floght Center)

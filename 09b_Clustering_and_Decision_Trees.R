@@ -64,23 +64,24 @@ scale.robust <- function(x, method) {
   }
 }
 
-# Read AQUA Matchups file (2002-2010) - from 01read_matchups.R script
-#load('/home/ckk/Projects/Matchup_R_Scripts/Results/objects/MODIS_Aqua_GSFC_ALL_Class_6.4.1_ao_2017_01_14_with_ancillary.Rdata')
-#orig <- `MODIS_Aqua_GSFC_ALL_Class_6.4.1_ao_2017_01_14`
-#rm(`MODIS_Aqua_GSFC_ALL_Class_6.4.1_ao_2017_01_14`)
+# Read AQUA Matchups file - from 01read_matchups.R script
+load('/home/ckk/Projects/Matchup_R_Scripts/Results/objects/MODIS_Aqua_GSFC_ALL_Class_6.4.1_ao_2017_02_23_with_ancillary.Rdata')
+orig <- `MODIS_Aqua_GSFC_ALL_Class_6.4.1_ao_2017_02_23`
+rm(`MODIS_Aqua_GSFC_ALL_Class_6.4.1_ao_2017_02_23`)
 
 # Exact Google Object
-orig <- readr::read_csv('/home/ckk/Projects/Matchup_R_Scripts/Results/objects/orig_filtered_google_recreation.csv')
+#orig <- readr::read_csv('/home/ckk/Projects/Matchup_R_Scripts/Results/objects/orig_filtered_google_recreation.csv')
+
 #--------------------------------------------------------------------------------
 
 # ------------------------------------------------------------------------------#
 # ---- Prep matchups and generate features for analysis ------------------------
 
-# Filter for only nighttime data - avoid sunglint contamination
+# Filter for only nighttime data - avoid diurnal heating
 orig$buoy.timedate <- as.character(orig$buoy.timedate)
 orig$sat.timedate <- as.character(orig$sat.timedate)
 orig <- dplyr::tbl_df(orig) %>% 
-  dplyr::filter(buoy.timedate <= lubridate::ymdhms('2010-05-08 23:57:59')) %>% # For Google recreation
+  #dplyr::filter(buoy.timedate <= lubridate::ymdhms('2010-05-08 23:57:59')) %>% # For Google recreation
   dplyr::filter(solz >= 90)
 
 # Select variables - variables to generate terms in NLSST and other variables that
@@ -156,12 +157,13 @@ mp <- ggplot() +  mapWorld +
 
 # WARNING: Be careful as this worked with ggplot2 2.1.0 on Linux
 # Try to work on different machines with varying versions of ggplot2
+
 # Now layer the buoys on top with hexagonal binning
 mp <- mp + 
   ggplot2::stat_binhex(data = orig,
     aes(x = buoy.lon, # Use hexagonal binning command and give x and y input
       y = buoy.lat,
-      fill = cut(..count.., c(0, 500, 1000, 2000, 3000, 4000, 5000, Inf))), # Divides matchups per bin into discrete chunks and colors likewise
+      fill = cut(..count.., c(0, 1000, 2000, 3000, 4000, 5000, 10000, Inf))), # Divides matchups per bin into discrete chunks and colors likewise
     binwidth = c(10, 10)) +
   mapWorld + labs(x = NULL, y = NULL) +
   #scale_fill_hue('value') + # Standard colors with discrete chunking
@@ -216,7 +218,7 @@ ccc <- RColorBrewer::brewer.pal(n = 8, name = 'YlOrRd')
 plot3D::scatter3D(x = orig3$x1, y = orig3$x2, z = orig3$x3, colvar = abs(SST.resid),
   pch = '.', cex = 2, bty = 'g', theta = 252.8, phi = 20,
   col = plot3D::ramp.col(col = c(ccc[1], ccc[4:8])),
-  main = 'Residual Distribution in the 3D Space', xlab = 'x1', ylab = 'x2', zlab = 'x3', ticktype = 'detailed',
+  main = 'Location of Retrievals in the 3D Space and their Residuals', xlab = 'x1', ylab = 'x2', zlab = 'x3', ticktype = 'detailed',
   clab = c('abs(SST Residual)'))
 
 ggplot2::ggplot() +
@@ -275,10 +277,10 @@ for (nfeatures in feature.num.choices) {
 # -------------------------------------------------------------------------------
 
 # ------------------------------------------------------------------------------#
-# ---- Cluster matchups then explore clusters/groups, esp. resid distribution ----
+# ---- Cluster matchups then explore resid distribution of clusters/groups ----
 
 # First apply scaling to improve convergence speeds
-to.drop <- c("sd12")
+to.drop <- c("")
 orig3 <- orig3[ , !(names(orig3)) %in% to.drop]
 tt1 <- as.matrix(orig3[ , !(names(orig3)) %in% c('SST.resid')])
 scaled_orig <- scale.robust(tt1, "IQR")
@@ -350,7 +352,7 @@ xtabs(~ good + group_resid)
 ggplot2::ggplot(data = orig_clustering[orig_clustering$fit.cluster == best.median.cluster, ]) +
   geom_histogram(aes(x = SST.resid), breaks = seq(-12, 30)) +
   #ggtitle('Residual Distribution of Lowest Residual Median Cluster') +
-  ylim(c(0, 20000)) +
+  ylim(c(0, 40000)) +
   ggsave(filename = 'Residual_distribution_best_cluster.pdf', device = 'pdf',
 width = 8, height = 6, units = 'in')
 
@@ -474,7 +476,7 @@ IQRpredict <- rep(999, length(predictions_cl))
 windowmin <- rep(999, length(predictions_cl))
 windowmax <- rep(999, length(predictions_cl))
 
-for (i in seq(1, length(pred_train))) {
+for (i in seq(1, length(predictions_cl))) {
   medianpredict[i] <- median(abs(orig_clustering$SST.resid[orig_clustering$fit.cluster == predictions_cl[i]]))
   IQRpredict[i] <- IQR(abs(orig_clustering$SST.resid[orig_clustering$fit.cluster == predictions_cl[i]]))
   windowmin[i] <- medianpredict[i] - IQRpredict[i]
@@ -485,23 +487,90 @@ for (i in seq(1, length(pred_train))) {
   else {
     correctbias[i] <- FALSE
   }
-  cat('Trial: ', i, ' of ', length(predictions_cl), '\n')
+  #cat('Trial: ', i, ' of ', length(predictions_cl), '\n')
 }
 
 table(correctbias)
 
 ccc <- RColorBrewer::brewer.pal(n = 9, name = 'YlOrRd')[3:9]
 
+require(ggplot2)
+
 ggplot2::ggplot() +
-  stat_bin2d(aes(x = medianpredict, y = SST.resid[!tt2])) +
+  stat_bin2d(aes(x = SST.resid[!tt2], y = medianpredict)) +
   scale_fill_gradientn(colours = ccc) + 
-  xlim(0, 2) + 
-  ylim(-5, 5) +
- geom_errorbar(aes(x = medianpredict, ymin = windowmin, ymax = windowmax), width = 0.05) +
-  xlab("Predicted SST Residual") +
-  ylab("Actual SST Residual") +
-  ggsave(filename = 'accuracy_predictions.pdf', device = 'pdf',
+  xlim(-5, 5) + 
+  ylim(0, 2) +
+ #geom_errorbar(aes(x = SST.resid[!tt2], ymin = windowmin, ymax = windowmax), width = 0.05) +
+  ylab("Predicted SST Residual") +
+  xlab("Actual SST Residual") +
+  ggsave(filename = 'accuracy_predictions_density.pdf', device = 'pdf',
     width = 8, height = 6, units = 'in')
 
 # TO DO: Test how accurate a window of median +/- 1 deg would be
 # --------------------------------------------------------------------------------
+
+# -------------------------------------------------------------------------------#
+# ---- Explore location and atmospheric trends in good and bad groups ----
+# First plot locations of good and bad groups on a map
+# Get longitude from orig
+long <- orig$buoy.lon
+orig_clustering <- data.frame(orig_clustering, long = long[tt2])
+
+# 'Good' matchups
+# Spatial distribution
+mp <- NULL
+mapWorld <- borders("world", colour = "gray50", fill = "gray70") # create a layer of borders
+mp <- ggplot() +  mapWorld +
+  ggplot2::scale_x_continuous(breaks = seq(from = -180, to = 180, by = 60)) +
+  ggplot2::scale_y_continuous(breaks = seq(from = -90, to = 90, by = 30)) +
+  coord_fixed(ratio = 1)
+
+# WARNING: Be careful as this worked with ggplot2 2.1.0 on Linux
+# Try to work on different machines with varying versions of ggplot2
+
+# Now layer the buoys on top with hexagonal binning
+mp <- mp + 
+  ggplot2::stat_binhex(data = orig_clustering[class_cluster == 'Good', ],
+    aes(x = long, # Use hexagonal binning command and give x and y input
+      y = lat,
+      fill = cut(..count.., c(0, 500, 1000, 2000, 3000, 4000, 5000, Inf))), # Divides matchups per bin into discrete chunks and colors likewise
+    binwidth = c(10, 10)) +
+  mapWorld + labs(x = NULL, y = NULL) +
+  #scale_fill_hue('value') + # Standard colors with discrete chunking
+  scale_fill_brewer(palette = 'YlOrRd') + # Change colors to Yellow, Orange, and Red - many diff 
+  guides(fill = guide_legend(title = "Number of Matchups")) +
+  ggtitle('Spatial Distribution of Good Matchups')
+
+# 'Bad' Matchups
+# Spatial distribution
+mp <- NULL
+mapWorld <- borders("world", colour = "gray50", fill = "gray70") # create a layer of borders
+mp <- ggplot() +  mapWorld +
+  ggplot2::scale_x_continuous(breaks = seq(from = -180, to = 180, by = 60)) +
+  ggplot2::scale_y_continuous(breaks = seq(from = -90, to = 90, by = 30)) +
+  coord_fixed(ratio = 1)
+
+# WARNING: Be careful as this worked with ggplot2 2.1.0 on Linux
+# Try to work on different machines with varying versions of ggplot2
+
+# Now layer the buoys on top with hexagonal binning
+mp <- mp + 
+  ggplot2::stat_binhex(data = orig_clustering[class_cluster == 'Bad', ],
+    aes(x = long, # Use hexagonal binning command and give x and y input
+      y = lat,
+      fill = cut(..count.., c(0, 500, 1000, 2000, 3000, 4000, 5000, Inf))), # Divides matchups per bin into discrete chunks and colors likewise
+    binwidth = c(10, 10)) +
+  mapWorld + labs(x = NULL, y = NULL) +
+  #scale_fill_hue('value') + # Standard colors with discrete chunking
+  scale_fill_brewer(palette = 'YlOrRd') + # Change colors to Yellow, Orange, and Red - many diff 
+  guides(fill = guide_legend(title = "Number of Matchups")) +
+  ggtitle('Spatial Distribution of Bad Matchups')
+
+# --------------------------------------------------------------------------------
+
+# -------------------------------------------------------------------------------#
+# ---- Explore different clustering algorithms ----
+
+# --------------------------------------------------------------------------------
+
