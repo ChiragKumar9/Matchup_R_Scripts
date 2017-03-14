@@ -131,7 +131,7 @@ ancillary_dir  :  'D:/matchups/r-projects/R_MUDB/ancillary_data/'  # Used to fet
 # DEBUG: 8
 # TRACE: 9
 
-log_level  :  6		# Level 6 is INFO
+log_level  :  8		# Level 6 is INFO
 
 log_dir  :  'D:/matchups/r-projects/R_MUDB/modis/aqua/gsfc/l6cv6/logs/'
 
