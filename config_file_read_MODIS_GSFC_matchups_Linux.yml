@@ -74,7 +74,7 @@ functions_dir  :  '/home/ckk/Projects/Matchup_R_Scripts/Functions/'
 
 # This directory holds folders for each year, with compressed archive files
 
-matchups_base_indir  :  '/media/ckk/hdd1/MODIS_Data/'
+matchups_base_indir  :  '/media/ckk/hdd1/MODIS_Data'
 
 # -----------------------------------------------------------------------------------
 # Specify matchup files to be read through one or more patterns
@@ -84,10 +84,9 @@ matchups_base_indir  :  '/media/ckk/hdd1/MODIS_Data/'
 # matchup files that will be read .
 # This is because directories have different kinds of files.
 # NOTE: The patterns are formuklated 'a la perl'.
-
-file_selection_strings  :  ['(.+?)A201(.+?)reproc2014\.(.+?)\.V2\.amsre\.amsr2\.wsat\.matchup$',
-  '(.+?)A201(.+?)stream\.(.+?)l6cv6\.amsre\.amsr2\.wsat\.matchup$']
-
+  
+file_selection_strings  :  ['(.+?)reproc2014\.(.+?)\.V2(.+?)\.matchup$',
+  '(.+?)stream\.(.+?)l6cv6(.+?)\.matchup$'] 
 
 # -----------------------------------------------------------------------------------
 # Specify matchup files to be read based on in situ source
@@ -100,7 +99,7 @@ use_ancillary_data  :  TRUE
 # sources can be SNB, IQUAM, MAERI, ISAR, or GH.
 # If one wants all in situ types, specify 'ALL'.
 
-insitu_source  :  ['SNB', 'IQUAM', 'GH']		   
+insitu_source  :  ['ALL']
 # -----------------------------------------------------------------------------------
 
 # -----------------------------------------------------------------------------------
@@ -154,7 +153,7 @@ header_record_number : 1
 # Decide if all variables in matchup files will be kept
 # -----------------------------------------------------------------------------------
 
-keep_all_vars  :  FALSE   # Only SOME variables will be retained
+keep_all_vars  :  TRUE   # Only SOME variables will be retained
 
 # -----------------------------------------------------------------------------------
 
@@ -162,6 +161,6 @@ keep_all_vars  :  FALSE   # Only SOME variables will be retained
 # Decide if matchups are being used for a collocation study
 # -----------------------------------------------------------------------------------
 
-collocation  :  TRUE  # Matchups used in collocation studies
+collocation  :  FALSE  # Matchups used in collocation studies
 
 # -----------------------------------------------------------------------------------

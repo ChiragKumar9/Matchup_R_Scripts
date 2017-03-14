@@ -297,10 +297,10 @@ get_matchup_variables <- function(matchup.format = c('MIA_L2GEN','GSFC'),
       "sat","granule","sstflg","sst4flg",
       "l1blutver",
       "source","buoy.pftime","buoy.lat","buoy.lon","buoy.id","buoy.sst",
-      "spare2")
-    # "amsre.type","amsre.val",
-    # "amsr2.type","amsr2.val",
-    # "wsat.type","wsat.val"
+      "spare2",
+      "amsre.type","amsre.val",
+      "amsr2.type","amsr2.val",
+      "wsat.type","wsat.val")
   } else if (matchup.format == 'GSFC' && sensor == 'AVHRR') {
     # Matchup variables
     # for format 'GSFC' (made at Goddard Space Floght Center)
@@ -571,7 +571,7 @@ apply_gross_quality_filters <- function(x, matchup.format = NULL, sensor = NULL)
   }
 
   # --- Apparently brightness temperatures in GSFC format are in degrees C
-  # --- Convert the test boundaries deending on the u nit of BTs.
+  # --- Convert the test boundaries depending on the unit of BTs.
 
   if (matchup.format == 'GSFC' | (matchup.format == 'MIA_L2GEN' & sensor == "AVHRR") ) {
     bt.lower.limit <- -4
