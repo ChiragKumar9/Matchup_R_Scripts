@@ -44,7 +44,7 @@ uu1 <- rep(FALSE, times = length(crude.file.list))
 # Take the multiple file selection strings from the config
 # and join them as one string, separated by ors ('|')
 
-pattern_collapsed = paste(config$file_selection_strings, collapse = '|')
+pattern_collapsed <- paste(config$file_selection_strings, collapse = '|')
 
 # grepl reads this as the string we are matching can match
 # one of the multiple file selections strings we concatened together
