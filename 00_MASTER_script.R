@@ -57,15 +57,15 @@ if (is.na(args[1])) {
   if (Sys.info()["sysname"] == 'Windows') {
     # Directory for scripts and configuration file name in Windows ** CHANGE as needed
     script.dir <- 'D:/matchups/r-projects/Matchup_R_scripts/'
-    #config.file.name <- 'config_file_read_VIIRS_L2GEN_matchups_Windows.yml'
-    config.file.name <- 'config_file_read_MODIS_GSFC_matchups_Windows.yml'
+    config.file.name <- 'config_file_read_VIIRS_L2GEN_matchups_Windows.yml'
+    #config.file.name <- 'config_file_read_MODIS_GSFC_matchups_Windows.yml'
     config.file <- paste0(script.dir, config.file.name)
   
   } else if (Sys.info()["sysname"] == 'Linux') {
     # Directory for scripts and configuration file name in Linux ** CHANGE as needed
-    script.dir <- '/home/ckk/Projects/Matchup_R_Scripts/'
-    #config.file.name <- 'config_file_read_VIIRS_L2GEN_matchups_Windows.yml'
-    config.file.name <- 'config_file_read_MODIS_GSFC_matchups_Linux.yml'
+    script.dir <- '/home/ckk/Projects/MODIS/Matchups/MODIS_R_Scripts/Read_Matchups/'
+    config.file.name <- 'config_file_read_VIIRS_L2GEN_matchups_Windows.yml'
+    #config.file.name <- 'config_file_read_MODIS_GSFC_matchups_Linux.yml'
     config.file <- paste0(script.dir, config.file.name)
   
   } else {
@@ -229,44 +229,7 @@ if (lhdr != n.of.vars) { 	# Check length of header vector
   #stop('Check number of variables in header')
 }
 # ------------------------------------------------------------------------------
-
-# -----------------------------------------------------------------------------#
-# --- Decide which variables in the matchups will be kept ----
-# --- First, the configuration file specifies if all variables (columns)
-# --- in a matchup file of a certain format will be kept or not.
-# --- However, some variables in the matchups are not appropriate for a sensor
-# --- and therefore are filled with missing values (e.g., '-999.0')
-# --- This step defines WHICH variables will be kept for a given sensor.
-
-if (config$keep_all_vars) {
-  # Keep ALL variables in matchups
-  # (including those that are not relevant for sensor, e.g., for testing purposes)
-  vars.to.keep <- matchup.vars
-  Log.info(paste('Keep ALL variables in matchup records for',
-    config$sensor, 'matchups in', config$matchups$format, 'format'))
-} else {
-  # Keep only the variables that correspond to a given sensor
-  vars.to.keep <- keep_matchup_variables(matchup.format = config$matchups$format,
-    sensor = config$sensor, ancillary.data = config$use_ancillary_data)
-  Log.info(paste(length(vars.to.keep), 'variables will be kept for',
-    config$sensor, 'matchups in', config$matchups$format, 'format'))
-}
-
-# TO DO: Fill in for All formats and sensors
-
-# --- XXX variables are currently kept for VIIRS and format 'MIA_L2GEN'.
-# --- XXX variables are currently kept for MODIS and format 'MIA_L2GEN'.
-# --- XXX variables are currently kept for AVHRR and format 'MIA_L2GEN'.
-# --- XXX variables are currently kept for VIIRS and format 'GSFC'.
-# --- XXX variables are currently kept for MODIS and format 'GSFC'.
-# --- XXX variables are currently kept for AVHRR and format 'GSFC'.
-# ------------------------------------------------------------------------------
-
-# *****************************************************************************#
-# *** END OF PREPARATORY STEPS
-Log.info('END of preparatory steps')
-# *****************************************************************************#
-
+F
 
 # *****************************************************************************#
 # *****************************************************************************#

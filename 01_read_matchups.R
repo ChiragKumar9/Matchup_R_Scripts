@@ -41,27 +41,16 @@ Log.debug(paste('First filtering produces', length(crude.file.list),'files'))
 
 uu1 <- rep(FALSE, times = length(crude.file.list))
 
-# Take the multiple file selection strings from the config
-# and join them as one string, separated by ors ('|')
+
+
 
 pattern_collapsed <- paste(config$file_selection_strings, collapse = '|')
-
-# grepl reads this as the string we are matching can match
-# one of the multiple file selections strings we concatened together
-# using '|'
 
 uu.temp <- grepl(pattern = pattern_collapsed,
   crude.file.list,
   ignore.case = TRUE, fixed = FALSE, perl = TRUE)
 
 uu1 <- uu1 | uu.temp
-
-#for (pattern in config$file_selection_strings) {
-#    uu.temp <- grepl(pattern = pattern,
-#    crude.file.list,
-#    ignore.case = TRUE, fixed = FALSE, perl = TRUE)
-#  uu1 <- uu1 | uu.temp
-#}
 
 # --- List files that match at least one of the patterns
 # --- specified in configuration pattern.
@@ -216,7 +205,7 @@ assign(jj2, get(jj1)[!tt3]) # which dates are missing
 if (length(get(jj2)) > 0) {
   Log.warn(paste('There are', length(get(jj2)), 'days without',
     config$insitu_source, 'matchups'))
-  Log.warn(paste('missing dates', stringr::str_c(get(jj2),collapse=",")))
+  Log.warn(paste('missing dates', str_join(get(jj2),collapse=",")))
 } else {
   Log.info(paste('No dates seem to be missing for available',
     config$insitu_source, 'matchup files'))

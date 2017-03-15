@@ -15,7 +15,7 @@ study of SST values derived from (a) Suomi_NPP - VIIRS, (b) GCOM-W - AMSR-2 and
 # Load necessary packages
 library(dplyr)
 library(ggplot2)
-library(mapview)
+#library(mapview)
 library(futile.logger)
 library(lubridate)
 library(tidyr)
@@ -49,7 +49,7 @@ restore those objects. Note that the name of the stored binary objects (.Rdata)
 contain the date in which they were created. Be sure to edit the names of the
 objects to ensure that the most recent versions are being used.  
 
-```{r load_VIIRS, eval=FALSE, include=FALSE}
+```{r load_VIIRS, eval=False, include=FALSE}
 
 # Load .Rdata object for VIIRS matchups resulting from script 01_read_matchups.R
 # We assume... TO DO
@@ -89,7 +89,6 @@ rm(VIIRS_Suomi_NPP_MIA_L2GEN_ALL_Class_6.4.1_ao_2016_11_22)
 ```
 
 ```{r load_AQUA, eval=FALSE, include=FALSE}
-# Is this chunk necessary? More of just loading AQUA for info
 # Load .Rdata object for AQUA matchups resulting from script 01_read_matchups.R
 
 if (Sys.info()["sysname"] == 'Windows') {
@@ -132,6 +131,13 @@ rm(`MODIS_Aqua_GSFC_ALL_Class_6.4.1_ao_2017_03_11`)
 # We are interested in exploring the correlation between AMSR and VIIRS data
 # These are some preliminary steps to begin that process
 
+# Some AMSR-2/WSAT data has a value of -999 when it should be NA
+# We convert those here
+# Get an idea of how many matchups this is...
+table(VIIRS$amsr2.val == -999)
+
+VIIRS$amsr2.val <- ifelse(VIIRS$amsr2.val == -999, NA, VIIRS$amsr2.val)
+
 # Not all variables in the VIIRS dataframes are necessary for our
 # error analysis
 # We cut some variables here
@@ -143,17 +149,6 @@ viirs.colloc.vars <- keep_matchup_variables_collocation(matchup.format = 'MIA_L2
   sensor = 'VIIRS', ancillary.data = TRUE)
 
 VIIRS <- dplyr::select(VIIRS, one_of(viirs.colloc.vars))
-
-# Some AMSR-2/WSAT data has a value of -999 when it should be NA
-# We convert those here
-# Get an idea of how many matchups this is...
-table(VIIRS$amsr2.val == -999)
-
-VIIRS$amsr2.val <- ifelse(VIIRS$amsr2.val == -999, NA, VIIRS$amsr2.val)
-
-# See what AMSR2 SSTs are like after converting -999 to NA, also see
-# that # of -999 = # of NA so conversion worked
-summary(VIIRS$amsr2.val)
 
 # VIIRS data is in Kelvin while AMSR-2 is in Celsius
 # We convert VIIRS' Kelvin to Celsius here
@@ -225,12 +220,12 @@ RSD_amsr2_buoy_sst <- IQR(fit_amsr2_buoy_sst$residuals) / 1.348
 
 ccc <- RColorBrewer::brewer.pal(n = 8, name = 'YlOrRd')
 
-ggplot(data = VIIRS, mapping = aes(x = amsr2.val, y = cen.sst)) +
+ggplot(data = VIIRS, mapping = aes(x = cen.sst, y = amsr2.val)) +
   stat_bin2d(binwidth = c(0.2, 0.1)) +
   scale_fill_gradientn(colours = ccc) +
   geom_abline(intercept = 0, slope = 1, color = 'steelblue') +
   lims(x = c(-2, 32), y = c(-2,32)) +
-  ggplot2::labs(title = "VIIRS and AMSR-2 SSTs", x = 'AMSR-2 SST', y = 'VIIRS SST') +
+  ggplot2::labs(title = "VIIRS and AMSR-2 SSTs", x = 'VIIRS SST', y = 'AMSR-2 SST') +
   ggplot2::ggsave(filename = 'VIIRS_and_AMSR-2_SSTs.ps', device = 'ps',
        width = 8, height = 6, units = 'in') +
   theme(text = element_text(size = 16))
