@@ -71,9 +71,9 @@ if (Sys.info()["sysname"] == 'Windows') {
 } else if (Sys.info()["sysname"] == 'Linux') {
   # Linux directory for VIIRS matchups
   # For 787
-  #linux.dir <- '~/Projects/Matchup_R_Scripts/Results/objects/'
+  linux.dir <- '~/Projects/Matchup_R_Scripts/Results/objects/'
   # For laptop
-  linux.dir <- '~/Projects/Matchup_R_Scripts/'
+  #linux.dir <- '~/Projects/Matchup_R_Scripts/'
   # Name of .Rdata file (update as needed)
   linux.file <- 'VIIRS_Suomi_NPP_MIA_L2GEN_ALL_Class_6.4.1_ao_2016_11_22_with_ancillary.Rdata'
   viirs.file <- paste0(linux.dir, linux.file)
@@ -173,7 +173,7 @@ VIIRS <- dplyr::tbl_df(VIIRS) %>%
   dplyr::filter(solz >= 90) %>%
   dplyr::filter(insitu.platform %in% c("DriftingBuoy","MooredBuoy")) %>%
   dplyr::filter(!is.na(cen.sst)) %>%
-  dplyr::filter(!is.an(amsr2.val))
+  dplyr::filter(!is.na(amsr2.val))
 ```
 
 We now have `r nrow(VIIRS)` VIIRS matchups and `r length(VIIRS$amsr2.val[VIIRS$amsr2.val != NA])` AMSR2 matchups.
@@ -348,7 +348,7 @@ ggplot(data = VIIRS, mapping = aes(x = ddd, y = eee)) +
   stat_bin2d(binwidth = c(0.2, 0.1)) +
   scale_fill_gradientn(colours = ccc) +
   geom_abline(intercept = 0, slope = 0, color = 'steelblue') +
-  lims(x = c(-10, 10), y = c(-10, 10)) +
+  lims(x = c(-2.5, 2.5), y = c(-2.5, 2.5)) +
   ggplot2::labs(title = "VIIRS and AMSR-2 Errors", x = 'VIIRS Errors', y = 'AMSR-2 Errors') +
   #ggplot2::ggsave(filename = 'VIIRS_and_AMSR2_errors.ps', device = 'ps',
        #width = 8, height = 6, units = 'in') +
@@ -413,7 +413,7 @@ compute_variance <- function(src1, src2, src3) {
   
   # Variance of errors in observation types
   var_src1 <- mean((src1_scaled - src2_scaled) * (src1_scaled - src3))              # Variance of source1
-  var_src2 <- mean((src1_scaled - src2_scaled) * (src2_scaled - src))              # Variance of source2
+  var_src2 <- mean((src1_scaled - src2_scaled) * (src2_scaled - src3))              # Variance of source2
   var_src3 <- mean((src1_scaled - src3) * (src2_scaled - src3))                     # Variance of source3
   
   # Take all the individual variances and return them as a dataframe
@@ -432,7 +432,7 @@ variances_global <- compute_variance(VIIRS$cen.sst,
   VIIRS$amsr2.val,
   VIIRS$buoy.sst)
 
-biases_global <- compute_bias(VIIRS$cen.sst,
+biases_global <- compute_pairwise_bias(VIIRS$cen.sst,
   VIIRS$amsr2.val,
   VIIRS$buoy.sst)
 
