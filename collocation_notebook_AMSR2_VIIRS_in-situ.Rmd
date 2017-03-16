@@ -7,7 +7,7 @@ output:
 ---
 
 
-This notebook describes the steps necessary to conduct a triple collocation
+This notebook describes the steps necessary to conduct a triple collocation (TCL)
 study of SST values derived from (a) Suomi_NPP - VIIRS, (b) GCOM-W - AMSR-2 and
 (c) in situ observations form moored and drifting buoys.
 
@@ -42,12 +42,14 @@ rm(fun.dir, fun.file)
 
 # Building a Dataset for Triple Collocation
 
-In a previous step, we read in matchups for Aqua and VIIRS and stored them in
-binary (.Rdata) objects. For Aqua, we modified the regular expression to list 
-files so that only matchups from 2010 onwards were read. The first step is to
-restore those objects. Note that the name of the stored binary objects (.Rdata)
-contain the date in which they were created. Be sure to edit the names of the
-objects to ensure that the most recent versions are being used.  
+## Loading Matchups
+
+In a previous step, we read in matchups VIIRS and AMSR2 and stored them in
+binary (.Rdata) objects. The AMSR2 retrievals are matched up with VIIRS matchups
+and stored in the same binary object. The first step is to restore that object. Note that
+the name of the stored binary objects (.Rdata) contain the date in which they
+were created. Be sure to edit the names of the objects to ensure that the most
+recent versions are being used.  
 
 ```{r load_VIIRS, eval=FALSE, include=FALSE}
 
@@ -69,9 +71,9 @@ if (Sys.info()["sysname"] == 'Windows') {
 } else if (Sys.info()["sysname"] == 'Linux') {
   # Linux directory for VIIRS matchups
   # For 787
-  linux.dir <- '~/Projects/Matchup_R_Scripts/Results/objects/'
+  #linux.dir <- '~/Projects/Matchup_R_Scripts/Results/objects/'
   # For laptop
-  #linux.dir <- '~/Projects/Matchup_R_Scripts/'
+  linux.dir <- '~/Projects/Matchup_R_Scripts/'
   # Name of .Rdata file (update as needed)
   linux.file <- 'VIIRS_Suomi_NPP_MIA_L2GEN_ALL_Class_6.4.1_ao_2016_11_22_with_ancillary.Rdata'
   viirs.file <- paste0(linux.dir, linux.file)
@@ -88,55 +90,25 @@ VIIRS <- VIIRS_Suomi_NPP_MIA_L2GEN_ALL_Class_6.4.1_ao_2016_11_22
 rm(VIIRS_Suomi_NPP_MIA_L2GEN_ALL_Class_6.4.1_ao_2016_11_22)
 ```
 
-```{r load_AQUA, eval=FALSE, include=FALSE}
-# Load .Rdata object for AQUA matchups resulting from script 01_read_matchups.R
+The restored VIIRS matchups span the period between `r min(VIIRS$buoy.timedate)` 
+and `r max(VIIRS$buoy.timedate)`. The original VIIRS dataset had `r nrow(VIIRS)` matchups.
+The AMSR2 data we have is simply an SST value that matched-up to a VIIRS matchup.
+We cannot compute much of the same info for AMSR2 matchups but know we have 
+`r length(VIIRS$amsr2.val[VIIRS$amsr2.val != -999])` AMSR2 retrievals.
 
-if (Sys.info()["sysname"] == 'Windows') {
-  # Windows directory for AQUA matchups
-  win.dir <- 'D:/matchups/r-projects/R_MUDB/modis/aqua/gsfc/l6cv6/results/objects/'
-  # Name of .Rdata file (update as needed)
-  win.file <- 'MODIS_Aqua_GSFC_ALL_Class_6.4.1_ao_2016_11_23_with_ancillary.Rdata'
-  viirs.file <- paste0(win.dir, win.file)
-  if (!file.exists(viirs.file)) {
-    stop('Input file does not exist')
-  } else {
-    load(viirs.file, verbose = TRUE)
-  }
-  rm(win.dir, win.file, viirs.file)
-} else if (Sys.info()["sysname"] == 'Linux') {
-  # Linux directory for VIIRS matchups
-  # For 787
-  linux.dir <- '~/Projects/Matchup_R_Scripts/Results/objects/'
-  # For laptop
-  #linux.dir <- '~/Projects/Matchup_R_Scripts/'
-  # Name of .Rdata file (update as needed)
-  #linux.file <- 'MODIS_Aqua_GSFC_ALL_Class_6.4.1_ao_2016_11_26_with_ancillary.Rdata'
-  linux.file <- 'MODIS_Aqua_GSFC_ALL_Class_6.4.1_ao_2017_03_11_with_ancillary.Rdata'
-  aqua.file <- paste0(linux.dir, linux.file)
-  if (!file.exists(aqua.file)) {
-    stop('Input file does not exist')
-  } else {
-    load(aqua.file, verbose = TRUE)
-  }
-  rm(linux.dir, linux.file, aqua.file)
-}
+## Prepping Matchups
 
-# Create 'AQUA' object so it has a shorter name
-AQUA <- MODIS_Aqua_GSFC_ALL_Class_6.4.1_ao_2017_03_11
-rm(`MODIS_Aqua_GSFC_ALL_Class_6.4.1_ao_2017_03_11`)
-```
+The VIIRS object contains many more variables than actually needed for our TCL analysis.
+We start with `r ncol(VIIRS)` variables and cut many that are not necessary.
+The VIIRS object contains both AMSR2 and VIIRS SSTs. Both of these SSTs must be prepped 
+for our TCL analysis. First, we take AMSR2 values that are -999 and turn them into NAs. 
+We then convert VIIRS SSTs to Celsius from Kelvin. AMSR2 SSTs are already in Celsius.
+Finally, we convert VIIRS SSTs to bulk SSTs from skin SSTs. AMSR2 SSTs are already bulk SSTs.
 
 ```{r prep_VIIRS, include=FALSE}
 # AMSR-2 data does not come with a timestamp
 # We are interested in exploring the correlation between AMSR and VIIRS data
 # These are some preliminary steps to begin that process
-
-# Some AMSR-2/WSAT data has a value of -999 when it should be NA
-# We convert those here
-# Get an idea of how many matchups this is...
-table(VIIRS$amsr2.val == -999)
-
-VIIRS$amsr2.val <- ifelse(VIIRS$amsr2.val == -999, NA, VIIRS$amsr2.val)
 
 # Not all variables in the VIIRS dataframes are necessary for our
 # error analysis
@@ -149,6 +121,13 @@ viirs.colloc.vars <- keep_matchup_variables_collocation(matchup.format = 'MIA_L2
   sensor = 'VIIRS', ancillary.data = TRUE)
 
 VIIRS <- dplyr::select(VIIRS, one_of(viirs.colloc.vars))
+
+# Some AMSR-2/WSAT data has a value of -999 when it should be NA
+# We convert those here
+# Get an idea of how many matchups this is...
+table(VIIRS$amsr2.val == -999)
+
+VIIRS$amsr2.val <- ifelse(VIIRS$amsr2.val == -999, NA, VIIRS$amsr2.val)
 
 # VIIRS data is in Kelvin while AMSR-2 is in Celsius
 # We convert VIIRS' Kelvin to Celsius here
@@ -166,8 +145,122 @@ VIIRS[tt1] <- apply(VIIRS[tt1], 2, FUN = degK.to.degC)
 # VIIRS skin-to-buoy (bulk SST)
 
 VIIRS$cen.sst <- VIIRS$cen.sst + 0.17
+
+# VIIRS sat and buoy dates are characters
+# Convert them to POSIXct for ease
+
+VIIRS$buoy.date <- lubridate::ymd(VIIRS$buoy.date)
+VIIRS$sat.date <- lubridate::ymd(VIIRS$sat.date)
 ```
 
+We now have `r ncol(VIIRS)` variables.
+
+## Filtering Matchups
+
+We now filter the VIIRS object so we have only good quality, nighttime, buoy SST retrievals. 
+This filtering is only done for VIIRS matchups as for AMSR2 retrievals we do not have have this info.
+However, because of the matching up process between VIIRS and AMSR2 retrievals, VIIRS buoy retrievals
+will probably always be AMSR2 buoy retrievals. Nighttime retrievals for VIIRS are probably also nighttime
+retrievals for AMSR2. However, nighttime does not impact AMSR2 retrieval accuracy like it impacts VIIRS
+retrieval accuracy. We do not have quality levels for AMSR2 retrievals so no quality filtering can
+be done for AMSR2 retrievals. However, different geophyisical conditions impact retrieval accuracy
+for AMSR2 retrievals than VIIRS retrievals. Finally, we cannot use a retrieval if either VIIRS or AMSR2
+have an NA as the SST entry. We filter out all such retrievals.
+
+```{r filter_viirs, echo=TRUE}
+VIIRS <- dplyr::tbl_df(VIIRS) %>%
+  dplyr::filter(qsst == 0) %>%
+  dplyr::filter(solz >= 90) %>%
+  dplyr::filter(insitu.platform %in% c("DriftingBuoy","MooredBuoy")) %>%
+  dplyr::filter(!is.na(cen.sst)) %>%
+  dplyr::filter(!is.an(amsr2.val))
+```
+
+We now have `r nrow(VIIRS)` VIIRS matchups and `r length(VIIRS$amsr2.val[VIIRS$amsr2.val != NA])` AMSR2 matchups.
+We have collocated AMSR2 matchups which are attached to our VIIRS matchups (the matchups are processed like this)
+and, because of the filtering we have applied, the VIIRS matchups are now ready for a TCL analysis.
+
+# Exploring the TC Dataset
+
+Before doing the TCL analysis, we explore the dataset we have generated.
+
+
+## Spatial Distribution of Matchups
+
+Here we explore the spatial distribution of collocated matchups.
+
+```{r spatial_distribution, echo=TRUE}
+# Create base map
+require(ggmap)
+
+mp <- NULL
+mapWorld <- borders("world", colour = "gray50", fill = "gray70") # create a layer of borders
+mp <- ggplot() +  mapWorld +
+  ggplot2::scale_x_continuous(breaks = seq(from = -180, to = 180, by = 60)) +
+  ggplot2::scale_y_continuous(breaks = seq(from = -90, to = 90, by = 30)) +
+  coord_fixed(ratio = 1)
+
+# WARNING: Be careful as this worked with ggplot2 2.1.0 on Linux
+# Try to work on different machines with varying versions of ggplot2
+# Now layer the buoys on top with hexagonal binning
+mp <- mp + 
+  ggplot2::stat_binhex(data = VIIRS,
+    aes(x = buoy.lon, # Use hexagonal binning command and give x and y input
+    y = buoy.lat,
+    fill = cut(..count.., c(0, 100, 500, 1000, 1500, Inf))), # Divides matchups per bin into discrete chunks and colors likewise
+    binwidth = c(10, 10)) +
+  mapWorld + labs(x = NULL, y = NULL) +
+  #scale_fill_hue('value') + # Standard colors with discrete chunking
+  scale_fill_brewer(palette = 'YlOrRd') + # Change colors to Yellow, Orange, and Red - many diff 
+  guides(fill = guide_legend(title = "N of matchups"))
+
+#ggplot2::ggsave(filename = 'spatial_distribution.ps', device = 'ps',
+#       width = 8, height = 6, units = 'in')
+
+mp
+```
+
+## Temporal Distribution of Matchups
+
+```{r temporal_distribution}
+
+yy <- lubridate::year(VIIRS$buoy.timedate)     # Year
+mm <- lubridate::month(VIIRS$buoy.timedate)    # Month
+
+tt1 <- cbind(yy, mm)
+
+tt2 <- dplyr::tbl_df(tt1) %>%
+  dplyr::group_by(yy, mm) %>%
+  dplyr::summarise(n = n()) %>%
+  dplyr::arrange(yy, mm)
+
+yy.vals <- sort(unique(yy))
+mm.vals <- sort(unique(mm))
+tt3 <- expand.grid(mm = mm.vals, yy = yy.vals)
+
+tt4 <- dplyr::left_join(tt3, tt2) %>%
+  dplyr::select(yy, mm, n)
+
+brks <- pretty(tt4$n, n = 5)
+#brks <- floor(quantile(tt4$n, probs = seq(0, 1, 0.25), na.rm = TRUE))
+
+tt4$n <- cut(tt4$n, breaks = brks)
+tt4$mm <- ordered(tt4$mm, labels = month.abb)
+tt4$yy <- ordered(tt4$yy)
+
+hm <- ggplot2::ggplot(data = tt4, aes(mm, yy)) +
+  ggplot2::geom_tile(aes(fill = n), colour = "white") +
+  ggplot2::scale_fill_brewer(type = "seq", palette = 'YlOrRd', direction = 1) +
+  ggplot2::theme_bw() +
+  ggplot2::theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank())+
+  #ggplot2::ggsave("Temporal_heatmap.ps", device = 'ps',
+       #width = 8, height = 6, units = 'in')
+```
+
+## Association Between all SST Sources
+
+Here we explore the correlation between SST sources in a series of pairwise plots.
+The nature of systematic errors in one source can be seen from these plots
 
 ```{r viirs_buoy_corr, echo=TRUE}
 # VIIRS and buoy correlation
@@ -179,8 +272,8 @@ ggplot(data = VIIRS, mapping = aes(x = buoy.sst, y = cen.sst)) +
   geom_abline(intercept = 0, slope = 1, color = 'steelblue') +
   lims(x = c(-2, 32), y = c(-2,32)) +
   ggplot2::labs(title = "VIIRS and Buoy SSTs", x = 'Buoy SST', y = 'VIIRS SST') +
-  ggplot2::ggsave(filename = 'VIIRS_and_buoy_SSTs.ps', device = 'ps',
-       width = 8, height = 6, units = 'in') +
+  #ggplot2::ggsave(filename = 'VIIRS_and_buoy_SSTs.ps', device = 'ps',
+       #width = 8, height = 6, units = 'in') +
   theme(text = element_text(size = 16))
 
 fit_viirs_buoy_sst <- lm(buoy.sst ~ cen.sst, data = VIIRS)
@@ -191,7 +284,7 @@ RSD_viirs_buoy_sst <- IQR(fit_viirs_buoy_sst$residuals) / 1.348
 ```
 
 
-```{r amsr-2_buoy_corr, echo=TRUE}
+```{r amsr2_buoy_corr, echo=TRUE}
 # AMSR-2 and buoy correlation
 ccc <- RColorBrewer::brewer.pal(n = 8, name = 'YlOrRd')
 
@@ -200,9 +293,9 @@ ggplot(data = VIIRS, mapping = aes(x = buoy.sst, y = amsr2.val)) +
   scale_fill_gradientn(colours = ccc) +
   geom_abline(intercept = 0, slope = 1, color = 'steelblue') +
   lims(x = c(-2, 32), y = c(-2,32)) +
-  ggplot2::labs(title = "AMSR-2 and Buoy SSTs", x = 'Buoy SST', y = 'AMSR-2 SST') +
-  ggplot2::ggsave(filename = 'VIIRS_and_AMSR-2_SSTs.ps', device = 'ps',
-       width = 8, height = 6, units = 'in') +
+  ggplot2::labs(title = "AMSR2 and Buoy SSTs", x = 'Buoy SST', y = 'AMSR-2 SST') +
+  #ggplot2::ggsave(filename = 'VIIRS_and_AMSR2_SSTs.ps', device = 'ps',
+       #width = 8, height = 6, units = 'in') +
   theme(text = element_text(size = 16))
 
 fit_amsr2_buoy_sst <- lm(buoy.sst ~ amsr2.val, data = VIIRS)
@@ -225,9 +318,9 @@ ggplot(data = VIIRS, mapping = aes(x = cen.sst, y = amsr2.val)) +
   scale_fill_gradientn(colours = ccc) +
   geom_abline(intercept = 0, slope = 1, color = 'steelblue') +
   lims(x = c(-2, 32), y = c(-2,32)) +
-  ggplot2::labs(title = "VIIRS and AMSR-2 SSTs", x = 'VIIRS SST', y = 'AMSR-2 SST') +
-  ggplot2::ggsave(filename = 'VIIRS_and_AMSR-2_SSTs.ps', device = 'ps',
-       width = 8, height = 6, units = 'in') +
+  ggplot2::labs(title = "VIIRS and AMSR2 SSTs", x = 'VIIRS SST', y = 'AMSR-2 SST') +
+  #ggplot2::ggsave(filename = 'VIIRS_and_AMSR2_SSTs.ps', device = 'ps',
+       #width = 8, height = 6, units = 'in') +
   theme(text = element_text(size = 16))
 
 fit_viirs_amsr2_sst <- lm(cen.sst ~ amsr2.val, data = VIIRS)
@@ -236,6 +329,11 @@ fit_viirs_amsr2_sst <- lm(cen.sst ~ amsr2.val, data = VIIRS)
 
 RSD_viirs_amsr2_sst <- IQR(fit_viirs_amsr2_sst$residuals) / 1.348
 ```
+
+A key assumption in the TCL analysis is that the random errors across sources are uncorrelated. 
+We can estimate the random error by assuming the buoy SST is ground truth and subtracting it from
+both the VIIRS and AMSR2 SSTs. We then plot the 'errors' against each other and observe their
+correlation.
 
 ```{r VIIRS_AMSR2_errors, echo=TRUE}
 
@@ -252,8 +350,8 @@ ggplot(data = VIIRS, mapping = aes(x = ddd, y = eee)) +
   geom_abline(intercept = 0, slope = 0, color = 'steelblue') +
   lims(x = c(-10, 10), y = c(-10, 10)) +
   ggplot2::labs(title = "VIIRS and AMSR-2 Errors", x = 'VIIRS Errors', y = 'AMSR-2 Errors') +
-  ggplot2::ggsave(filename = 'VIIRS_and_AMSR2_errors.ps', device = 'ps',
-       width = 8, height = 6, units = 'in') +
+  #ggplot2::ggsave(filename = 'VIIRS_and_AMSR2_errors.ps', device = 'ps',
+       #width = 8, height = 6, units = 'in') +
   theme(text = element_text(size = 16))
 
 fit_viirs_amsr2_errors <- lm(ddd ~ eee)
@@ -261,4 +359,85 @@ fit_viirs_amsr2_errors <- lm(ddd ~ eee)
 # Compute robust standard deviation
 
 RSD_viirs_amsr2_errors <- IQR(fit_viirs_amsr2_errors$residuals) / 1.348
+```
+
+The correlation among VIIRS and AMSR2 errors is minimal based on our above plot.
+
+# TCL Analysis
+
+# We now use the TCL equations to estimate the standard deviation of therandom error in 
+the global TCL dataset.
+
+```{r collocation_functions, include=FALSE}
+
+# Bias between sources
+compute_pairwise_bias <- function(src1, src2, src3) {
+  if (!is.null(nrow(src1)) |
+    !is.null(nrow(src2)) |
+    !is.null(nrow(src3)) |
+    length(src1) <= 1 |
+    length(src2) <= 1 |
+    length(src3) <= 1) {
+    stop("Only vectors can be passed as arguments to the calculate_bias function.")
+  }
+
+  bias_src1src3 <- mean(src1) - mean(src3) #Bias between source1 and source2
+  
+  bias_src2src3 <- mean(src2) - mean(src3) #Bias between source2 and source3
+  
+  # Return a dataframe of biases that can re-scale each observation type
+  
+  biases <- c(bias_src1src3, bias_src2src3)
+  names(biases) <- c("bias_src1src3", "bias_src2src3")
+  
+  return(biases)
+}   # End of compute_bias
+
+# Estimates of variance of random error
+compute_variance <- function(src1, src2, src3) {
+  if (!is.null(nrow(src1)) |
+    !is.null(nrow(src2)) |
+    !is.null(nrow(src3)) |
+    length(src1) <= 1 |
+    length(src2) <= 1 |
+    length(src3) <= 1) {
+    stop("Only vectors can be passed as arguments to the calculate_variance function")
+  }
+  
+  # Call bias function to re-scale measurements
+  biases <- compute_pairwise_bias(src1, src2, src3)
+  
+  #Scale sources to one source to compute variance
+  src1_scaled <- src1 - biases['bias_src1src3']
+  src2_scaled <- src2 - biases['bias_src2src3']
+  
+  # Variance of errors in observation types
+  var_src1 <- mean((src1_scaled - src2_scaled) * (src1_scaled - src3))              # Variance of source1
+  var_src2 <- mean((src1_scaled - src2_scaled) * (src2_scaled - src))              # Variance of source2
+  var_src3 <- mean((src1_scaled - src3) * (src2_scaled - src3))                     # Variance of source3
+  
+  # Take all the individual variances and return them as a dataframe
+  variances <- data.frame(var_src1, var_src2, var_src3)
+  colnames(variances) <- c("var_src1", "var_src2", "var_src3")
+  return(variances)
+} # end of compute_variance
+
+```
+
+```{r run_collocation_global}
+
+# Make sure the last argument to compute_variance corresponds to the buoy SSTs
+
+variances_global <- compute_variance(VIIRS$cen.sst,
+  VIIRS$amsr2.val,
+  VIIRS$buoy.sst)
+
+biases_global <- compute_bias(VIIRS$cen.sst,
+  VIIRS$amsr2.val,
+  VIIRS$buoy.sst)
+
+sd_global <- round(sqrt(abs(variances_global)), 3)
+
+sd_global
+
 ```
