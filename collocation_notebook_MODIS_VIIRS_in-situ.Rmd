@@ -503,7 +503,7 @@ hm <- ggplot2::ggplot(data = tt4, aes(mm, yy)) +
   ggplot2::theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank())+
   ggplot2::ggsave("Temporal_heatmap.ps", device = 'ps',
        width = 8, height = 6, units = 'in')
-
+hm
 ```
 
 ## Association between all SST sources
