@@ -675,7 +675,7 @@ compute_variance <- function(source1, source2, source3) {
   
   # Take all the individual variances and return them as a dataframe
   variances <- data.frame(variance_source1, variance_source2, variance_source3)
-  colnames(variances) <- c("variance_source1", "variance_source2", "variance_source3")
+  colnames(variances) <- c("var_src1", "var_src2", "var_src3")
   return(variances)
 } # end of compute_variance
 

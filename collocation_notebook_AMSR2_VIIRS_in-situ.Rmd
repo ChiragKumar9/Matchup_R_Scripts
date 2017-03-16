@@ -365,3 +365,79 @@ The correlation among VIIRS and AMSR2 errors is minimal based on our above plot.
 
 # TCL Analysis
 
+# We now use the TCL equations to estimate the standard deviation of therandom error in 
+the global TCL dataset.
+
+```{r collocation_functions, include=FALSE}
+
+# Bias between sources
+compute_pairwise_bias <- function(src1, src2, src3) {
+  if (!is.null(nrow(src1)) |
+    !is.null(nrow(src2)) |
+    !is.null(nrow(src3)) |
+    length(src1) <= 1 |
+    length(src2) <= 1 |
+    length(src3) <= 1) {
+    stop("Only vectors can be passed as arguments to the calculate_bias function.")
+  }
+
+  bias_src1src3 <- mean(src1) - mean(src3) #Bias between source1 and source2
+  
+  bias_src2src3 <- mean(src2) - mean(src3) #Bias between source2 and source3
+  
+  # Return a dataframe of biases that can re-scale each observation type
+  
+  biases <- c(bias_src1src3, bias_src2src3)
+  names(biases) <- c("bias_src1src3", "bias_src2src3")
+  
+  return(biases)
+}   # End of compute_bias
+
+# Estimates of variance of random error
+compute_variance <- function(src1, src2, src3) {
+  if (!is.null(nrow(src1)) |
+    !is.null(nrow(src2)) |
+    !is.null(nrow(src3)) |
+    length(src1) <= 1 |
+    length(src2) <= 1 |
+    length(src3) <= 1) {
+    stop("Only vectors can be passed as arguments to the calculate_variance function")
+  }
+  
+  # Call bias function to re-scale measurements
+  biases <- compute_pairwise_bias(src1, src2, src3)
+  
+  #Scale sources to one source to compute variance
+  src1_scaled <- src1 - biases['bias_src1src3']
+  src2_scaled <- src2 - biases['bias_src2src3']
+  
+  # Variance of errors in observation types
+  var_src1 <- mean((src1_scaled - src2_scaled) * (src1_scaled - src3))              # Variance of source1
+  var_src2 <- mean((src1_scaled - src2_scaled) * (src2_scaled - src))              # Variance of source2
+  var_src3 <- mean((src1_scaled - src3) * (src2_scaled - src3))                     # Variance of source3
+  
+  # Take all the individual variances and return them as a dataframe
+  variances <- data.frame(var_src1, var_src2, var_src3)
+  colnames(variances) <- c("var_src1", "var_src2", "var_src3")
+  return(variances)
+} # end of compute_variance
+
+```
+
+```{r run_collocation_global}
+
+# Make sure the last argument to compute_variance corresponds to the buoy SSTs
+
+variances_global <- compute_variance(VIIRS$cen.sst,
+  VIIRS$amsr2.val,
+  VIIRS$buoy.sst)
+
+biases_global <- compute_bias(VIIRS$cen.sst,
+  VIIRS$amsr2.val,
+  VIIRS$buoy.sst)
+
+sd_global <- round(sqrt(abs(variances_global)), 3)
+
+sd_global
+
+```
