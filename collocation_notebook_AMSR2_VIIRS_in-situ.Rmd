@@ -15,11 +15,12 @@ study of SST values derived from (a) Suomi_NPP - VIIRS, (b) GCOM-W - AMSR-2 and
 # Load necessary packages
 library(dplyr)
 library(ggplot2)
-library(mapview)
+#library(mapview)
 library(futile.logger)
 library(lubridate)
 library(tidyr)
 require(RColorBrewer)
+require(MASS)
 
 ggplot <- function(...) {ggplot2::ggplot(...) + theme_bw()}
 
@@ -71,9 +72,9 @@ if (Sys.info()["sysname"] == 'Windows') {
 } else if (Sys.info()["sysname"] == 'Linux') {
   # Linux directory for VIIRS matchups
   # For 787
-  linux.dir <- '~/Projects/Matchup_R_Scripts/Results/objects/'
+  #linux.dir <- '~/Projects/Matchup_R_Scripts/Results/objects/'
   # For laptop
-  #linux.dir <- '~/Projects/Matchup_R_Scripts/'
+  linux.dir <- '~/Projects/Matchup_R_Scripts/'
   # Name of .Rdata file (update as needed)
   linux.file <- 'VIIRS_Suomi_NPP_MIA_L2GEN_ALL_Class_6.4.1_ao_2016_11_22_with_ancillary.Rdata'
   viirs.file <- paste0(linux.dir, linux.file)
@@ -129,6 +130,8 @@ table(VIIRS$amsr2.val == -999)
 
 VIIRS$amsr2.val <- ifelse(VIIRS$amsr2.val == -999, NA, VIIRS$amsr2.val)
 
+table(is.na(VIIRS$amsr2.val))
+
 # VIIRS data is in Kelvin while AMSR-2 is in Celsius
 # We convert VIIRS' Kelvin to Celsius here
 
@@ -176,7 +179,7 @@ VIIRS <- dplyr::tbl_df(VIIRS) %>%
   dplyr::filter(!is.na(amsr2.val))
 ```
 
-We now have `r nrow(VIIRS)` VIIRS matchups and `r length(VIIRS$amsr2.val[VIIRS$amsr2.val != NA])` AMSR2 matchups.
+We now have `r nrow(VIIRS)` collocated VIIRS-AMSR2 matchups.
 We have collocated AMSR2 matchups which are attached to our VIIRS matchups (the matchups are processed like this)
 and, because of the filtering we have applied, the VIIRS matchups are now ready for a TCL analysis.
 
@@ -252,9 +255,10 @@ hm <- ggplot2::ggplot(data = tt4, aes(mm, yy)) +
   ggplot2::geom_tile(aes(fill = n), colour = "white") +
   ggplot2::scale_fill_brewer(type = "seq", palette = 'YlOrRd', direction = 1) +
   ggplot2::theme_bw() +
-  ggplot2::theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank())+
+  ggplot2::theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank())
   #ggplot2::ggsave("Temporal_heatmap.ps", device = 'ps',
        #width = 8, height = 6, units = 'in')
+hm
 ```
 
 ## Association Between all SST Sources
@@ -370,6 +374,50 @@ the global TCL dataset.
 
 ```{r collocation_functions, include=FALSE}
 
+# Work in progress
+# Bias from source to True value of variable
+compute_bias_true_var <- function(src1, src2, src3) {
+    if (!is.null(nrow(src1)) |
+    !is.null(nrow(src2)) |
+    !is.null(nrow(src3)) |
+    length(src1) <= 1 |
+    length(src2) <= 1 |
+    length(src3) <= 1) {
+    stop("Only vectors can be passed as arguments to the calculate_bias function.")
+  }
+  # We solve for the bias in each source by setting
+  # up a system of equations and solving for the bias
+  # in each source using matrix linear elimination
+  
+  # Compute bias between sources
+  # This is the solution vector and we use this
+  # to compute the bias in each source
+  pairwise_biases <- c((mean(src1) - mean(src2)),
+                       (mean(src2) - mean(src3)),
+                       (mean(src1) - mean(src3)))
+  names(pairwise_biases) <- c("bias_src1src2",
+                              "bias_src2src3",
+                              "bias_src1src3")
+  pairwise_biases <- as.matrix(pairwise_biases)
+  
+  # The pairwise bias is equal to the bias in one source
+  # minus the bias in another source
+  # We can set up three linear equations expressing this
+  # b_1 - b_2 = b_12
+  # We can fold these linear equations into one matrix
+  # We create the coefficient matrix here
+  coefs <- t(as.matrix(data.frame(c(1, -1, 0),
+                                c(0, 1, -1),
+                                c(1, 0, -1))))
+  # To solve for b_1, b_2, and b_3, we must find the 
+  # inverse of coefs and find pairwise_biases * coefs_inv
+  coefs_inv <- MASS::ginv(coefs)
+  
+  biases <- coefs_inv %*% pairwise_biases
+  
+  return(biases)
+}
+
 # Bias between sources
 compute_pairwise_bias <- function(src1, src2, src3) {
   if (!is.null(nrow(src1)) |
@@ -441,3 +489,10 @@ sd_global <- round(sqrt(abs(variances_global)), 3)
 sd_global
 
 ```
+
+```{r bias_from_true_var, echo=TRUE}
+biases_true_var <- compute_bias_true_var(VIIRS$cen.sst, VIIRS$amsr2.val, VIIRS$buoy.sst)
+
+biases_true_var
+```
+
