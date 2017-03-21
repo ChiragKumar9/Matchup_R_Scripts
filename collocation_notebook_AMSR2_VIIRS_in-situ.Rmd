@@ -41,7 +41,7 @@ rm(fun.dir, fun.file)
 ```
 
 
-# Building a Dataset for Triple Collocation
+# Building a Dataset for Triple Collocation (TCL)
 
 ## Loading Matchups
 
@@ -93,7 +93,7 @@ rm(VIIRS_Suomi_NPP_MIA_L2GEN_ALL_Class_6.4.1_ao_2016_11_22)
 
 The restored VIIRS matchups span the period between `r min(VIIRS$buoy.timedate)` 
 and `r max(VIIRS$buoy.timedate)`. The original VIIRS dataset had `r nrow(VIIRS)` matchups.
-The AMSR2 data we have is simply an SST value that matched-up to a VIIRS matchup.
+However, the AMSR2 data we have is simply an SST value that matched-up to a VIIRS matchup.
 We cannot compute much of the same info for AMSR2 matchups but know we have 
 `r length(VIIRS$amsr2.val[VIIRS$amsr2.val != -999])` AMSR2 retrievals.
 
@@ -101,7 +101,7 @@ We cannot compute much of the same info for AMSR2 matchups but know we have
 
 The VIIRS object contains many more variables than actually needed for our TCL analysis.
 We start with `r ncol(VIIRS)` variables and cut many that are not necessary.
-The VIIRS object contains both AMSR2 and VIIRS SSTs. Both of these SSTs must be prepped 
+Furthermore, the VIIRS object contains both AMSR2 and VIIRS SSTs. Both of these SSTs must be prepped 
 for our TCL analysis. First, we take AMSR2 values that are -999 and turn them into NAs. 
 We then convert VIIRS SSTs to Celsius from Kelvin. AMSR2 SSTs are already in Celsius.
 Finally, we convert VIIRS SSTs to bulk SSTs from skin SSTs. AMSR2 SSTs are already bulk SSTs.
@@ -161,11 +161,8 @@ We now have `r ncol(VIIRS)` variables.
 ## Filtering Matchups
 
 We now filter the VIIRS object so we have only good quality, nighttime, buoy SST retrievals. 
-This filtering is only done for VIIRS matchups as for AMSR2 retrievals we do not have have this info.
-However, because of the matching up process between VIIRS and AMSR2 retrievals, VIIRS buoy retrievals
-will probably always be AMSR2 buoy retrievals. Nighttime retrievals for VIIRS are probably also nighttime
-retrievals for AMSR2. However, nighttime does not impact AMSR2 retrieval accuracy like it impacts VIIRS
-retrieval accuracy. We do not have quality levels for AMSR2 retrievals so no quality filtering can
+This filtering is only done for VIIRS matchups as for AMSR2 retrievals we do not have have info to filter on.
+We do not have quality levels for AMSR2 retrievals so no quality filtering can
 be done for AMSR2 retrievals. However, different geophyisical conditions impact retrieval accuracy
 for AMSR2 retrievals than VIIRS retrievals. Finally, we cannot use a retrieval if either VIIRS or AMSR2
 have an NA as the SST entry. We filter out all such retrievals.
@@ -180,13 +177,13 @@ VIIRS <- dplyr::tbl_df(VIIRS) %>%
 ```
 
 We now have `r nrow(VIIRS)` collocated VIIRS-AMSR2 matchups.
-We have collocated AMSR2 matchups which are attached to our VIIRS matchups (the matchups are processed like this)
-and, because of the filtering we have applied, the VIIRS matchups are now ready for a TCL analysis.
+Because of the filtering we have applied, the VIIRS matchups are now ready for a TCL analysis.
+We will interpret results of our TCL analysis knowing that part of the uncertainty in AMSR2 matchups
+can be attributed to lack of filtering.
 
 # Exploring the TC Dataset
 
 Before doing the TCL analysis, we explore the dataset we have generated.
-
 
 ## Spatial Distribution of Matchups
 
@@ -369,8 +366,8 @@ The correlation among VIIRS and AMSR2 errors is minimal based on our above plot.
 
 # TCL Analysis
 
-# We now use the TCL equations to estimate the standard deviation of therandom error in 
-the global TCL dataset.
+# We now use the TCL equations to estimate the bias of each source from the true variable and the 
+standard deviation of the random error in the global TCL dataset.
 
 ```{r collocation_functions, include=FALSE}
 
@@ -471,7 +468,18 @@ compute_variance <- function(src1, src2, src3) {
 } # end of compute_variance
 
 ```
+Source1 is always the VIIRS SST.
+Source2 is always the AMSR2 SST.
+Source3 is always the buoy SST.
 
+The bias of each source from the true value of the SST
+```{r bias_from_true_var, echo=TRUE}
+biases_true_var <- compute_bias_true_var(VIIRS$cen.sst, VIIRS$amsr2.val, VIIRS$buoy.sst)
+
+biases_true_var
+```
+
+The standard deviation of the random error in each source's measurement.
 ```{r run_collocation_global}
 
 # Make sure the last argument to compute_variance corresponds to the buoy SSTs
@@ -490,9 +498,4 @@ sd_global
 
 ```
 
-```{r bias_from_true_var, echo=TRUE}
-biases_true_var <- compute_bias_true_var(VIIRS$cen.sst, VIIRS$amsr2.val, VIIRS$buoy.sst)
-
-biases_true_var
-```
 
