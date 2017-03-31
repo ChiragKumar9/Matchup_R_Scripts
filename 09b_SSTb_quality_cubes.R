@@ -1,11 +1,10 @@
 # ------------------------------------------------------------------------------
 # ------------------------------------------------------------------------------
 # --- Script to calculate hypercubes with SST residual statistics
-# --- This calculates statistics for the MAIN SST on a sensor
 # ------------------------------------------------------------------------------
 # ------------------------------------------------------------------------------
 
-config$geophys.var <- "SST2b"
+config$geophys.var <- "SST3b"
 
 # -----------------------------------------------------------------------------#
 # --- Install required R packages ----
@@ -55,7 +54,7 @@ if (exists('orig')) {
 # -----------------------------------------------------------------------------#
 # --- Define quality levels to be analyzed ----
 
-if (config$geophys.var == "SST") {
+if (config$geophys.var == "SST4") {
   # MODIS
   if (config$algorithm$type == "latband1") {
     Log.info(paste("Looking at quality values for",
@@ -66,12 +65,12 @@ if (config$geophys.var == "SST") {
       config$sensor, config$algorithm$type,"SSTs..."))
     quality.levels <- as.numeric(names(table(orig$qsst)))	  # Quality levels to analyze
   }
-} else if (config$geophys.var == "SST2b") {
+} else if (config$geophys.var == "SST3b") {
   # VIIRS
   if (config$algorithm$type == "latband") {
     Log.info(paste("Looking at quality values for",
       config$sensor, config$algorithm$type,"SSTs..."))
-    quality.levels <- sort(unique(orig$qsst))	  # Quality levels to analyze
+    quality.levels <- sort(unique(orig$qsst3b))	  # Quality levels to analyze
   }
 }
 # ------------------------------------------------------------------------------
@@ -236,7 +235,7 @@ if (config$algorithm$type == "latband") {
 	  config$sensor, 
 	  config$algorithm$type,
 	  "SSTs..."))
-	SST.res <- orig2$sst.minus.buoy.sst + skin.offset	  # SST latband1 residuals
+	SST.res <- orig2$sst3b.minus.buoy.sst + skin.offset	  # SST3b
 }
 
 rm(skin.offset)
@@ -321,9 +320,9 @@ for(i in quality.levels) {
     "_qual_", i, ".txt", sep = "")
   
   uuu <- dplyr::tbl_df(hypercube.stats) %>%
-    dplyr::filter(qsst == i) %>%
-    dplyr::select(-qsst) # Eliminate qsst column
-    
+    dplyr::filter(qsst3b == i) %>%
+    dplyr::select(-qsst3b) # Eliminate qsst column
+
   write.table(uuu, file=outfile, append=FALSE,
     sep="\t", na="NA", row.names=FALSE, col.names=TRUE, quote=FALSE)
   
