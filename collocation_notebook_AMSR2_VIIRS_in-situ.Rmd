@@ -252,9 +252,10 @@ hm <- ggplot2::ggplot(data = tt4, aes(mm, yy)) +
   ggplot2::geom_tile(aes(fill = n), colour = "white") +
   ggplot2::scale_fill_brewer(type = "seq", palette = 'YlOrRd', direction = 1) +
   ggplot2::theme_bw() +
-  ggplot2::theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank())+
+  ggplot2::theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank())
   #ggplot2::ggsave("Temporal_heatmap.ps", device = 'ps',
        #width = 8, height = 6, units = 'in')
+hm
 ```
 
 ## Association Between all SST Sources
