@@ -41,9 +41,6 @@ Log.debug(paste('First filtering produces', length(crude.file.list),'files'))
 
 uu1 <- rep(FALSE, times = length(crude.file.list))
 
-
-
-
 pattern_collapsed <- paste(config$file_selection_strings, collapse = '|')
 
 uu.temp <- grepl(pattern = pattern_collapsed,
@@ -422,7 +419,10 @@ if (config$keep_all_vars) {
 } else {
   # DO NOT keep all variables
   Log.debug('Keeping SOME variables in matchups (defined in \'vars.to.keep\'')
-  orig <- dplyr::select(orig, one_of(vars.to.keep))
+  keep.vars <- keep_matchup_variables(matchup.format = config$matchups$format,
+    sensor = config$sensor,
+    ancillary.data = config$use_ancillary_data)
+  orig <- dplyr::select(orig, one_of(keep.vars))
 }
 
 # --- Apply GROSS quality filters to first file read.
@@ -519,7 +519,10 @@ if (n.daily.files == 1) {
     } else {
       # DO NOT keep all variables
       Log.debug('Keeping SOME variables in matchups (defined in \'vars.to.keep\'')
-      orig2 <- dplyr::select(orig2, one_of(vars.to.keep))
+      keep.vars <- keep_matchup_variables(matchup.format = config$matchups$format,
+        sensor = config$sensor,
+        ancillary.data = config$use_ancillary_data)
+      orig2 <- dplyr::select(orig2, one_of(keep.vars))
     }
 
     # --- Apply GROSS quality filters to first file read.
