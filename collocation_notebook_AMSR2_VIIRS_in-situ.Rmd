@@ -15,7 +15,7 @@ study of SST values derived from (a) Suomi_NPP - VIIRS, (b) GCOM-W - AMSR-2 and
 # Load necessary packages
 library(dplyr)
 library(ggplot2)
-#library(mapview)
+library(mapview)
 library(futile.logger)
 library(lubridate)
 library(tidyr)
@@ -72,9 +72,9 @@ if (Sys.info()["sysname"] == 'Windows') {
 } else if (Sys.info()["sysname"] == 'Linux') {
   # Linux directory for VIIRS matchups
   # For 787
-  #linux.dir <- '~/Projects/Matchup_R_Scripts/Results/objects/'
+  linux.dir <- '~/Projects/Matchup_R_Scripts/Results/objects/'
   # For laptop
-  linux.dir <- '~/Projects/Matchup_R_Scripts/'
+  #linux.dir <- '~/Projects/Matchup_R_Scripts/'
   # Name of .Rdata file (update as needed)
   linux.file <- 'VIIRS_Suomi_NPP_MIA_L2GEN_ALL_Class_6.4.1_ao_2016_11_22_with_ancillary.Rdata'
   viirs.file <- paste0(linux.dir, linux.file)

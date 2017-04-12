@@ -63,9 +63,9 @@ if (is.na(args[1])) {
   
   } else if (Sys.info()["sysname"] == 'Linux') {
     # Directory for scripts and configuration file name in Linux ** CHANGE as needed
-    script.dir <- '/home/ckk/Projects/MODIS/Matchups/MODIS_R_Scripts/Read_Matchups/'
-    config.file.name <- 'config_file_read_VIIRS_L2GEN_matchups_Windows.yml'
-    #config.file.name <- 'config_file_read_MODIS_GSFC_matchups_Linux.yml'
+    script.dir <- '/home/ckk/Projects/Matchup_R_Scripts/'
+    #config.file.name <- 'config_file_read_VIIRS_L2GEN_matchups_Windows.yml'
+    config.file.name <- 'config_file_read_MODIS_GSFC_matchups_Linux.yml'
     config.file <- paste0(script.dir, config.file.name)
   
   } else {
