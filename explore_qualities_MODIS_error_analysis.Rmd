@@ -1,16 +1,148 @@
 ---
-title: "R Notebook"
+title: "Quality Level Analysis in MODIS SSTs"
 output: html_notebook
 ---
 
-This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+```{r prep_workspace, echo=TRUE}
+# Necessary packages
+require(dplyr)
+require(ggplot2)
+require(RColorBrewer)
 
-Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Ctrl+Shift+Enter*. 
+ggplot <- function(...) {ggplot2::ggplot(...) + theme_bw()}
 
-```{r}
-plot(cars)
+# Source own functions
+# Define direwctory where functions are for each operating system
+
+if (Sys.info()["sysname"] == 'Windows') {
+  fun.dir <- 'D:/matchups/r-projects/Matchup_R_Scripts/Functions/'
+} else if (Sys.info()["sysname"] == 'Linux') {
+  fun.dir <- '/home/ckk/Projects/Matchup_R_Scripts/Functions/'
+}
+
+fun.file <- paste0(fun.dir, 'common_functions.R')
+
+source(file = fun.file,
+  local = FALSE, echo = FALSE, verbose = FALSE)
+rm(fun.dir, fun.file)
+
+
+# Load data
+# For 787
+# linux.dir <-
+# For Laptop
+linux_dir <- '~/Projects/Matchup_R_Scripts/'
+linux_file <- 'MODIS_Aqua_GSFC_ALL_Class_6.4.1_ao_2017_04_12_with_ancillary.Rdata'
+AQUA_file <- paste0(linux_dir, linux_file)
+
+if (!file.exists(AQUA_file)) {
+    stop('Input file does not exist')
+  } else {
+    load(AQUA_file, verbose = TRUE)
+    AQUA <- MODIS_Aqua_GSFC_ALL_Class_6.4.1_ao_2017_04_12
+  }
+
+rm(linux_dir, linux_file, AQUA_file)
 ```
 
-Add a new chunk by clicking the *Insert Chunk* button on the toolbar or by pressing *Ctrl+Alt+I*.
+```{r filter, echo=TRUE}
+# Apply a basic filtering so we are only looking at nighttime matchups - same ones we will use in error analysis
+AQUA <- dplyr::tbl_df(AQUA) %>%
+  dplyr::filter(solz >= 90)
+```
 
-When you save the notebook, an HTML file containing the code and output will be saved alongside it (click the *Preview* button or press *Ctrl+Shift+K* to preview the HTML file).
+
+```{r table_qsst, echo=TRUE}
+table(AQUA$qsst)
+```
+
+```{r AQUA_SST, echo=TRUE}
+# AQUA SSTs against buoy SSTs
+ggplot2::ggplot(data = AQUA, aes(x = cen.sst, y = buoy.sst)) +
+  stat_bin2d(bins = 100) + 
+  scale_fill_brewer('YlOrRd')
+
+# Now plot AQUA SSts against buoy SSTs but with color as quality level
+ggplot2::ggplot(data = AQUA, aes(x = cen.sst, y = buoy.sst, col = qsst)) +
+  geom_point()
+
+# Above plot doesn't give us an idea of density of points
+# Do a lattice-like grided plot 
+ggplot2::ggplot(data = AQUA, aes(x = cen.sst, y = buoy.sst)) +
+  geom_point() +
+  facet_grid(~qsst)
+
+# Same thing as above except showing the density of points as well
+ggplot2::ggplot(data = AQUA, aes(x = cen.sst, y = buoy.sst)) +
+  stat_bin2d() +
+  facet_grid(~qsst)
+
+```
+
+```{r qsst_hists, echo=TRUE}
+# Hist of all residuals
+ggplot2::ggplot(data = AQUA) +
+  geom_hist(sst.minus.buoy.sst)
+
+# Hist of residuals by quality
+ggplot2::ggplot(data = AQUA) +
+  geom_hist(sst.minus.buoy.sst) +
+  facet_grid(~qsst)
+
+# Cumulative quality residual hists
+for (quality_level in seg(1, 4, 1)) {
+  hist_quality <- ggplot2::ggplot(data = AQUA[AQUA$qsst <= quality_level]) +
+    geom_hist(sst.minus.buoy.sst)
+  hist_quality
+}
+
+# Now go the other way where we start with quality 4 and go backwards
+for (quality_level in seg(1, 4, -1)) {
+  hist_quality <- ggplot2::ggplot(data = AQUA[AQUA$qsst <= quality_level]) +
+    geom_hist(sst.minus.buoy.sst)
+  hist_quality
+}
+```
+
+```{r}
+# Goal is to understand what quality levels to use in error analysis
+# Get an idea of how geophyisical variables influence quality - what we should use so
+# quality isn't making data too homogenous but we don't have completely uncontrolled data either
+# Range 11 is used as an indicator for clouds - plot a hist of it by quality
+# Plot hist of range11 by quality level
+ggplot2::ggplot(data = AQUA) +
+  geom_hist(range.11000) +
+  facet_grid(~qsst)
+
+# Plot location by quality level
+
+mp <- NULL
+mapWorld <- borders("world", colour = "gray50", fill = "gray70") # create a layer of borders
+mp <- ggplot() +  mapWorld +
+  ggplot2::scale_x_continuous(breaks = seq(from = -180, to = 180, by = 60)) +
+  ggplot2::scale_y_continuous(breaks = seq(from = -90, to = 90, by = 30)) +
+  coord_fixed(ratio = 1)
+
+mp <- mp + 
+  ggplot2::geom_point(data = AQUA,
+    aes(x = buoy.lon, # Use hexagonal binning command and give x and y input
+    y = buoy.lat,
+    col = qsst),
+    binwidth = c(10, 10)) +
+  mapWorld + labs(x = NULL, y = NULL)
+
+mp
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
