@@ -1,0 +1,130 @@
+---
+title: "Exploration of a MODIS SSES Dataset"
+output:
+  html_notebook:
+    toc: True
+    theme: united
+---
+
+# Prep Workspace and Data
+
+```{r prep_workspace, echo=TRUE}
+# Import necessary packages
+require(ggplot2)
+require(dplyr)
+require(RColorBrewer)
+require(circular)
+
+ggplot <- function(...) {ggplot2::ggplot(...) + theme_bw()}
+
+# Define secant function
+secant.deg <- function(x) {1 / (cos(circular::rad(x)))}
+
+# Source own functions
+# Define direwctory where functions are for each operating system
+
+if (Sys.info()["sysname"] == 'Windows') {
+  fun.dir <- 'D:/matchups/r-projects/Matchup_R_Scripts/Functions/'
+} else if (Sys.info()["sysname"] == 'Linux') {
+  fun.dir <- '/home/ckk/Projects/Matchup_R_Scripts/Functions/'
+}
+
+fun.file <- paste0(fun.dir, 'common_functions.R')
+
+source(file = fun.file,
+  local = FALSE, echo = FALSE, verbose = FALSE)
+rm(fun.dir, fun.file)
+
+
+# Load data
+# For 787
+linux_dir <- '~/Projects/Matchup_R_Scripts/Results/objects/'
+# For Laptop
+#linux_dir <- '~/Projects/Matchup_R_Scripts/'
+linux_file <- 'MODIS_Aqua_GSFC_ALL_Class_6.4.1_ao_2017_04_12_with_ancillary.Rdata'
+AQUA_file <- paste0(linux_dir, linux_file)
+
+if (!file.exists(AQUA_file)) {
+    stop('Input file does not exist')
+  } else {
+    load(AQUA_file, verbose = TRUE)
+    AQUA <- MODIS_Aqua_GSFC_ALL_Class_6.4.1_ao_2017_04_12
+  }
+
+rm(linux_dir, linux_file, AQUA_file)
+rm(MODIS_Aqua_GSFC_ALL_Class_6.4.1_ao_2017_04_12)
+```
+
+```{r prep_data, echo=TRUE}
+# Turn POSIXct objects to characters bc dplyr doesn't support POSIXct
+AQUA$sat.timedate <- as.character(AQUA$sat.timedate)
+AQUA$buoy.timedate <- as.character(AQUA$buoy.timedate)
+
+# Apply basic filtering
+AQUA <- dplyr::tbl_df(AQUA) %>%
+  dplyr::filter(solz >= 90) %>%
+  dplyr::filter(qsst == 0 | qsst == 1 | qsst == 2)
+
+# Now grab only variables that may be used to determine retrieval accuracy and make some new variables (i.e. x1, x2, x3)
+# Create df of features
+orig <- dplyr::tbl_df(AQUA) %>%
+  dplyr::mutate(x1 = cen.11000,
+    x2 = cen.11000 - cen.12000,
+    x3 = cen.ref.type.1.SST,
+    satz = satz,
+    x2 = x2 * x3,
+    x3 = ((secant.deg(satz) - 1) * x2),
+    SST.resid = buoy.sst - cen.sst,
+    lat = buoy.lat,
+    lon = buoy.lon,
+    sd11 = sd.11000,
+    sd12 = sd.12000,
+    range11 = max.11000 - min.11000,
+    range12 = max.12000 - min.12000,
+    diff.med.min11 = med.11000 - min.11000,
+    diff.med.min12 = med.12000 - min.12000,
+    qsst = qsst,
+    buoy.sst = buoy.sst,
+    SST.resid = (buoy.sst + .17) - cen.sst) %>% 
+  dplyr::select(x1, x2, x3, satz, lon, lat, sd11, sd12, range11, range12, diff.med.min11, diff.med.min12, qsst, buoy.sst, SST.resid)
+
+```
+
+
+# Explore Data
+## Residuals by quality
+```{r resid_spread_quality, echo=TRUE}
+# First look at the resid spread among different quality levels
+# qsst == 0
+summary(orig$SST.resid[orig$qsst == 0])
+
+# qsst == 1
+summary(orig$SST.resid[orig$qsst == 1])
+
+# qsst == 2
+summary(orig$SST.resid[orig$qsst == 2])
+
+```
+
+## SST
+
+```{r sst_resid_plot, echo=TRUE}
+ccc <- RColorBrewer::brewer.pal(n = 8, name = 'YlOrRd')
+ccc <- ccc[3:8]
+
+ggplot2::ggplot(data = orig, aes(x = buoy.sst, y = SST.resid)) +
+  geom_bin2d(bins = 100) + 
+  scale_fill_gradientn(colours = ccc) +
+  geom_abline(slope = 0, intercept = 0, col = 'cyan')
+
+# Look at the statistics of the residuals
+summary(orig$SST.resid)
+IQR(orig$SST.resid)
+```
+
+
+## Location of Matchups
+
+
+
+
