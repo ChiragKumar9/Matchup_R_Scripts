@@ -75,7 +75,6 @@ orig <- dplyr::tbl_df(AQUA) %>%
     satz = satz,
     x2 = x2 * x3,
     x3 = ((secant.deg(satz) - 1) * x2),
-    SST.resid = buoy.sst - cen.sst,
     lat = buoy.lat,
     lon = buoy.lon,
     sd11 = sd.11000,
@@ -87,8 +86,8 @@ orig <- dplyr::tbl_df(AQUA) %>%
     band.diff = cen.11000 - cen.12000,
     qsst = qsst,
     buoy.sst = buoy.sst,
-    SST.resid = (buoy.sst + .17) - cen.sst) %>% 
-  dplyr::select(x1, x2, x3, satz, lon, lat, sd11, sd12, range11, range12, diff.med.min11, diff.med.min12, band.diff, qsst, buoy.sst, SST.resid)
+    SST.resid.SMB = cen.sst - buoy.sst) %>% # SMB = sat minus buoy - also don't debias SSTs i.e. turn buoy into skin
+  dplyr::select(x1, x2, x3, satz, lon, lat, sd11, sd12, range11, range12, diff.med.min11, diff.med.min12, band.diff, qsst, buoy.sst, SST.resid.SMB)
 
 ```
 
@@ -98,30 +97,38 @@ orig <- dplyr::tbl_df(AQUA) %>%
 ```{r resid_spread_quality, echo=TRUE}
 # First look at the resid spread among different quality levels
 # qsst == 0
-summary(orig$SST.resid[orig$qsst == 0])
+cat('\nSummary Statistics for Quality = 0\n')
+summary(orig$SST.resid.SMB[orig$qsst == 0])
+cat('\n Standard Deviation for Quality = 0: ')
+sd(orig$SST.resid.SMB[orig$qsst == 0])
 
 # qsst == 1
-summary(orig$SST.resid[orig$qsst == 1])
+cat('\nSummary Statistics for Quality = 1\n')
+summary(orig$SST.resid.SMB[orig$qsst == 1])
+cat('\n Standard Deviation for Quality = 1: ')
+sd(orig$SST.resid.SMB[orig$qsst == 1])
 
 # qsst == 2
-summary(orig$SST.resid[orig$qsst == 2])
-
+cat('\nSummary Statistics for Quality = 2\n')
+summary(orig$SST.resid.SMB[orig$qsst == 2])
+cat('\n Standard Deviation for Quality = 2: ')
+sd(orig$SST.resid.SMB[orig$qsst == 2])
 ```
 
-## SST
+## Exploration of SST Residual
 
 ```{r sst_resid_plot, echo=TRUE}
 ccc <- RColorBrewer::brewer.pal(n = 8, name = 'YlOrRd')
 ccc <- ccc[3:8]
 
-ggplot2::ggplot(data = orig, aes(x = buoy.sst, y = SST.resid)) +
+ggplot2::ggplot(data = orig, aes(x = buoy.sst, y = SST.resid.SMB)) +
   geom_bin2d(bins = 100) + 
   scale_fill_gradientn(colours = ccc) +
   geom_abline(slope = 0, intercept = 0, col = 'cyan')
 
 # Look at the statistics of the residuals
-summary(orig$SST.resid)
-IQR(orig$SST.resid)
+summary(orig$SST.resid.SMB)
+IQR(orig$SST.resid.SMB)
 ```
 
 
@@ -142,9 +149,9 @@ mp <- ggplot() +  mapWorld +
 # Now layer the buoys on top with hexagonal binning
 mp <- mp + 
   ggplot2::stat_binhex(data = orig,
-    aes(x = buoy.lon, # Use hexagonal binning command and give x and y input
-    y = buoy.lat,
-    fill = cut(..count.., c(0, 100, 500, 1000, 1500, Inf))), # Divides matchups per bin into discrete chunks and colors likewise
+    aes(x = lon, # Use hexagonal binning command and give x and y input
+    y = lat,
+    fill = cut(..count.., c(0, 1000, 2000, 5000, 10000, Inf))), # Divides matchups per bin into discrete chunks and colors likewise
     binwidth = c(10, 10)) +
   mapWorld + labs(x = NULL, y = NULL) +
   #scale_fill_hue('value') + # Standard colors with discrete chunking
@@ -160,8 +167,8 @@ mp
 ### Residuals by Location
 
 ```{r, echo=TRUE}
-proportion <- .2
-random_indeces <- sample(1, nrow(orig), floor(proportion * nrow(orig)), replace = FALSE)
+proportion <- .1
+random_indeces <- sample(1:nrow(orig), floor(proportion * nrow(orig)), replace = FALSE)
 ttt <- orig[random_indeces, ]
 
 ccc <- RColorBrewer::brewer.pal(n = 8, name = 'YlOrRd')
@@ -179,14 +186,13 @@ mp <- ggplot() +  mapWorld +
 # Now layer the buoys on top with hexagonal binning
 mp <- mp + 
   ggplot2::geom_point(data = ttt,
-    aes(x = buoy.lon, 
-    y = buoy.lat,
-    col = SST.resid,
+    aes(x = lon, 
+    y = lat,
+    col = SST.resid.SMB,
     pch = '.',
     alpha = 0.2)) +
   mapWorld + labs(x = NULL, y = NULL) +
-  scale_fill_gadientn(colours = cc)
-  guides(fill = guide_legend(title = "N of matchups"))
+  scale_fill_gradientn(colours = ccc)
 
 #ggplot2::ggsave(filename = 'spatial_distribution.ps', device = 'ps',
 #       width = 8, height = 6, units = 'in')
@@ -199,32 +205,46 @@ mp
 ### Residuals as a Function of Temperature Deficit
 
 ```{r resid_temp_deficit, echo=TRUE}
-ggplot2::ggplot(data = orig, aes(x = x1, y = SST.resid, pch = '.', alpha = 0.2)) +
-  geom_bin2d(bins = 100)
+temp_deficit = orig$buoy.sst - orig$x1
+ggplot2::ggplot(data = orig, aes(x = temp_deficit, y = SST.resid.SMB, pch = '.')) +
+  geom_bin2d(bins = 100) +
+  scale_fill_gradientn(colours = ccc)
 ```
 
 ### Residuals as a Function of Band Difference
 
 ```{r resid_band_diff, echo=TRUE}
-ggplot2::ggplot(data = orig, aes(x = band.diff, y = SST.resid, pch = '.', alpha = 0.2)) +
-  geom_bin2d(bins = 100)
+ggplot2::ggplot(data = orig, aes(x = band.diff, y = SST.resid.SMB, pch = '.')) +
+  geom_bin2d(bins = 100) +
+  scale_fill_gradientn(colours = ccc)
 ```
+
+
+```{r, echo=TRUE}
+ggplot2::ggplot(data = orig, aes(x = band.diff, y = temp_deficit, pch = '.')) +
+  geom_bin2d(bins = 100) +
+  scale_fill_gradientn(colours = ccc)
+```
+
+
 
 ### Residuals as a Function of 11 um Range
 
 ```{r resid_range11, echo=TRUE}
-ggplot2::ggplot(data = orig, aes(x = range11, y = SST.resid, pch = '.', alpha = 0.2)) + 
-  geom_bin2d(bins = 100)
+ggplot2::ggplot(data = orig, aes(x = range11, y = SST.resid.SMB, pch = '.')) + 
+  geom_bin2d(bins = 100) +
+  scale_fill_gradientn(colours = ccc) +
+  geom_density_2d()
 ```
 
 
 ## satz
 ```{r resid_by_satz_intervals, echo=TRUE}
-satz_intervals <- cut(abs(orig$satz), c(0, 10, 20, 30, 40, 50, 55))
+satz_intervals <- cut(abs(orig$satz), c(0, 10, 20, 30, 40, 50, 60, max(orig$satz) + .001), include.lowest = TRUE)
 
 ggplot2::ggplot(data = orig) +
-  geom_histogram(SST.resid) +
-  facet_wrap(~satz_intervals)
+  geom_histogram(aes(x = SST.resid.SMB)) +
+  facet_wrap(~as.factor(satz_intervals))
 
 ```
 
