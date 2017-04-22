@@ -164,7 +164,7 @@ mp <- mp +
 mp
 ```
 
-### Residuals by Location
+### Residuals by Location 
 
 ```{r, echo=TRUE}
 proportion <- .1
@@ -226,8 +226,6 @@ ggplot2::ggplot(data = orig, aes(x = band.diff, y = temp_deficit, pch = '.')) +
   scale_fill_gradientn(colours = ccc)
 ```
 
-
-
 ### Residuals as a Function of 11 um Range
 
 ```{r resid_range11, echo=TRUE}
@@ -250,4 +248,21 @@ ggplot2::ggplot(data = orig) +
 
 
 ## x1, x2 and x3
-We want to explore the feature space of x1, x2, and x3 and specifically the distribution of retrievals in this space and residuals in this space.
+We want to explore the feature space of x1, x2, and x3 and specifically the distribution of retrievals in this space and insight these variables give us to the residual.
+
+
+Before diving into exploring x1, x2, and x3 and their relationship with the residual, I want to outline what we have done/explored/found so far and what our goal is. x1, x2, and x3 and more complex variables because they are multiplicative combinations of other variables and I think it is important to understand what they actually mean!
+
+(Fill in some basic stuff about what we found)
+
+Goal:
+* We have data that is free of cloud-contamination (qsst == 0, 1, or 2)
+  + The spread and median of residuals is lower in this dataset than the whole dataset
+* Within this somewhat tightly distributed dataset, segment retrievals of varying residual magnitude, identify the combinations of conditions that lead to retrievals with different residual magnitudes, and ultimately try to numerically quantify the residual.
+* Use as few variables as possible - easier to visualize
+
+### Residual as a function of x1, x2, or x3
+
+
+
+
