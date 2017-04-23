@@ -8,7 +8,7 @@ output:
 
 # Prep Workspace and Data
 
-```{r prep_workspace, echo=TRUE}
+```{r prep_workspace, include=FALSE}
 # Import necessary packages
 require(ggplot2)
 require(dplyr)
@@ -86,8 +86,9 @@ orig <- dplyr::tbl_df(AQUA) %>%
     band.diff = cen.11000 - cen.12000,
     qsst = qsst,
     buoy.sst = buoy.sst,
+    cell5deg = cell5deg,
     SST.resid.SMB = cen.sst - buoy.sst) %>% # SMB = sat minus buoy - also don't debias SSTs i.e. turn buoy into skin
-  dplyr::select(x1, x2, x3, satz, lon, lat, sd11, sd12, range11, range12, diff.med.min11, diff.med.min12, band.diff, qsst, buoy.sst, SST.resid.SMB)
+  dplyr::select(x1, x2, x3, satz, lon, lat, sd11, sd12, range11, range12, diff.med.min11, diff.med.min12, band.diff, qsst, buoy.sst, cell5deg, SST.resid.SMB)
 
 ```
 
@@ -121,9 +122,11 @@ sd(orig$SST.resid.SMB[orig$qsst == 2])
 ccc <- RColorBrewer::brewer.pal(n = 8, name = 'YlOrRd')
 ccc <- ccc[3:8]
 
-ggplot2::ggplot(data = orig, aes(x = buoy.sst, y = SST.resid.SMB)) +
+ggplot2::ggplot(data = orig, aes(x = buoy.sst, y = SST.resid.SMB,
+  fill = cut(..count.., c(0, 20, 100, 500, 1000, 1500, 2000, 4000, Inf)))) +
   geom_bin2d(bins = 100) + 
-  scale_fill_gradientn(colours = ccc) +
+  #scale_fill_gradientn(colours = ccc) +
+  scale_fill_hue('count') +
   geom_abline(slope = 0, intercept = 0, col = 'cyan')
 
 # Look at the statistics of the residuals
@@ -198,7 +201,80 @@ mp <- mp +
 #       width = 8, height = 6, units = 'in')
 
 mp
+
+
+
+# WARNING: Be careful as this worked with ggplot2 2.1.0 on Linux
+# Try to work on different machines with varying versions of ggplot2
+# Now layer the buoys on top with hexagonal binning
+mp <- mp + 
+  ggplot2::stat_binhex(data = orig,
+    aes(x = lon, # Use hexagonal binning command and give x and y input
+    y = lat,
+    fill = cut(..count.., c(0, 1000, 2000, 5000, 10000, Inf))), # Divides matchups per bin into discrete chunks and colors likewise
+    binwidth = c(10, 10)) +
+  mapWorld + labs(x = NULL, y = NULL) +
+  #scale_fill_hue('value') + # Standard colors with discrete chunking
+  scale_fill_brewer(palette = 'YlOrRd') + # Change colors to Yellow, Orange, and Red - many diff 
+  guides(fill = guide_legend(title = "N of matchups"))
+
+#ggplot2::ggsave(filename = 'spatial_distribution.ps', device = 'ps',
+#       width = 8, height = 6, units = 'in')
+
+mp
 ```
+
+
+```{r raster_tutorial, echo=TRUE}
+
+# --- These numbers may help perform statistics for the matchups
+# --- (e.g., number of matchups per cell, etc.).
+
+# --- Create a raster object with 5-degree pixels
+
+crs.string <- "+proj=longlat +datum=WGS84 +no_defs +ellps=WGS84 +towgs84=0,0,0"
+
+grid5deg <- raster::raster(ncol = 72, nrow = 36,
+  xmn = -180, xmx = 180,
+  ymn = -90, ymx = 90,
+  crs = crs.string)
+
+# --- Write cell numbers as value for the grids.
+# --- Cell 1 is the upper left corner and numbers go
+# --- across the top line through its end, then
+# --- start again in the second line, and so forth.
+
+raster::values(grid5deg) <- 1:raster::ncell(grid5deg) # Cell numbers for 5 deg grid
+
+raster::cellFromRowCol(object = grid5deg, rownr = 2, colnr = 72)
+
+raster::xyFromCell(object =  grid5deg, cell = 2592, spatial=FALSE)
+
+qqq <- dplyr::tbl_df(orig) %>%
+  dplyr::group_by(cell5deg) %>%
+  dplyr::summarise(N = n(), med = median(SST.resid.SMB))
+
+qq1 <- rep(NA, (72*36))
+qq1[qqq$cell5deg] <- qqq$med
+
+raster::values(grid5deg) <- qq1
+
+raster::plot(grid5deg)
+
+p <- rasterVis::levelplot(grid5deg, margin = FALSE,
+  at = c(-Inf, seq(from = -0.4, to = 0.4, by = 0.1), Inf), # For med
+  #at = c(1, 500, 1000, 2000, 5000, 10000, 15000, Inf), # For N
+  col.regions = RColorBrewer::brewer.pal(10, 'RdBu'))
+
+world.map <- rgdal::readOGR("/home/ckk/Projects/Matchup_R_Scripts", layer = "ne_110m_land", verbose = TRUE)
+
+p <- p + layer(sp.lines(world.map, lwd = .75, fill = 'grey70', col = 'yellow'))
+
+p
+
+```
+
+
 
 ## 11 and 12 um Variables
 
@@ -231,8 +307,8 @@ ggplot2::ggplot(data = orig, aes(x = band.diff, y = temp_deficit, pch = '.')) +
 ```{r resid_range11, echo=TRUE}
 ggplot2::ggplot(data = orig, aes(x = range11, y = SST.resid.SMB, pch = '.')) + 
   geom_bin2d(bins = 100) +
-  scale_fill_gradientn(colours = ccc) +
-  geom_density_2d()
+  scale_fill_gradientn(colours = ccc)
+# To change the way the count is done, use fill = cut(..count.. c(...)) as an argument for ggplot(...) + scale_fill_hue('count')
 ```
 
 
@@ -253,15 +329,76 @@ We want to explore the feature space of x1, x2, and x3 and specifically the dist
 
 Before diving into exploring x1, x2, and x3 and their relationship with the residual, I want to outline what we have done/explored/found so far and what our goal is. x1, x2, and x3 and more complex variables because they are multiplicative combinations of other variables and I think it is important to understand what they actually mean!
 
-(Fill in some basic stuff about what we found)
-
+* Plots (Residuals are defined as satellite minus buoy - no skin to bulk conversion applied)
+  
+  + Residuals and Buoy SST
+    + Why do we have so many retrievals with a positive residual? Means sat > buoy - why is this happening? Normally we see buoy > sat --> negative residual and this is because of clouds and the cool top of atmospheric bodies that absorb and emit at a cooler temperature
+  
+  + Location of Matchups and trying to correlate residuals with location - TO DO... (i.e. grouping looking at the residual statistics of geographical cells of retrievals rather than all individual retrievals)
+  
+  + Resid as a function of Temp Deficit
+    + I would expect that as the temp deficit grows larger, the residual would also grow larger - don't really see behavior like that
+    + However, there is some shape to the graph: (a) strict cutoff in bottom left and (b) general downward trend in upper right
+    + Hard to see any definite and specific behavior in the residual
+  
+  + Resid as a function of Band Diff
+    + Again, I would expect that as band diff grows, residual will also grow - we don't see that
+    + Retrievals seem to be grouped around low resid and low band diff
+    
+  + Temp Deficit as a function of Band Diff
+    + Can definitely see the motivation for using band diff and T_11 in MCSST
+    
+  + Resid as a function of range_11
+    + Again, I would expect that as range_11 increases, so does the resid
+    + Looks like a blob
+    + Again retrievals are very highly clustered around low resid and low range 11
+  
+  + Satz
+  
+* General Observations
+  + Lots of things look like blobs
+  + See motivation for MCSST
+  + A lot of plots have similar characteristics - retrievals centered on low resid and low value of testing variable
+  + All of these variables definitely have some impact on residual... but no variable clearly segments residual (this is completely understandable)
+  
+  
 Goal:
 * We have data that is free of cloud-contamination (qsst == 0, 1, or 2)
   + The spread and median of residuals is lower in this dataset than the whole dataset
 * Within this somewhat tightly distributed dataset, segment retrievals of varying residual magnitude, identify the combinations of conditions that lead to retrievals with different residual magnitudes, and ultimately try to numerically quantify the residual.
 * Use as few variables as possible - easier to visualize
 
+* Given above info, we are trying to segment retrievals with varying residual magnitudes and we not that many retrievals are centered on low residual magnitude - aren't we looking for outliers? Also, we see that no one single variable clearly segments retrievals with varying residual magnitude, do we need multiple/more variables? Will this problem solve itself as we start looking at more complex features like x1, x2, and x3?
+
 ### Residual as a function of x1, x2, or x3
+
+```{r resid_x1, echo=TRUE}
+ggplot2::ggplot(data = orig, aes(x = x1, y = SST.resid.SMB, pch = '.')) + 
+  geom_bin2d(bins = 100) +
+  scale_fill_gradientn(colours = ccc)
+```
+
+
+```{r resid_x2, echo=TRUE}
+ggplot2::ggplot(data = orig, aes(x = x2, y = SST.resid.SMB, pch = '.')) + 
+  geom_bin2d(bins = 100) +
+  scale_fill_gradientn(colours = ccc)
+```
+
+
+```{r resid_x3, echo=TRUE}
+ggplot2::ggplot(data = orig, aes(x = x3, y = SST.resid.SMB, pch = '.')) + 
+  geom_bin2d(bins = 100) +
+  scale_fill_gradientn(colours = ccc)
+```
+
+
+New observations:
+* We see some very strict cutoffs in just looking at resid as a function of x1, x2, x3. For example, look at how there is almost a vertical line at x = 0 when looking at the plots with x2 and x3
+* Resid vs x1 looks a lot like resid vs buoy sst
+  + Makes sense given that first SST algorithm used just x1... Weren't the more complex terms added to deal with more specific, isolated, and complex geophysical/atmopsheric conditions?
+* Again, retrievals are clustered very highly on low residual magnitude
+
 
 
 
