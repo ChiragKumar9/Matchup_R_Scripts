@@ -77,9 +77,9 @@ rm(fun.dir, fun.file)
 
 # Load data
 # For 787
-#linux_dir <- '~/Projects/Matchup_R_Scripts/Results/objects/'
+linux_dir <- '~/Projects/Matchup_R_Scripts/Results/objects/'
 # For Laptop
-linux_dir <- '~/Projects/Matchup_R_Scripts/'
+#linux_dir <- '~/Projects/Matchup_R_Scripts/'
 linux_file <- 'MODIS_Aqua_GSFC_ALL_Class_6.4.1_ao_2017_04_12_with_ancillary.Rdata'
 AQUA_file <- paste0(linux_dir, linux_file)
 
@@ -239,8 +239,8 @@ raster::values(grid5deg) <- qq1
 
 p <- rasterVis::levelplot(grid5deg, margin = FALSE,
   #at = c(-Inf, seq(from = -0.4, to = 0.4, by = 0.1), Inf), # For med
-  at = c(1, 250, 500, 1000, 2000, 5000, 10000, Inf), # For N
-  col.regions = (RColorBrewer::brewer.pal(10, 'BuGn')))
+  at = c(1, 100, 250, 500, 1000, 2000, 5000, 10000, Inf), # For N
+  col.regions = (RColorBrewer::brewer.pal(9, 'OrRd')))
 
 world.map <- rgdal::readOGR("/home/ckk/Projects/Matchup_R_Scripts", layer = "ne_110m_land", verbose = TRUE)
 
@@ -402,7 +402,7 @@ p
 ```
 
 * Places that **really** don't have similar residual distributions are very south and very north, near the poles. However, when considering
-this places, it is important to consider, from a purely statistical perspective, they have very few retrievals in the raster cells.
+these places, it is important to consider, from a purely statistical perspective, they have very few retrievals in the raster cells.
 The results can then not necessarily be interpreted at face value but instead with the idea that the low number of retrievals will skew results
 
 * Places that seem to have abnormal distributions are San Francisco, off the coast of Peru, off the western coast of Africa, and in Southeast Asia.
@@ -425,6 +425,8 @@ ggplot2::ggplot(data = orig, aes(x = temp_deficit, y = SST.resid.SMB, pch = '.')
 ```
 
 ```{r}
+temp_deficit = orig$buoy.sst - orig$x1
+
 ggplot2::ggplot(data = orig, aes(x = temp_deficit, y = SST.resid.SMB,
   fill = cut(..count.., c(0, 20, 100, 500, 1000, 1500, 2000, 4000, Inf)))) +
   geom_bin2d(bins = 100) + 
@@ -453,7 +455,10 @@ ggplot2::ggplot(data = orig, aes(x = band.diff, y = SST.resid.SMB,
 ### Temp Deficit as a Function of Band Difference
 The original MCSST algorithm used T_11 and T_11 - T_12 as its two inputs. We can see the motivation for that in this plot.
 The temp_deficit has high correlation with band_diff.
+
 ```{r band_diff_vs_temp_deficit, echo=TRUE}
+temp_deficit = orig$buoy.sst - orig$x1
+
 ggplot2::ggplot(data = orig, aes(x = band.diff, y = temp_deficit, pch = '.')) +
   geom_bin2d(bins = 100) +
   scale_fill_gradientn(colours = ccc)
@@ -495,6 +500,18 @@ ggplot2::ggplot(data = orig) +
   facet_wrap(~as.factor(satz_intervals))
 
 ```
+
+```{r satz_intervals_faceting_temp_deficit_vs_band.diff}
+satz_intervals <- cut(abs(orig$satz), c(0, 10, 20, 30, 40, 50, 60, max(orig$satz) + .001), include.lowest = TRUE)
+temp_deficit = orig$buoy.sst - orig$x1
+
+ggplot2::ggplot(data = orig) +
+  geom_bin2d(aes(x = band.diff, y = temp_deficit)) +
+  facet_wrap(~as.factor(satz_intervals)) +
+  scale_fill_gradientn(colours = ccc)
+
+```
+
 
 
 ## x1, x2 and x3
@@ -603,7 +620,11 @@ Now, we aim to find the cause of residual abnormalities we may have noticed (i.e
 positive median residual, high IQR of residuals...). We plot geophysical variables that we have explored in the raster cells. Because we contoured the
 geophysical variable plots, we can see if the values of the variables in the abnormal cells are also abnormal.
 
-```{r band_diff_raster}
+# Geographical Explorations of Atmospheric Variables
+
+## T_11-related-variable Rasters
+
+```{r med_band_diff_raster}
 # --- These numbers may help perform statistics for the matchups
 # --- (e.g., number of matchups per cell, etc.).
 
@@ -651,7 +672,7 @@ p
 
 
 
-```{r x1_raster}
+```{r IQR_band_diff_raster}
 # --- These numbers may help perform statistics for the matchups
 # --- (e.g., number of matchups per cell, etc.).
 
@@ -686,8 +707,383 @@ raster::values(grid5deg) <- qq1
 
 p <- rasterVis::levelplot(grid5deg, margin = FALSE,
   #at = c(-Inf, seq(from = 0, to = 4, by = 0.5), Inf), # For med
-  at = seq(0, 0.8, 0.1), # For IQR
-  col.regions = rev(RColorBrewer::brewer.pal(length(c(-Inf, seq(from = 0, to = 4, by = 0.5), Inf)), 'RdBu')))
+  at = seq(0, 1.0, 0.1), # For IQR
+  col.regions = rev(RColorBrewer::brewer.pal(length(c(-Inf, seq(from = 0, to = 1.0, by = 0.1), Inf)), 'RdBu')))
+
+world.map <- rgdal::readOGR("/home/ckk/Projects/Matchup_R_Scripts", layer = "ne_110m_land", verbose = TRUE)
+
+p <- p + layer(sp.lines(world.map, lwd = .75, fill = 'grey70', col = 'yellow'))
+
+p
+
+```
+
+
+```{r med_range_11_raster}
+# --- These numbers may help perform statistics for the matchups
+# --- (e.g., number of matchups per cell, etc.).
+
+# --- Create a raster object with 5-degree pixels
+
+crs.string <- "+proj=longlat +datum=WGS84 +no_defs +ellps=WGS84 +towgs84=0,0,0"
+
+grid5deg <- raster::raster(ncol = 72, nrow = 36,
+  xmn = -180, xmx = 180,
+  ymn = -90, ymx = 90,
+  crs = crs.string)
+
+# --- Write cell numbers as value for the grids.
+# --- Cell 1 is the upper left corner and numbers go
+# --- across the top line through its end, then
+# --- start again in the second line, and so forth.
+
+raster::values(grid5deg) <- 1:raster::ncell(grid5deg) # Cell numbers for 5 deg grid
+
+raster::cellFromRowCol(object = grid5deg, rownr = 2, colnr = 72)
+
+raster::xyFromCell(object =  grid5deg, cell = 2592, spatial=FALSE)
+
+qqq <- dplyr::tbl_df(orig) %>%
+  dplyr::group_by(cell5deg) %>%
+  dplyr::summarise(med_range11 = median(range11), IQR_range11 = IQR(range11))
+
+qq1 <- rep(NA, (72*36))
+qq1[qqq$cell5deg] <- qqq$med_range11
+
+raster::values(grid5deg) <- qq1
+
+p <- rasterVis::levelplot(grid5deg, margin = FALSE,
+  at = c(-Inf, seq(from = .1, to = .6, by = 0.05), Inf), # For med
+  #at = seq(0, 1.0, 0.1), # For IQR
+  col.regions = rev(RColorBrewer::brewer.pal(length(c(-Inf, seq(from = .1, to = .6, by = 0.05), Inf)), 'RdBu')))
+
+world.map <- rgdal::readOGR("/home/ckk/Projects/Matchup_R_Scripts", layer = "ne_110m_land", verbose = TRUE)
+
+p <- p + layer(sp.lines(world.map, lwd = .75, fill = 'grey70', col = 'yellow'))
+
+p
+
+```
+
+```{r IQR_range_11_raster}
+# --- These numbers may help perform statistics for the matchups
+# --- (e.g., number of matchups per cell, etc.).
+
+# --- Create a raster object with 5-degree pixels
+
+crs.string <- "+proj=longlat +datum=WGS84 +no_defs +ellps=WGS84 +towgs84=0,0,0"
+
+grid5deg <- raster::raster(ncol = 72, nrow = 36,
+  xmn = -180, xmx = 180,
+  ymn = -90, ymx = 90,
+  crs = crs.string)
+
+# --- Write cell numbers as value for the grids.
+# --- Cell 1 is the upper left corner and numbers go
+# --- across the top line through its end, then
+# --- start again in the second line, and so forth.
+
+raster::values(grid5deg) <- 1:raster::ncell(grid5deg) # Cell numbers for 5 deg grid
+
+raster::cellFromRowCol(object = grid5deg, rownr = 2, colnr = 72)
+
+raster::xyFromCell(object =  grid5deg, cell = 2592, spatial=FALSE)
+
+qqq <- dplyr::tbl_df(orig) %>%
+  dplyr::group_by(cell5deg) %>%
+  dplyr::summarise(med_range11 = median(range11), IQR_range11 = IQR(range11))
+
+qq1 <- rep(NA, (72*36))
+qq1[qqq$cell5deg] <- qqq$IQR_range11
+
+raster::values(grid5deg) <- qq1
+
+p <- rasterVis::levelplot(grid5deg, margin = FALSE,
+  #at = c(-Inf, seq(from = .1, to = .6, by = 0.05), Inf), # For med
+  at = seq(.1, .7, 0.06), # For IQR
+  col.regions = rev(RColorBrewer::brewer.pal(length(c(-Inf, seq(from = .1, to = .7, by = 0.06), Inf)), 'RdBu')))
+
+world.map <- rgdal::readOGR("/home/ckk/Projects/Matchup_R_Scripts", layer = "ne_110m_land", verbose = TRUE)
+
+p <- p + layer(sp.lines(world.map, lwd = .75, fill = 'grey70', col = 'yellow'))
+
+p
+
+```
+
+
+
+## x1, x2, and x3 Rasters
+```{r med_x1_raster}
+# --- These numbers may help perform statistics for the matchups
+# --- (e.g., number of matchups per cell, etc.).
+
+# --- Create a raster object with 5-degree pixels
+
+crs.string <- "+proj=longlat +datum=WGS84 +no_defs +ellps=WGS84 +towgs84=0,0,0"
+
+grid5deg <- raster::raster(ncol = 72, nrow = 36,
+  xmn = -180, xmx = 180,
+  ymn = -90, ymx = 90,
+  crs = crs.string)
+
+# --- Write cell numbers as value for the grids.
+# --- Cell 1 is the upper left corner and numbers go
+# --- across the top line through its end, then
+# --- start again in the second line, and so forth.
+
+raster::values(grid5deg) <- 1:raster::ncell(grid5deg) # Cell numbers for 5 deg grid
+
+raster::cellFromRowCol(object = grid5deg, rownr = 2, colnr = 72)
+
+raster::xyFromCell(object =  grid5deg, cell = 2592, spatial=FALSE)
+
+qqq <- dplyr::tbl_df(orig) %>%
+  dplyr::group_by(cell5deg) %>%
+  dplyr::summarise(med_x1 = median(x1), IQR_x1 = IQR(x1))
+
+qq1 <- rep(NA, (72*36))
+qq1[qqq$cell5deg] <- qqq$med_x1
+
+raster::values(grid5deg) <- qq1
+
+p <- rasterVis::levelplot(grid5deg, margin = FALSE,
+  at = c(-Inf, seq(from = 0, to = 24, by = 3), Inf), # For med
+  #at = seq(0, 0.8, 0.1), # For IQR
+  col.regions = rev(RColorBrewer::brewer.pal(length(c(-Inf, seq(from = 0, to = 24, by = 3), Inf)), 'RdBu')))
+
+world.map <- rgdal::readOGR("/home/ckk/Projects/Matchup_R_Scripts", layer = "ne_110m_land", verbose = TRUE)
+
+p <- p + layer(sp.lines(world.map, lwd = .75, fill = 'grey70', col = 'yellow'))
+
+p
+
+```
+
+```{r IQR_x1_raster}
+# --- These numbers may help perform statistics for the matchups
+# --- (e.g., number of matchups per cell, etc.).
+
+# --- Create a raster object with 5-degree pixels
+
+crs.string <- "+proj=longlat +datum=WGS84 +no_defs +ellps=WGS84 +towgs84=0,0,0"
+
+grid5deg <- raster::raster(ncol = 72, nrow = 36,
+  xmn = -180, xmx = 180,
+  ymn = -90, ymx = 90,
+  crs = crs.string)
+
+# --- Write cell numbers as value for the grids.
+# --- Cell 1 is the upper left corner and numbers go
+# --- across the top line through its end, then
+# --- start again in the second line, and so forth.
+
+raster::values(grid5deg) <- 1:raster::ncell(grid5deg) # Cell numbers for 5 deg grid
+
+raster::cellFromRowCol(object = grid5deg, rownr = 2, colnr = 72)
+
+raster::xyFromCell(object =  grid5deg, cell = 2592, spatial=FALSE)
+
+qqq <- dplyr::tbl_df(orig) %>%
+  dplyr::group_by(cell5deg) %>%
+  dplyr::summarise(med_x1 = median(x1), IQR_x1 = IQR(x1))
+
+qq1 <- rep(NA, (72*36))
+qq1[qqq$cell5deg] <- qqq$IQR_x1
+
+raster::values(grid5deg) <- qq1
+
+p <- rasterVis::levelplot(grid5deg, margin = FALSE,
+  at = c(-Inf, seq(from = 0, to = 10, by = 2), Inf), # For med
+  #at = seq(0, 0.8, 0.1), # For IQR
+  col.regions = rev(RColorBrewer::brewer.pal(length(c(-Inf, seq(from = 0, to = 10, by = 2), Inf)), 'RdBu')))
+
+world.map <- rgdal::readOGR("/home/ckk/Projects/Matchup_R_Scripts", layer = "ne_110m_land", verbose = TRUE)
+
+p <- p + layer(sp.lines(world.map, lwd = .75, fill = 'grey70', col = 'yellow'))
+
+p
+
+```
+
+
+
+```{r med_x2_raster}
+# --- These numbers may help perform statistics for the matchups
+# --- (e.g., number of matchups per cell, etc.).
+
+# --- Create a raster object with 5-degree pixels
+
+crs.string <- "+proj=longlat +datum=WGS84 +no_defs +ellps=WGS84 +towgs84=0,0,0"
+
+grid5deg <- raster::raster(ncol = 72, nrow = 36,
+  xmn = -180, xmx = 180,
+  ymn = -90, ymx = 90,
+  crs = crs.string)
+
+# --- Write cell numbers as value for the grids.
+# --- Cell 1 is the upper left corner and numbers go
+# --- across the top line through its end, then
+# --- start again in the second line, and so forth.
+
+raster::values(grid5deg) <- 1:raster::ncell(grid5deg) # Cell numbers for 5 deg grid
+
+raster::cellFromRowCol(object = grid5deg, rownr = 2, colnr = 72)
+
+raster::xyFromCell(object =  grid5deg, cell = 2592, spatial=FALSE)
+
+qqq <- dplyr::tbl_df(orig) %>%
+  dplyr::group_by(cell5deg) %>%
+  dplyr::summarise(med_x2 = median(x2), IQR_x2 = IQR(x2))
+
+qq1 <- rep(NA, (72*36))
+qq1[qqq$cell5deg] <- qqq$med_x2
+
+raster::values(grid5deg) <- qq1
+
+p <- rasterVis::levelplot(grid5deg, margin = FALSE,
+  at = c(-Inf, seq(from = 10, to = 40, by = 5), Inf), # For med
+  #at = seq(0, 0.8, 0.1), # For IQR
+  col.regions = rev(RColorBrewer::brewer.pal(length(c(-Inf, seq(from = 10, to = 40, by = 5), Inf)), 'RdBu')))
+
+world.map <- rgdal::readOGR("/home/ckk/Projects/Matchup_R_Scripts", layer = "ne_110m_land", verbose = TRUE)
+
+p <- p + layer(sp.lines(world.map, lwd = .75, fill = 'grey70', col = 'yellow'))
+
+p
+
+```
+
+```{r IQR_x2_raster}
+# --- These numbers may help perform statistics for the matchups
+# --- (e.g., number of matchups per cell, etc.).
+
+# --- Create a raster object with 5-degree pixels
+
+crs.string <- "+proj=longlat +datum=WGS84 +no_defs +ellps=WGS84 +towgs84=0,0,0"
+
+grid5deg <- raster::raster(ncol = 72, nrow = 36,
+  xmn = -180, xmx = 180,
+  ymn = -90, ymx = 90,
+  crs = crs.string)
+
+# --- Write cell numbers as value for the grids.
+# --- Cell 1 is the upper left corner and numbers go
+# --- across the top line through its end, then
+# --- start again in the second line, and so forth.
+
+raster::values(grid5deg) <- 1:raster::ncell(grid5deg) # Cell numbers for 5 deg grid
+
+raster::cellFromRowCol(object = grid5deg, rownr = 2, colnr = 72)
+
+raster::xyFromCell(object =  grid5deg, cell = 2592, spatial=FALSE)
+
+qqq <- dplyr::tbl_df(orig) %>%
+  dplyr::group_by(cell5deg) %>%
+  dplyr::summarise(med_x2 = median(x2), IQR_x2 = IQR(x2))
+
+qq1 <- rep(NA, (72*36))
+qq1[qqq$cell5deg] <- qqq$IQR_x2
+
+raster::values(grid5deg) <- qq1
+
+p <- rasterVis::levelplot(grid5deg, margin = FALSE,
+  #at = c(-Inf, seq(from = 0, to = 25, by = 5), Inf), # For med
+  at = seq(0, 30, 3), # For IQR
+  col.regions = rev(RColorBrewer::brewer.pal(length(c(-Inf, seq(from = 0, to = 30, by = 3), Inf)), 'RdBu')))
+
+world.map <- rgdal::readOGR("/home/ckk/Projects/Matchup_R_Scripts", layer = "ne_110m_land", verbose = TRUE)
+
+p <- p + layer(sp.lines(world.map, lwd = .75, fill = 'grey70', col = 'yellow'))
+
+p
+
+```
+
+```{r med_x3_raster}
+# --- These numbers may help perform statistics for the matchups
+# --- (e.g., number of matchups per cell, etc.).
+
+# --- Create a raster object with 5-degree pixels
+
+crs.string <- "+proj=longlat +datum=WGS84 +no_defs +ellps=WGS84 +towgs84=0,0,0"
+
+grid5deg <- raster::raster(ncol = 72, nrow = 36,
+  xmn = -180, xmx = 180,
+  ymn = -90, ymx = 90,
+  crs = crs.string)
+
+# --- Write cell numbers as value for the grids.
+# --- Cell 1 is the upper left corner and numbers go
+# --- across the top line through its end, then
+# --- start again in the second line, and so forth.
+
+raster::values(grid5deg) <- 1:raster::ncell(grid5deg) # Cell numbers for 5 deg grid
+
+raster::cellFromRowCol(object = grid5deg, rownr = 2, colnr = 72)
+
+raster::xyFromCell(object =  grid5deg, cell = 2592, spatial=FALSE)
+
+qqq <- dplyr::tbl_df(orig) %>%
+  dplyr::group_by(cell5deg) %>%
+  dplyr::summarise(med_x3 = median(x3), IQR_x3 = IQR(x3))
+
+qq1 <- rep(NA, (72*36))
+qq1[qqq$cell5deg] <- qqq$med_x3
+
+raster::values(grid5deg) <- qq1
+
+p <- rasterVis::levelplot(grid5deg, margin = FALSE,
+  at = c(-Inf, seq(from = 1, to = 18, by = 2), Inf), # For med
+  #at = seq(0, 30, 3), # For IQR
+  col.regions = rev(RColorBrewer::brewer.pal(length(c(-Inf, seq(from = 1, to = 18, by = 2), Inf)), 'RdBu')))
+
+world.map <- rgdal::readOGR("/home/ckk/Projects/Matchup_R_Scripts", layer = "ne_110m_land", verbose = TRUE)
+
+p <- p + layer(sp.lines(world.map, lwd = .75, fill = 'grey70', col = 'yellow'))
+
+p
+
+```
+
+
+```{r IQR_x3_raster}
+# --- These numbers may help perform statistics for the matchups
+# --- (e.g., number of matchups per cell, etc.).
+
+# --- Create a raster object with 5-degree pixels
+
+crs.string <- "+proj=longlat +datum=WGS84 +no_defs +ellps=WGS84 +towgs84=0,0,0"
+
+grid5deg <- raster::raster(ncol = 72, nrow = 36,
+  xmn = -180, xmx = 180,
+  ymn = -90, ymx = 90,
+  crs = crs.string)
+
+# --- Write cell numbers as value for the grids.
+# --- Cell 1 is the upper left corner and numbers go
+# --- across the top line through its end, then
+# --- start again in the second line, and so forth.
+
+raster::values(grid5deg) <- 1:raster::ncell(grid5deg) # Cell numbers for 5 deg grid
+
+raster::cellFromRowCol(object = grid5deg, rownr = 2, colnr = 72)
+
+raster::xyFromCell(object =  grid5deg, cell = 2592, spatial=FALSE)
+
+qqq <- dplyr::tbl_df(orig) %>%
+  dplyr::group_by(cell5deg) %>%
+  dplyr::summarise(med_x3 = median(x3), IQR_x3 = IQR(x3))
+
+qq1 <- rep(NA, (72*36))
+qq1[qqq$cell5deg] <- qqq$IQR_x3
+
+raster::values(grid5deg) <- qq1
+
+p <- rasterVis::levelplot(grid5deg, margin = FALSE,
+  #at = c(-Inf, seq(from = 0, to = 25, by = 5), Inf), # For med
+  at = seq(0, 48, 6), # For IQR
+  col.regions = rev(RColorBrewer::brewer.pal(length(c(seq(from = 0, to = 48, by = 6), Inf)), 'RdBu')))
 
 world.map <- rgdal::readOGR("/home/ckk/Projects/Matchup_R_Scripts", layer = "ne_110m_land", verbose = TRUE)
 
@@ -699,7 +1095,93 @@ p
 
 
 # Empirical Densities
-TO DO...
+
+```{r empirical_density_temp_deficit}
+temp_deficit <- orig$buoy.sst - orig$x1
+cutoff_val <- 15
+qqq <- data.frame(condition = ifelse(temp_deficit > cutoff_val, paste('temp_deficit greater than', cutoff_val), paste('temp_deficit less than', cutoff_val)), resid = orig$SST.resid.SMB)
+
+ggplot2::ggplot(data = qqq, aes(x = resid, fill = condition)) +
+  geom_density(alpha = .4, color = NA)
+
+overlap_coef <- overlap(qqq[qqq$condition == paste('temp_deficit greater than', cutoff_val), 'resid'], qqq[qqq$condition == paste('temp_deficit less than', cutoff_val), 'resid'])
+
+overlap_coef
+```
+
+
+
+```{r empirical_density_band_diff}
+cutoff_val <- 5
+qqq <- data.frame(condition = ifelse(orig$band.diff > cutoff_val, paste('band.diff greater than', cutoff_val), paste('band.diff less than', cutoff_val)), resid = orig$SST.resid.SMB)
+
+ggplot2::ggplot(data = qqq, aes(x = resid, fill = condition)) +
+  geom_density(alpha = .4, color = NA)
+
+overlap_coef <- overlap(qqq[qqq$condition == paste('band.diff greater than', cutoff_val), 'resid'], qqq[qqq$condition == paste('band.diff less than', cutoff_val), 'resid'])
+
+overlap_coef
+```
+
+
+```{r empirical_density_satz}
+cutoff_val <- 60
+qqq <- data.frame(condition = ifelse(orig$satz > cutoff_val, paste('satz greater than', cutoff_val), paste('satz less than', cutoff_val)), resid = orig$SST.resid.SMB)
+
+ggplot2::ggplot(data = qqq, aes(x = resid, fill = condition)) +
+  geom_density(alpha = .4, color = NA)
+
+overlap_coef <- overlap(qqq[qqq$condition == paste('satz greater than', cutoff_val), 'resid'], qqq[qqq$condition == paste('satz less than', cutoff_val), 'resid'])
+
+overlap_coef
+```
+
+
+```{r empirical_density_x1}
+cutoff_val <- 20
+qqq <- data.frame(condition = ifelse(orig$x1 > cutoff_val, paste('x1 greater than', cutoff_val), paste('x1 less than', cutoff_val)), resid = orig$SST.resid.SMB)
+
+ggplot2::ggplot(data = qqq, aes(x = resid, fill = condition)) +
+  geom_density(alpha = .4, color = NA)
+
+overlap_coef <- overlap(qqq[qqq$condition == paste('x1 greater than', cutoff_val), 'resid'], qqq[qqq$condition == paste('x1 less than', cutoff_val), 'resid'])
+
+overlap_coef
+```
+
+```{r empirical_density_x2}
+cutoff_val <- 10
+qqq <- data.frame(condition = ifelse(orig$x2 > cutoff_val, paste('x2 greater than', cutoff_val), paste('x2 less than', cutoff_val)), resid = orig$SST.resid.SMB)
+
+ggplot2::ggplot(data = qqq, aes(x = resid, fill = condition)) +
+  geom_density(alpha = .4, color = NA)
+
+overlap_coef <- overlap(qqq[qqq$condition == paste('x2 greater than', cutoff_val), 'resid'], qqq[qqq$condition == paste('x2 less than', cutoff_val), 'resid'])
+
+overlap_coef
+```
+
+
+
+```{r empirical_density_x3}
+cutoff_val <- 5
+qqq <- data.frame(condition = ifelse(orig$x3 > cutoff_val, paste('x3 greater than', cutoff_val), paste('x3 less than', cutoff_val)), resid = orig$SST.resid.SMB)
+
+ggplot2::ggplot(data = qqq, aes(x = resid, fill = condition)) +
+  geom_density(alpha = .4, color = NA)
+
+overlap_coef <- overlap(qqq[qqq$condition == paste('x3 greater than', cutoff_val), 'resid'], qqq[qqq$condition == paste('x3 less than', cutoff_val), 'resid'])
+
+overlap_coef
+```
+
+
+
+
+
+
+
+
 
 
 
