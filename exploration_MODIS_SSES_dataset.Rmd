@@ -15,11 +15,49 @@ require(dplyr)
 require(RColorBrewer)
 require(circular)
 require(ggmap)
+require(raster)
+require(sfsmisc)
+require(rasterVis)
+require(rgdal)
 
 ggplot <- function(...) {ggplot2::ggplot(...) + theme_bw()}
 
 # Define secant function
 secant.deg <- function(x) {1 / (cos(circular::rad(x)))}
+
+# Overlap Function
+
+overlap <- function(resid_subset, resid_actual = orig$SST.resid.SMB) {
+  # First check the data - if resid_subset is empty, then we can't compute densities
+  # Return 0 in that case as the overlap
+  if (length(resid_subset) < 2) { # We can't make a empirical density if we have less than 2 points...
+    overlap_coef <- 0
+    return(overlap_coef)
+  }
+  
+  lower <- min(c(resid_subset, resid_actual)) - 1
+  upper <- max(c(resid_subset, resid_actual)) + 1
+  
+  # Compute density curves
+  density_resid_subset <- density(resid_subset, from = lower, to = upper)
+  density_resid_actual <- density(resid_actual, from = lower, to = upper)
+  density_resid <- data.frame(x = density_resid_subset$x, subset = density_resid_subset$y, actual = density_resid_actual$y)
+  
+  # Compute intersection
+  density_resid$intersection <- pmin(density_resid$subset, density_resid$actual)
+  
+  # Integrate overlap
+  # This next line is an interesting bit of code bc the integration of one of the above densities will always be 1 (integral of a PDF is 1)
+  # We are summing the integral of one density and the other so the total should always be 2
+  total <- sfsmisc::integrate.xy(density_resid$x, density_resid$subset) + sfsmisc::integrate.xy(density_resid$x, density_resid$actual)
+  intersection <- sfsmisc::integrate.xy(density_resid$x, density_resid$intersection)
+  
+  # Compute overlap coefficient
+  overlap_coef <- 2 * intersection / total
+  
+  return(overlap_coef)
+}
+
 
 # Source own functions
 # Define direwctory where functions are for each operating system
@@ -39,9 +77,9 @@ rm(fun.dir, fun.file)
 
 # Load data
 # For 787
-linux_dir <- '~/Projects/Matchup_R_Scripts/Results/objects/'
+#linux_dir <- '~/Projects/Matchup_R_Scripts/Results/objects/'
 # For Laptop
-#linux_dir <- '~/Projects/Matchup_R_Scripts/'
+linux_dir <- '~/Projects/Matchup_R_Scripts/'
 linux_file <- 'MODIS_Aqua_GSFC_ALL_Class_6.4.1_ao_2017_04_12_with_ancillary.Rdata'
 AQUA_file <- paste0(linux_dir, linux_file)
 
@@ -92,7 +130,6 @@ orig <- dplyr::tbl_df(AQUA) %>%
 
 ```
 
-
 # Explore Data
 ## Residuals by Quality
 ```{r resid_spread_quality, echo=TRUE}
@@ -127,7 +164,7 @@ ggplot2::ggplot(data = orig, aes(x = buoy.sst, y = SST.resid.SMB,
   geom_bin2d(bins = 100) + 
   #scale_fill_gradientn(colours = ccc) +
   scale_fill_hue('count') +
-  geom_abline(slope = 0, intercept = 0, col = 'cyan')
+  geom_abline(slope = 0, intercept = 0, col = 'black')
 
 # Look at the statistics of the residuals
 summary(orig$SST.resid.SMB)
@@ -167,66 +204,7 @@ mp <- mp +
 mp
 ```
 
-### Residuals by Location 
-
-```{r, echo=TRUE}
-proportion <- .1
-random_indeces <- sample(1:nrow(orig), floor(proportion * nrow(orig)), replace = FALSE)
-ttt <- orig[random_indeces, ]
-
-ccc <- RColorBrewer::brewer.pal(n = 8, name = 'YlOrRd')
-ccc <- ccc[3:8]
-
-mp <- NULL
-mapWorld <- borders("world", colour = "gray50", fill = "gray70") # create a layer of borders
-mp <- ggplot() +  mapWorld +
-  ggplot2::scale_x_continuous(breaks = seq(from = -180, to = 180, by = 60)) +
-  ggplot2::scale_y_continuous(breaks = seq(from = -90, to = 90, by = 30)) +
-  coord_fixed(ratio = 1)
-
-# WARNING: Be careful as this worked with ggplot2 2.1.0 on Linux
-# Try to work on different machines with varying versions of ggplot2
-# Now layer the buoys on top with hexagonal binning
-mp <- mp + 
-  ggplot2::geom_point(data = ttt,
-    aes(x = lon, 
-    y = lat,
-    col = SST.resid.SMB,
-    pch = '.',
-    alpha = 0.2)) +
-  mapWorld + labs(x = NULL, y = NULL) +
-  scale_fill_gradientn(colours = ccc)
-
-#ggplot2::ggsave(filename = 'spatial_distribution.ps', device = 'ps',
-#       width = 8, height = 6, units = 'in')
-
-mp
-
-
-
-# WARNING: Be careful as this worked with ggplot2 2.1.0 on Linux
-# Try to work on different machines with varying versions of ggplot2
-# Now layer the buoys on top with hexagonal binning
-mp <- mp + 
-  ggplot2::stat_binhex(data = orig,
-    aes(x = lon, # Use hexagonal binning command and give x and y input
-    y = lat,
-    fill = cut(..count.., c(0, 1000, 2000, 5000, 10000, Inf))), # Divides matchups per bin into discrete chunks and colors likewise
-    binwidth = c(10, 10)) +
-  mapWorld + labs(x = NULL, y = NULL) +
-  #scale_fill_hue('value') + # Standard colors with discrete chunking
-  scale_fill_brewer(palette = 'YlOrRd') + # Change colors to Yellow, Orange, and Red - many diff 
-  guides(fill = guide_legend(title = "N of matchups"))
-
-#ggplot2::ggsave(filename = 'spatial_distribution.ps', device = 'ps',
-#       width = 8, height = 6, units = 'in')
-
-mp
-```
-
-
-```{r raster_tutorial, echo=TRUE}
-
+```{r N_of_matchups_by_location_raster, echo=TRUE}
 # --- These numbers may help perform statistics for the matchups
 # --- (e.g., number of matchups per cell, etc.).
 
@@ -252,19 +230,65 @@ raster::xyFromCell(object =  grid5deg, cell = 2592, spatial=FALSE)
 
 qqq <- dplyr::tbl_df(orig) %>%
   dplyr::group_by(cell5deg) %>%
-  dplyr::summarise(N = n(), med = median(SST.resid.SMB))
+  dplyr::summarise(N = n(), med = median(SST.resid.SMB), IQR = IQR(SST.resid.SMB))
+
+qq1 <- rep(NA, (72*36))
+qq1[qqq$cell5deg] <- qqq$N
+
+raster::values(grid5deg) <- qq1
+
+p <- rasterVis::levelplot(grid5deg, margin = FALSE,
+  #at = c(-Inf, seq(from = -0.4, to = 0.4, by = 0.1), Inf), # For med
+  at = c(1, 250, 500, 1000, 2000, 5000, 10000, Inf), # For N
+  col.regions = (RColorBrewer::brewer.pal(10, 'BuGn')))
+
+world.map <- rgdal::readOGR("/home/ckk/Projects/Matchup_R_Scripts", layer = "ne_110m_land", verbose = TRUE)
+
+p <- p + layer(sp.lines(world.map, lwd = .75, fill = 'grey70', col = 'yellow'))
+
+p
+
+```
+
+### Residuals by Location
+
+```{r median_by_location_raster, echo=TRUE}
+# --- These numbers may help perform statistics for the matchups
+# --- (e.g., number of matchups per cell, etc.).
+
+# --- Create a raster object with 5-degree pixels
+
+crs.string <- "+proj=longlat +datum=WGS84 +no_defs +ellps=WGS84 +towgs84=0,0,0"
+
+grid5deg <- raster::raster(ncol = 72, nrow = 36,
+  xmn = -180, xmx = 180,
+  ymn = -90, ymx = 90,
+  crs = crs.string)
+
+# --- Write cell numbers as value for the grids.
+# --- Cell 1 is the upper left corner and numbers go
+# --- across the top line through its end, then
+# --- start again in the second line, and so forth.
+
+raster::values(grid5deg) <- 1:raster::ncell(grid5deg) # Cell numbers for 5 deg grid
+
+raster::cellFromRowCol(object = grid5deg, rownr = 2, colnr = 72)
+
+raster::xyFromCell(object =  grid5deg, cell = 2592, spatial=FALSE)
+
+qqq <- dplyr::tbl_df(orig) %>%
+  dplyr::group_by(cell5deg) %>%
+  dplyr::summarise(N = n(), med = median(SST.resid.SMB), IQR = IQR(SST.resid.SMB))
 
 qq1 <- rep(NA, (72*36))
 qq1[qqq$cell5deg] <- qqq$med
 
 raster::values(grid5deg) <- qq1
 
-raster::plot(grid5deg)
-
 p <- rasterVis::levelplot(grid5deg, margin = FALSE,
   at = c(-Inf, seq(from = -0.4, to = 0.4, by = 0.1), Inf), # For med
   #at = c(1, 500, 1000, 2000, 5000, 10000, 15000, Inf), # For N
-  col.regions = RColorBrewer::brewer.pal(10, 'RdBu'))
+  col.regions = rev(RColorBrewer::brewer.pal(length(c(-Inf, seq(from = -0.4, to = 0.4, by = 0.1), Inf)), 'RdBu')))
 
 world.map <- rgdal::readOGR("/home/ckk/Projects/Matchup_R_Scripts", layer = "ne_110m_land", verbose = TRUE)
 
@@ -275,6 +299,119 @@ p
 ```
 
 
+```{r IQR_by_location_raster, echo=TRUE}
+# --- These numbers may help perform statistics for the matchups
+# --- (e.g., number of matchups per cell, etc.).
+
+# --- Create a raster object with 5-degree pixels
+
+crs.string <- "+proj=longlat +datum=WGS84 +no_defs +ellps=WGS84 +towgs84=0,0,0"
+
+grid5deg <- raster::raster(ncol = 72, nrow = 36,
+  xmn = -180, xmx = 180,
+  ymn = -90, ymx = 90,
+  crs = crs.string)
+
+# --- Write cell numbers as value for the grids.
+# --- Cell 1 is the upper left corner and numbers go
+# --- across the top line through its end, then
+# --- start again in the second line, and so forth.
+
+raster::values(grid5deg) <- 1:raster::ncell(grid5deg) # Cell numbers for 5 deg grid
+
+raster::cellFromRowCol(object = grid5deg, rownr = 2, colnr = 72)
+
+raster::xyFromCell(object =  grid5deg, cell = 2592, spatial=FALSE)
+
+qqq <- dplyr::tbl_df(orig) %>%
+  dplyr::group_by(cell5deg) %>%
+  dplyr::summarise(N = n(), med = median(SST.resid.SMB), IQR = IQR(SST.resid.SMB))
+
+qq1 <- rep(NA, (72*36))
+qq1[qqq$cell5deg] <- qqq$IQR
+
+raster::values(grid5deg) <- qq1
+
+p <- rasterVis::levelplot(grid5deg, margin = FALSE,
+  at = c(-Inf, seq(from = 0, to = 2, by = 0.2), Inf), # For IQR
+  #at = c(1, 500, 1000, 2000, 5000, 10000, 15000, Inf), # For N
+  col.regions = rev(RColorBrewer::brewer.pal(length(c(-Inf, seq(from = 0, to = 2, by = 0.2), Inf)), 'RdBu')))
+
+world.map <- rgdal::readOGR("/home/ckk/Projects/Matchup_R_Scripts", layer = "ne_110m_land", verbose = TRUE)
+
+p <- p + layer(sp.lines(world.map, lwd = .75, fill = 'grey70', col = 'yellow'))
+
+p
+
+```
+We explored the median and spread of residuals as a function of location.
+Some interesting locations: Off the coast of Africa, the residuals have a large spread and are have a very low median
+* Same thing near Malaysia, in Southeast Asia
+
+However, median and spread are just two values describing the distribution of residuals in that specific raster cell.
+Here, we look at how residuals in the specific cell compare to residuals overall. We build density PDFs for the residuals
+in a raster cell and density PDFs for all the residuals. We then compute the percentage overlap between the two PDFs and color cells
+by that value. This measure tells us how similar the distributions of residuals in a specific cell are to the residuals overall.
+We can use this value and the combination of the median and IQR plots to identify regimes from which large magnitude residual matchups come from.
+
+```{r density_overlap_by_location_raster, echo=TRUE}
+# --- These numbers may help perform statistics for the matchups
+# --- (e.g., number of matchups per cell, etc.).
+
+# --- Create a raster object with 5-degree pixels
+
+crs.string <- "+proj=longlat +datum=WGS84 +no_defs +ellps=WGS84 +towgs84=0,0,0"
+
+grid5deg <- raster::raster(ncol = 72, nrow = 36,
+  xmn = -180, xmx = 180,
+  ymn = -90, ymx = 90,
+  crs = crs.string)
+
+# --- Write cell numbers as value for the grids.
+# --- Cell 1 is the upper left corner and numbers go
+# --- across the top line through its end, then
+# --- start again in the second line, and so forth.
+
+raster::values(grid5deg) <- 1:raster::ncell(grid5deg) # Cell numbers for 5 deg grid
+
+raster::cellFromRowCol(object = grid5deg, rownr = 2, colnr = 72)
+
+raster::xyFromCell(object =  grid5deg, cell = 2592, spatial=FALSE)
+
+qqq <- dplyr::tbl_df(orig) %>%
+  dplyr::group_by(cell5deg) %>%
+  dplyr::summarise(N = n(), med = median(SST.resid.SMB), IQR = IQR(SST.resid.SMB), overlap_percentage = overlap(SST.resid.SMB))
+
+qq1 <- rep(NA, (72*36))
+qq1[qqq$cell5deg] <- qqq$overlap_percentage
+
+raster::values(grid5deg) <- qq1
+
+
+p <- rasterVis::levelplot(grid5deg, margin = FALSE,
+  at = c(-Inf, seq(from = 0, to = 1, by = 0.1), Inf), # For overlap percentage
+  #at = c(1, 500, 1000, 2000, 5000, 10000, 15000, Inf), # For N
+  col.regions = rev(RColorBrewer::brewer.pal(length(c(-Inf, seq(from = 0, to = 2, by = 0.1), Inf)), 'RdBu')))
+
+world.map <- rgdal::readOGR("/home/ckk/Projects/Matchup_R_Scripts", layer = "ne_110m_land", verbose = TRUE)
+
+p <- p + layer(sp.lines(world.map, lwd = .75, fill = 'grey70', col = 'yellow'))
+
+p
+
+```
+
+* Places that **really** don't have similar residual distributions are very south and very north, near the poles. However, when considering
+this places, it is important to consider, from a purely statistical perspective, they have very few retrievals in the raster cells.
+The results can then not necessarily be interpreted at face value but instead with the idea that the low number of retrievals will skew results
+
+* Places that seem to have abnormal distributions are San Francisco, off the coast of Peru, off the western coast of Africa, and in Southeast Asia.
+San Francisco and Peru are interesting because the median residual in these areas is positive! (Attributed to fog). Off the western coast of Africa,
+the median residual is very negative and the IQR of residuals in this area is also very large. Again, this is an area where we have an abnormal residual
+distribution. Finally, in Southeast Asia, we also have abnormal residual distributions and a large IQR of residuals.
+
+* New Question: Can we use this above information and places where the residual distribution follows a different distribution than the whole residual
+distribution to find some trends in what causes these abnormal residual trends and high IQRs?
 
 ## 11 and 12 um Variables
 
@@ -287,6 +424,15 @@ ggplot2::ggplot(data = orig, aes(x = temp_deficit, y = SST.resid.SMB, pch = '.')
   scale_fill_gradientn(colours = ccc)
 ```
 
+```{r}
+ggplot2::ggplot(data = orig, aes(x = temp_deficit, y = SST.resid.SMB,
+  fill = cut(..count.., c(0, 20, 100, 500, 1000, 1500, 2000, 4000, Inf)))) +
+  geom_bin2d(bins = 100) + 
+  scale_fill_hue('count') +
+  geom_abline(slope = 0, intercept = 0, col = 'black')
+```
+
+
 ### Residuals as a Function of Band Difference
 
 ```{r resid_band_diff, echo=TRUE}
@@ -295,12 +441,32 @@ ggplot2::ggplot(data = orig, aes(x = band.diff, y = SST.resid.SMB, pch = '.')) +
   scale_fill_gradientn(colours = ccc)
 ```
 
+```{r}
+ggplot2::ggplot(data = orig, aes(x = band.diff, y = SST.resid.SMB,
+  fill = cut(..count.., c(0, 20, 100, 500, 1000, 1500, 2000, 4000, Inf)))) +
+  geom_bin2d(bins = 100) + 
+  scale_fill_hue('count') +
+  geom_abline(slope = 0, intercept = 0, col = 'black')
+```
 
-```{r, echo=TRUE}
+
+### Temp Deficit as a Function of Band Difference
+The original MCSST algorithm used T_11 and T_11 - T_12 as its two inputs. We can see the motivation for that in this plot.
+The temp_deficit has high correlation with band_diff.
+```{r band_diff_vs_temp_deficit, echo=TRUE}
 ggplot2::ggplot(data = orig, aes(x = band.diff, y = temp_deficit, pch = '.')) +
   geom_bin2d(bins = 100) +
   scale_fill_gradientn(colours = ccc)
 ```
+
+```{r}
+ggplot2::ggplot(data = orig, aes(x = band.diff, y = temp_deficit,
+  fill = cut(..count.., c(0, 20, 100, 500, 1000, 1500, 2000, 4000, Inf)))) +
+  geom_bin2d(bins = 100) + 
+  scale_fill_hue('count') +
+  geom_abline(slope = 0, intercept = 0, col = 'black')
+```
+
 
 ### Residuals as a Function of 11 um Range
 
@@ -309,6 +475,14 @@ ggplot2::ggplot(data = orig, aes(x = range11, y = SST.resid.SMB, pch = '.')) +
   geom_bin2d(bins = 100) +
   scale_fill_gradientn(colours = ccc)
 # To change the way the count is done, use fill = cut(..count.. c(...)) as an argument for ggplot(...) + scale_fill_hue('count')
+```
+
+```{r}
+ggplot2::ggplot(data = orig, aes(x = range11, y = SST.resid.SMB,
+  fill = cut(..count.., c(0, 20, 100, 500, 1000, 1500, 2000, 4000, Inf)))) +
+  geom_bin2d(bins = 100) + 
+  scale_fill_hue('count') +
+  geom_abline(slope = 0, intercept = 0, col = 'black')
 ```
 
 
@@ -378,11 +552,27 @@ ggplot2::ggplot(data = orig, aes(x = x1, y = SST.resid.SMB, pch = '.')) +
   scale_fill_gradientn(colours = ccc)
 ```
 
+```{r}
+ggplot2::ggplot(data = orig, aes(x = x1, y = SST.resid.SMB,
+  fill = cut(..count.., c(0, 20, 100, 500, 1000, 1500, 2000, 4000, Inf)))) +
+  geom_bin2d(bins = 100) + 
+  scale_fill_hue('count') +
+  geom_abline(slope = 0, intercept = 0, col = 'black')
+```
+
 
 ```{r resid_x2, echo=TRUE}
 ggplot2::ggplot(data = orig, aes(x = x2, y = SST.resid.SMB, pch = '.')) + 
   geom_bin2d(bins = 100) +
   scale_fill_gradientn(colours = ccc)
+```
+
+```{r}
+ggplot2::ggplot(data = orig, aes(x = x2, y = SST.resid.SMB,
+  fill = cut(..count.., c(0, 20, 100, 500, 1000, 1500, 2000, 4000, Inf)))) +
+  geom_bin2d(bins = 100) + 
+  scale_fill_hue('count') +
+  geom_abline(slope = 0, intercept = 0, col = 'black')
 ```
 
 
@@ -392,6 +582,13 @@ ggplot2::ggplot(data = orig, aes(x = x3, y = SST.resid.SMB, pch = '.')) +
   scale_fill_gradientn(colours = ccc)
 ```
 
+```{r}
+ggplot2::ggplot(data = orig, aes(x = x3, y = SST.resid.SMB,
+  fill = cut(..count.., c(0, 20, 100, 500, 1000, 1500, 2000, 4000, Inf)))) +
+  geom_bin2d(bins = 100) + 
+  scale_fill_hue('count') +
+  geom_abline(slope = 0, intercept = 0, col = 'black')
+```
 
 New observations:
 * We see some very strict cutoffs in just looking at resid as a function of x1, x2, x3. For example, look at how there is almost a vertical line at x = 0 when looking at the plots with x2 and x3
@@ -400,6 +597,223 @@ New observations:
 * Again, retrievals are clustered very highly on low residual magnitude
 
 
+# Location and Other Geophysical Variables
+Earlier, we explored the distribution of residuals in raster geographical cells.
+Now, we aim to find the cause of residual abnormalities we may have noticed (i.e. low resemblance to the actual residual distribution in a certain cell,
+positive median residual, high IQR of residuals...). We plot geophysical variables that we have explored in the raster cells. Because we contoured the
+geophysical variable plots, we can see if the values of the variables in the abnormal cells are also abnormal.
 
+```{r band_diff_raster}
+# --- These numbers may help perform statistics for the matchups
+# --- (e.g., number of matchups per cell, etc.).
+
+# --- Create a raster object with 5-degree pixels
+
+crs.string <- "+proj=longlat +datum=WGS84 +no_defs +ellps=WGS84 +towgs84=0,0,0"
+
+grid5deg <- raster::raster(ncol = 72, nrow = 36,
+  xmn = -180, xmx = 180,
+  ymn = -90, ymx = 90,
+  crs = crs.string)
+
+# --- Write cell numbers as value for the grids.
+# --- Cell 1 is the upper left corner and numbers go
+# --- across the top line through its end, then
+# --- start again in the second line, and so forth.
+
+raster::values(grid5deg) <- 1:raster::ncell(grid5deg) # Cell numbers for 5 deg grid
+
+raster::cellFromRowCol(object = grid5deg, rownr = 2, colnr = 72)
+
+raster::xyFromCell(object =  grid5deg, cell = 2592, spatial=FALSE)
+
+qqq <- dplyr::tbl_df(orig) %>%
+  dplyr::group_by(cell5deg) %>%
+  dplyr::summarise(med_band_diff = median(band.diff), IQR_band_diff = IQR(band.diff))
+
+qq1 <- rep(NA, (72*36))
+qq1[qqq$cell5deg] <- qqq$med_band_diff
+
+raster::values(grid5deg) <- qq1
+
+p <- rasterVis::levelplot(grid5deg, margin = FALSE,
+  at = c(-Inf, seq(from = 0, to = 2.5, by = 0.25), Inf), # For med
+  #at = seq(0, 0.8, 0.1), # For IQR
+  col.regions = rev(RColorBrewer::brewer.pal(length(c(-Inf, seq(from = 0, to = 2.5, by = 0.25), Inf)), 'RdBu')))
+
+world.map <- rgdal::readOGR("/home/ckk/Projects/Matchup_R_Scripts", layer = "ne_110m_land", verbose = TRUE)
+
+p <- p + layer(sp.lines(world.map, lwd = .75, fill = 'grey70', col = 'yellow'))
+
+p
+
+```
+
+
+
+```{r x1_raster}
+# --- These numbers may help perform statistics for the matchups
+# --- (e.g., number of matchups per cell, etc.).
+
+# --- Create a raster object with 5-degree pixels
+
+crs.string <- "+proj=longlat +datum=WGS84 +no_defs +ellps=WGS84 +towgs84=0,0,0"
+
+grid5deg <- raster::raster(ncol = 72, nrow = 36,
+  xmn = -180, xmx = 180,
+  ymn = -90, ymx = 90,
+  crs = crs.string)
+
+# --- Write cell numbers as value for the grids.
+# --- Cell 1 is the upper left corner and numbers go
+# --- across the top line through its end, then
+# --- start again in the second line, and so forth.
+
+raster::values(grid5deg) <- 1:raster::ncell(grid5deg) # Cell numbers for 5 deg grid
+
+raster::cellFromRowCol(object = grid5deg, rownr = 2, colnr = 72)
+
+raster::xyFromCell(object =  grid5deg, cell = 2592, spatial=FALSE)
+
+qqq <- dplyr::tbl_df(orig) %>%
+  dplyr::group_by(cell5deg) %>%
+  dplyr::summarise(med_band_diff = median(band.diff), IQR_band_diff = IQR(band.diff))
+
+qq1 <- rep(NA, (72*36))
+qq1[qqq$cell5deg] <- qqq$IQR_band_diff
+
+raster::values(grid5deg) <- qq1
+
+p <- rasterVis::levelplot(grid5deg, margin = FALSE,
+  #at = c(-Inf, seq(from = 0, to = 4, by = 0.5), Inf), # For med
+  at = seq(0, 0.8, 0.1), # For IQR
+  col.regions = rev(RColorBrewer::brewer.pal(length(c(-Inf, seq(from = 0, to = 4, by = 0.5), Inf)), 'RdBu')))
+
+world.map <- rgdal::readOGR("/home/ckk/Projects/Matchup_R_Scripts", layer = "ne_110m_land", verbose = TRUE)
+
+p <- p + layer(sp.lines(world.map, lwd = .75, fill = 'grey70', col = 'yellow'))
+
+p
+
+```
+
+
+# Empirical Densities
+TO DO...
+
+
+
+# Testing
+
+```{r, echo=TRUE}
+proportion <- .1
+random_indeces <- sample(1:nrow(orig), floor(proportion * nrow(orig)), replace = FALSE)
+ttt <- orig[random_indeces, ]
+
+ccc <- RColorBrewer::brewer.pal(n = 8, name = 'YlOrRd')
+ccc <- ccc[3:8]
+
+mp <- NULL
+mapWorld <- borders("world", colour = "gray50", fill = "gray70") # create a layer of borders
+mp <- ggplot() +  mapWorld +
+  ggplot2::scale_x_continuous(breaks = seq(from = -180, to = 180, by = 60)) +
+  ggplot2::scale_y_continuous(breaks = seq(from = -90, to = 90, by = 30)) +
+  coord_fixed(ratio = 1)
+
+# WARNING: Be careful as this worked with ggplot2 2.1.0 on Linux
+# Try to work on different machines with varying versions of ggplot2
+# Now layer the buoys on top with hexagonal binning
+mp <- mp + 
+  ggplot2::geom_point(data = ttt,
+    aes(x = lon, 
+    y = lat,
+    col = SST.resid.SMB,
+    pch = '.',
+    alpha = 0.2)) +
+  mapWorld + labs(x = NULL, y = NULL) +
+  scale_fill_gradientn(colours = ccc)
+
+#ggplot2::ggsave(filename = 'spatial_distribution.ps', device = 'ps',
+#       width = 8, height = 6, units = 'in')
+
+mp
+
+
+
+# WARNING: Be careful as this worked with ggplot2 2.1.0 on Linux
+# Try to work on different machines with varying versions of ggplot2
+# Now layer the buoys on top with hexagonal binning
+mp <- mp + 
+  ggplot2::stat_binhex(data = orig,
+    aes(x = lon, # Use hexagonal binning command and give x and y input
+    y = lat,
+    fill = cut(..count.., c(0, 1000, 2000, 5000, 10000, Inf))), # Divides matchups per bin into discrete chunks and colors likewise
+    binwidth = c(10, 10)) +
+  mapWorld + labs(x = NULL, y = NULL) +
+  #scale_fill_hue('value') + # Standard colors with discrete chunking
+  scale_fill_brewer(palette = 'YlOrRd') + # Change colors to Yellow, Orange, and Red - many diff 
+  guides(fill = guide_legend(title = "N of matchups"))
+
+#ggplot2::ggsave(filename = 'spatial_distribution.ps', device = 'ps',
+#       width = 8, height = 6, units = 'in')
+
+mp
+```
+
+
+```{r, echo=TRUE}
+proportion <- .1
+random_indeces <- sample(1:nrow(orig), floor(proportion * nrow(orig)), replace = FALSE)
+ttt <- orig[random_indeces, ]
+
+ccc <- RColorBrewer::brewer.pal(n = 8, name = 'YlOrRd')
+ccc <- ccc[3:8]
+
+mp <- NULL
+mapWorld <- borders("world", colour = "gray50", fill = "gray70") # create a layer of borders
+mp <- ggplot() +  mapWorld +
+  ggplot2::scale_x_continuous(breaks = seq(from = -180, to = 180, by = 60)) +
+  ggplot2::scale_y_continuous(breaks = seq(from = -90, to = 90, by = 30)) +
+  coord_fixed(ratio = 1)
+
+# WARNING: Be careful as this worked with ggplot2 2.1.0 on Linux
+# Try to work on different machines with varying versions of ggplot2
+# Now layer the buoys on top with hexagonal binning
+mp <- mp + 
+  ggplot2::geom_point(data = ttt,
+    aes(x = lon, 
+    y = lat,
+    col = SST.resid.SMB,
+    pch = '.',
+    alpha = 0.2)) +
+  mapWorld + labs(x = NULL, y = NULL) +
+  scale_fill_gradientn(colours = ccc)
+
+#ggplot2::ggsave(filename = 'spatial_distribution.ps', device = 'ps',
+#       width = 8, height = 6, units = 'in')
+
+mp
+
+
+
+# WARNING: Be careful as this worked with ggplot2 2.1.0 on Linux
+# Try to work on different machines with varying versions of ggplot2
+# Now layer the buoys on top with hexagonal binning
+mp <- mp + 
+  ggplot2::stat_binhex(data = orig,
+    aes(x = lon, # Use hexagonal binning command and give x and y input
+    y = lat,
+    fill = cut(..count.., c(0, 1000, 2000, 5000, 10000, Inf))), # Divides matchups per bin into discrete chunks and colors likewise
+    binwidth = c(10, 10)) +
+  mapWorld + labs(x = NULL, y = NULL) +
+  #scale_fill_hue('value') + # Standard colors with discrete chunking
+  scale_fill_brewer(palette = 'YlOrRd') + # Change colors to Yellow, Orange, and Red - many diff 
+  guides(fill = guide_legend(title = "N of matchups"))
+
+#ggplot2::ggsave(filename = 'spatial_distribution.ps', device = 'ps',
+#       width = 8, height = 6, units = 'in')
+
+mp
+```
 
 
