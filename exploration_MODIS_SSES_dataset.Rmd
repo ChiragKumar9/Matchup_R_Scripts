@@ -159,7 +159,7 @@ sd(orig$SST.resid.SMB[orig$qsst == 2])
 ccc <- RColorBrewer::brewer.pal(n = 8, name = 'YlOrRd')
 ccc <- ccc[3:8]
 
-ggplot2::ggplot(data = orig, aes(x = buoy.sst, y = SST.resid.SMB,
+ggplot2::ggplot(data = orig, aes(x = buoy.sst, y = SST.resid.SMB + 0.17,
   fill = cut(..count.., c(0, 20, 100, 500, 1000, 1500, 2000, 4000, Inf)))) +
   geom_bin2d(bins = 100) + 
   #scale_fill_gradientn(colours = ccc) +
@@ -278,17 +278,24 @@ raster::xyFromCell(object =  grid5deg, cell = 2592, spatial=FALSE)
 
 qqq <- dplyr::tbl_df(orig) %>%
   dplyr::group_by(cell5deg) %>%
-  dplyr::summarise(N = n(), med = median(SST.resid.SMB), IQR = IQR(SST.resid.SMB))
+  dplyr::summarise(N = n(), med = median(SST.resid.SMB), IQR = IQR(SST.resid.SMB)) %>%
+  dplyr::filter(N >= 100)
 
 qq1 <- rep(NA, (72*36))
 qq1[qqq$cell5deg] <- qqq$med
 
 raster::values(grid5deg) <- qq1
 
+blues_palette <- rev(RColorBrewer::brewer.pal(9, 'Blues'))
+more_blues <- colorRampPalette(blues_palette)(13)
+reds_palette <- RColorBrewer::brewer.pal(6, 'Reds')
+
+palette <- c(more_blues, '#f0f0f0', '#f0f0f0', reds_palette)
+
 p <- rasterVis::levelplot(grid5deg, margin = FALSE,
-  at = c(-Inf, seq(from = -0.4, to = 0.4, by = 0.1), Inf), # For med
+  at = c(-Inf, -.9, -.8, -.7, -.6, -.5, -.4, -.35, -.3, -.25, -.2, -.15, -.1, -.05, 0, 0.05, 0.1, 0.15, 0.2, 0.25, 0.3, Inf), # For med
   #at = c(1, 500, 1000, 2000, 5000, 10000, 15000, Inf), # For N
-  col.regions = rev(RColorBrewer::brewer.pal(length(c(-Inf, seq(from = -0.4, to = 0.4, by = 0.1), Inf)), 'RdBu')))
+  col.regions = palette)
 
 world.map <- rgdal::readOGR("/home/ckk/Projects/Matchup_R_Scripts", layer = "ne_110m_land", verbose = TRUE)
 
@@ -325,7 +332,8 @@ raster::xyFromCell(object =  grid5deg, cell = 2592, spatial=FALSE)
 
 qqq <- dplyr::tbl_df(orig) %>%
   dplyr::group_by(cell5deg) %>%
-  dplyr::summarise(N = n(), med = median(SST.resid.SMB), IQR = IQR(SST.resid.SMB))
+  dplyr::summarise(N = n(), med = median(SST.resid.SMB), IQR = IQR(SST.resid.SMB)) %>%
+  dplyr::filter(N > 100)
 
 qq1 <- rep(NA, (72*36))
 qq1[qqq$cell5deg] <- qqq$IQR
@@ -333,9 +341,9 @@ qq1[qqq$cell5deg] <- qqq$IQR
 raster::values(grid5deg) <- qq1
 
 p <- rasterVis::levelplot(grid5deg, margin = FALSE,
-  at = c(-Inf, seq(from = 0, to = 2, by = 0.2), Inf), # For IQR
+  at = c(seq(from = 0, to = 2, by = 0.2), Inf), # For IQR
   #at = c(1, 500, 1000, 2000, 5000, 10000, 15000, Inf), # For N
-  col.regions = rev(RColorBrewer::brewer.pal(length(c(-Inf, seq(from = 0, to = 2, by = 0.2), Inf)), 'RdBu')))
+  col.regions = colorRampPalette(RColorBrewer::brewer.pal(length(c(seq(from = 0, to = 2, by = 0.2), Inf)), 'YlOrRd'))(11))
 
 world.map <- rgdal::readOGR("/home/ckk/Projects/Matchup_R_Scripts", layer = "ne_110m_land", verbose = TRUE)
 
@@ -343,6 +351,9 @@ p <- p + layer(sp.lines(world.map, lwd = .75, fill = 'grey70', col = 'yellow'))
 
 p
 
+
+
+rrr <- ggplot2::ggplot(data = orig, aes(SST.resid.SMB, fill = qsst)) + geom_density(alpha = 0.4, color = NA)
 ```
 We explored the median and spread of residuals as a function of location.
 Some interesting locations: Off the coast of Africa, the residuals have a large spread and are have a very low median
@@ -444,7 +455,7 @@ ggplot2::ggplot(data = orig, aes(x = band.diff, y = SST.resid.SMB, pch = '.')) +
 ```
 
 ```{r}
-ggplot2::ggplot(data = orig, aes(x = band.diff, y = SST.resid.SMB,
+ggplot2::ggplot(data = orig, aes(x = band.diff, y = SST.resid.SMB + 0.17,
   fill = cut(..count.., c(0, 20, 100, 500, 1000, 1500, 2000, 4000, Inf)))) +
   geom_bin2d(bins = 100) + 
   scale_fill_hue('count') +
@@ -468,9 +479,14 @@ ggplot2::ggplot(data = orig, aes(x = band.diff, y = temp_deficit, pch = '.')) +
 ggplot2::ggplot(data = orig, aes(x = band.diff, y = temp_deficit,
   fill = cut(..count.., c(0, 20, 100, 500, 1000, 1500, 2000, 4000, Inf)))) +
   geom_bin2d(bins = 100) + 
-  scale_fill_hue('count') +
-  geom_abline(slope = 0, intercept = 0, col = 'black')
+  scale_fill_hue('count')
+  #geom_smooth(method = 'lm')
 ```
+
+```{r}
+in_situ_intervals <- cut(orig$buoy.sst, )
+```
+
 
 
 ### Residuals as a Function of 11 um Range
@@ -1096,6 +1112,13 @@ p
 
 # Empirical Densities
 
+```{r empirical_density_qsst}
+ggplot2::ggplot(data = orig) + 
+  geom_density(aes(x = SST.resid.SMB + 0.17, fill = as.factor(qsst)), alpha = 0.2, color = NA) +
+  geom_rug()
+```
+
+
 ```{r empirical_density_temp_deficit}
 temp_deficit <- orig$buoy.sst - orig$x1
 cutoff_val <- 15
@@ -1112,13 +1135,14 @@ overlap_coef
 
 
 ```{r empirical_density_band_diff}
-cutoff_val <- 5
-qqq <- data.frame(condition = ifelse(orig$band.diff > cutoff_val, paste('band.diff greater than', cutoff_val), paste('band.diff less than', cutoff_val)), resid = orig$SST.resid.SMB)
+cutoff_val <- 0
+qqq <- data.frame(condition = ifelse(orig$band.diff > cutoff_val, ifelse(orig$band.diff > 3, 2, 1), 0), resid = orig$SST.resid.SMB + 0.17)
+qqq$condition <- factor(qqq$condition, levels = c(0, 1, 2), labels = c('(-Inf, 0]', '(0, 2]', '(2, Inf)'))
 
 ggplot2::ggplot(data = qqq, aes(x = resid, fill = condition)) +
   geom_density(alpha = .4, color = NA)
 
-overlap_coef <- overlap(qqq[qqq$condition == paste('band.diff greater than', cutoff_val), 'resid'], qqq[qqq$condition == paste('band.diff less than', cutoff_val), 'resid'])
+#overlap_coef <- overlap(qqq[qqq$condition == paste('band.diff greater than', cutoff_val), 'resid'], qqq[qqq$condition == paste('band.diff less than', cutoff_val), 'resid'])
 
 overlap_coef
 ```
