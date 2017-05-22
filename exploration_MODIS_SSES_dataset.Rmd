@@ -483,10 +483,6 @@ ggplot2::ggplot(data = orig, aes(x = band.diff, y = temp_deficit,
   #geom_smooth(method = 'lm')
 ```
 
-```{r}
-in_situ_intervals <- cut(orig$buoy.sst, )
-```
-
 
 
 ### Residuals as a Function of 11 um Range
@@ -1186,7 +1182,6 @@ overlap_coef
 ```
 
 
-
 ```{r empirical_density_x3}
 cutoff_val <- 5
 qqq <- data.frame(condition = ifelse(orig$x3 > cutoff_val, paste('x3 greater than', cutoff_val), paste('x3 less than', cutoff_val)), resid = orig$SST.resid.SMB)
@@ -1199,8 +1194,45 @@ overlap_coef <- overlap(qqq[qqq$condition == paste('x3 greater than', cutoff_val
 overlap_coef
 ```
 
+# Difference Between T_11 and T_12 (band.diff)
 
+```{r band_diff_temp_deficit_predictor_buoy_sst}
+ccc = RColorBrewer::brewer.pal(n = 8, 'YlOrRd')
+ccc <- ccc[3:8]
 
+temp_context <- cut(orig$buoy.sst, c(-Inf, 10, 25, Inf))
+temp_deficit <- orig$buoy.sst - orig$x1
+
+uuu <- data.frame(temp_context = as.factor(temp_context), temp_deficit = temp_deficit, band.diff = orig$band.diff)
+
+ggplot2::ggplot(data = uuu, aes(x = band.diff, y = temp_deficit)) +
+  geom_bin2d(bins = 100) +
+  scale_fill_gradientn(colours = ccc) + 
+  geom_smooth(method = lm, se = FALSE) +
+  facet_wrap(~temp_context, nrow = 3, ncol = 1) +
+  ggsave('band_diff_predictor_of_temp_deficit_different_in_situ_windows.eps')
+
+# Regression equations and statistics for the three facets
+uuu$temp_context_numeric <- factor(as.character(uuu$temp_context), labels = c(0, 1, 2), levels = c('(-Inf,10]', '(10,25]', '(25, Inf]'))
+
+temp_less_10_lm <- lm(formula = temp_deficit ~ band.diff, data = uuu[uuu$temp_context_numeric == 0, ])
+rSD_temp_less_10 <- IQR(temp_less_10_lm$residuals) / 1.348
+cor_temp_less_10 <- cor(uuu[uuu$temp_context_numeric == 0, 'temp_deficit'], uuu[uuu$temp_context_numeric == 0, 'band.diff'])
+
+temp_between_10_25_lm <- lm(formula = temp_deficit ~ band.diff, data = uuu[uuu$temp_context_numeric == 1, ])
+rSD_temp_between_10_25 <- IQR(temp_between_10_25_lm$residuals) / 1.348
+cor_temp_between_10_25 <- cor(uuu[uuu$temp_context_numeric == 1, 'temp_deficit'], uuu[uuu$temp_context_numeric == 1, 'band.diff'])
+
+temp_greater_25_lm <- lm(formula = temp_deficit ~ band.diff, data = uuu[uuu$temp_context_numeric == 2, ])
+rSD_temp_greater_25 <- IQR(temp_greater_25_lm$residuals) / 1.348
+cor_temp_greater_25 <- cor(uuu[uuu$temp_context_numeric == 2, 'temp_deficit'], uuu[uuu$temp_context_numeric == 2, 'band.diff'])
+
+# Whole dataset for comparison
+temp_all_lm <- lm(formula = temp_deficit ~ band.diff, data = uuu)
+rSD_temp_all <- IQR(temp_all_lm$residuals) / 1.348
+cor_temp_all <- cor(uuu$temp_deficit, uuu$band.diff)
+
+```
 
 
 
