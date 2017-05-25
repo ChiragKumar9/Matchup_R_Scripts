@@ -1190,13 +1190,13 @@ overlap_coef
 
 
 ```{r empirical_density_x2}
-
-qqq <- data.frame(condition = ifelse(orig$buoy.sst > 10, ifelse(orig$buoy.sst > 25, 2, 1), 0), resid = orig$SST.resid.SMB)
-qqq$condition <- factor(qqq$condition, levels = c(0, 1, 2), labels = c('buoy sst less than 10', 'buoy sst in-between 10 and 25', 'buoy sst greater than 25'))
+cutoff_val <- 10
+qqq <- data.frame(condition = ifelse(orig$buoy.sst > cutoff_val, 1, 0), resid = orig$SST.resid.SMB)
+qqq$condition <- factor(qqq$condition, levels = c(0, 1), labels = c('x1 less than or equal to 10', 'x2 greater than 10'))
 
 ggplot2::ggplot(data = qqq, aes(x = resid, fill = condition)) +
   geom_density(alpha = .4, color = NA) +
-  ggsave('x2_empirical_density_segmentation_by_buoy_sst.pdf')
+  ggsave('x2_empirical_density.pdf')
 
 #overlap_coef <- overlap(qqq[qqq$condition == paste('x2 greater than', cutoff_val), 'resid'], qqq[qqq$condition == paste('x2 less than', cutoff_val), 'resid'])
 
