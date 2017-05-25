@@ -77,9 +77,9 @@ rm(fun.dir, fun.file)
 
 # Load data
 # For 787
-linux_dir <- '~/Projects/Matchup_R_Scripts/Results/objects/'
+#linux_dir <- '~/Projects/Matchup_R_Scripts/Results/objects/'
 # For Laptop
-#linux_dir <- '~/Projects/Matchup_R_Scripts/'
+linux_dir <- '~/Projects/Matchup_R_Scripts/'
 linux_file <- 'MODIS_Aqua_GSFC_ALL_Class_6.4.1_ao_2017_04_12_with_ancillary.Rdata'
 AQUA_file <- paste0(linux_dir, linux_file)
 
@@ -1133,12 +1133,12 @@ overlap_coef
 ```{r empirical_density_band_diff}
 cutoff_val <- 0
 qqq <- data.frame(condition_band_diff = ifelse(orig$band.diff > cutoff_val, ifelse(orig$band.diff > 3, 2, 1), 0),
-                  condition_satz = cut(abs(orig$satz), c(0, 10, 20, 30, 40, 50, 60, max(orig$satz) + .001), include.lowest = TRUE),
+                  condition_satz = cut(abs(orig$satz), c(0, 60, max(orig$satz) + .001), include.lowest = TRUE), # Somewhat arbitrary - To be revised
                   resid = orig$SST.resid.SMB + 0.17)
 
-qqq$condition_band_diff <- factor(qqq$condition, levels = c(0, 1, 2), labels = c('(-Inf, 0]', '(0, 2]', '(2, Inf)'))
+qqq$condition_band_diff <- factor(qqq$condition_band_diff, levels = c(0, 1, 2), labels = c('(-Inf, 0]', '(0, 2]', '(2, Inf)'))
 
-qqq$total <- paste0('band_diff ', as.character(qqq$condition_band_diff), ' and satz ', as.character(condition$satz))
+qqq$condition_total <- paste0('band_diff ', as.character(qqq$condition_band_diff), ' and satz ', as.character(qqq$condition_satz))
 
 ggplot2::ggplot(data = qqq, aes(x = resid, fill = condition_total)) +
   geom_density(alpha = .4, color = NA)
