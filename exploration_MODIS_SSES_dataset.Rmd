@@ -1241,10 +1241,10 @@ temp_deficit <- orig$buoy.sst - orig$x1
 
 uuu <- data.frame(temp_context = as.factor(temp_context), temp_deficit = temp_deficit, band.diff = orig$band.diff)
 
-ggplot2::ggplot(data = uuu, aes(x = band.diff, y = temp_deficit)) +
+ggplot2::ggplot(data = uuu, aes(x = temp_deficit, y = band.diff)) +
   geom_bin2d(bins = 100) +
   scale_fill_gradientn(colours = ccc) + 
-  geom_smooth(method = lm, se = FALSE) +
+  geom_smooth(method = 'loess', se = FALSE) +
   facet_wrap(~temp_context, nrow = 3, ncol = 1) +
   ggsave('band_diff_predictor_of_temp_deficit_different_in_situ_windows.eps')
 
@@ -1389,5 +1389,4 @@ mp <- mp +
 
 mp
 ```
-
 
