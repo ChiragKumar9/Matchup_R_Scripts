@@ -1244,9 +1244,9 @@ uuu <- data.frame(temp_context = as.factor(temp_context), temp_deficit = temp_de
 ggplot2::ggplot(data = uuu, aes(x = temp_deficit, y = band.diff)) +
   geom_bin2d(bins = 100) +
   scale_fill_gradientn(colours = ccc) + 
-  geom_smooth(method = 'loess', se = FALSE) +
-  facet_wrap(~temp_context, nrow = 3, ncol = 1) +
-  ggsave('band_diff_predictor_of_temp_deficit_different_in_situ_windows.eps')
+  geom_smooth(method = loess, se = FALSE) +
+  facet_wrap(~temp_context, nrow = 3, ncol = 1)
+  #ggsave('band_diff_predictor_of_temp_deficit_different_in_situ_windows.eps')
 
 # Regression equations and statistics for the three facets
 uuu$temp_context_numeric <- factor(as.character(uuu$temp_context), labels = c(0, 1, 2), levels = c('(-Inf,10]', '(10,25]', '(25, Inf]'))
@@ -1389,4 +1389,5 @@ mp <- mp +
 
 mp
 ```
+
 
