@@ -1,0 +1,153 @@
+---
+title: "Exploration of a MODIS SSES Dataset - Algorithms"
+author: "Chirag Kumar and Guillermo Podesta"
+output:
+  html_notebook:
+    toc: True
+    theme: united
+---
+
+# Prep Workspace and Data
+We use MODIS matchups from 2002 - 2016 that have been read in through a previous script. Here we simply load
+the matchups, any necessary packages, and define necessary functions.
+
+```{r prep_workspace, include=FALSE}
+# Import necessary packages
+require(ggplot2)
+require(dplyr)
+require(RColorBrewer)
+require(circular)
+require(ggmap)
+require(raster)
+require(sfsmisc)
+require(rasterVis)
+require(rgdal)
+
+ggplot <- function(...) {ggplot2::ggplot(...) + theme_bw()}
+
+# Define secant function
+secant.deg <- function(x) {1 / (cos(circular::rad(x)))}
+
+# Source own functions
+# Define direwctory where functions are for each operating system
+
+if (Sys.info()["sysname"] == 'Windows') {
+  fun.dir <- 'D:/matchups/r-projects/Matchup_R_Scripts/Functions/'
+} else if (Sys.info()["sysname"] == 'Linux') {
+  fun.dir <- '/home/ckk/Projects/Matchup_R_Scripts/Functions/'
+}
+
+fun.file <- paste0(fun.dir, 'common_functions.R')
+
+source(file = fun.file,
+  local = FALSE, echo = FALSE, verbose = FALSE)
+rm(fun.dir, fun.file)
+
+
+# Load data
+# For 787
+linux_dir <- '~/Projects/Matchup_R_Scripts/Results/objects/'
+# For Laptop
+#linux_dir <- '~/Projects/Matchup_R_Scripts/'
+linux_file <- 'MODIS_Aqua_GSFC_ALL_Class_6.4.1_ao_2017_04_12_with_ancillary.Rdata'
+AQUA_file <- paste0(linux_dir, linux_file)
+
+if (!file.exists(AQUA_file)) {
+    stop('Input file does not exist')
+  } else {
+    load(AQUA_file, verbose = TRUE)
+    AQUA <- MODIS_Aqua_GSFC_ALL_Class_6.4.1_ao_2017_04_12
+  }
+
+rm(linux_dir, linux_file, AQUA_file)
+rm(MODIS_Aqua_GSFC_ALL_Class_6.4.1_ao_2017_04_12)
+```
+
+The matchup file read in at a previous step is not filtered and contains too many variables. For the purpose of 
+this analysis, we use only nighttime matchups with a quality of 0, 1, or 2 and only keep variables from the infrared
+channels we use.
+
+```{r prep_data, echo=TRUE}
+# Turn POSIXct objects to characters bc dplyr doesn't support POSIXct
+AQUA$sat.timedate <- as.character(AQUA$sat.timedate)
+AQUA$buoy.timedate <- as.character(AQUA$buoy.timedate)
+
+# Apply basic filtering
+AQUA <- dplyr::tbl_df(AQUA) %>%
+  dplyr::filter(solz >= 90) %>%
+  dplyr::filter(qsst == 0 | qsst == 1 | qsst == 2)
+
+# Now grab only variables that may be used to determine retrieval accuracy and make some new variables (i.e. x1, x2, x3)
+# Create df of features
+orig <- dplyr::tbl_df(AQUA) %>%
+  dplyr::mutate(x1 = cen.11000,
+    x2 = cen.11000 - cen.12000,
+    x3 = cen.ref.type.1.SST,
+    satz = satz,
+    x2 = x2 * x3,
+    x3 = ((secant.deg(satz) - 1) * x2),
+    lat = buoy.lat,
+    lon = buoy.lon,
+    sd11 = sd.11000,
+    sd12 = sd.12000,
+    range11 = max.11000 - min.11000,
+    range12 = max.12000 - min.12000,
+    diff.med.min11 = med.11000 - min.11000,
+    diff.med.min12 = med.12000 - min.12000,
+    band.diff = cen.11000 - cen.12000,
+    qsst = qsst,
+    buoy.sst = buoy.sst,
+    cell5deg = cell5deg,
+    buoy.timedate = buoy.timedate,
+    SST.resid.SMB = cen.sst - buoy.sst) %>% # SMB = sat minus buoy - also don't debias SSTs i.e. turn buoy into skin
+  dplyr::select(x1, x2, x3, satz, lon, lat, sd11, sd12, range11, range12, diff.med.min11, diff.med.min12, band.diff, qsst, buoy.sst, cell5deg,
+                buoy.timedate, SST.resid.SMB)
+
+```
+
+
+
+
+# Relationship Between band_diff and temp_deficit
+
+```{r band_diff_temp_deficit_prediction_buoy_sst}
+
+tt1 <- dplyr::tbl_df(orig) %>%
+  dplyr::filter(qsst == 0)
+
+ccc = RColorBrewer::brewer.pal(n = 8, 'YlOrRd')
+ccc <- ccc[3:8]
+
+temp_context <- cut(tt1$buoy.sst, c(-Inf, 10, 25, Inf))
+temp_deficit <- tt1$buoy.sst - tt1$x1
+
+uuu <- data.frame(temp_context = as.factor(temp_context), temp_deficit = temp_deficit, band.diff = tt1$band.diff)
+
+ggplot2::ggplot(data = uuu, aes(x = temp_deficit, y = band.diff)) +
+  geom_bin2d(bins = 100) +
+  scale_fill_gradientn(colours = ccc) + 
+  geom_smooth(method = loess, se = FALSE) +
+  facet_wrap(~temp_context, nrow = 3, ncol = 1)
+  #ggsave('band_diff_predictor_of_temp_deficit_different_in_situ_windows.eps')
+
+# Regression equations and statistics for the three facets
+uuu$temp_context_numeric <- factor(as.character(uuu$temp_context), labels = c(0, 1, 2), levels = c('(-Inf,10]', '(10,25]', '(25, Inf]'))
+
+temp_less_10_lm <- lm(formula = temp_deficit ~ band.diff, data = uuu[uuu$temp_context_numeric == 0, ])
+rSD_temp_less_10 <- IQR(temp_less_10_lm$residuals) / 1.348
+cor_temp_less_10 <- cor(uuu[uuu$temp_context_numeric == 0, 'temp_deficit'], uuu[uuu$temp_context_numeric == 0, 'band.diff'])
+
+temp_between_10_25_lm <- lm(formula = temp_deficit ~ band.diff, data = uuu[uuu$temp_context_numeric == 1, ])
+rSD_temp_between_10_25 <- IQR(temp_between_10_25_lm$residuals) / 1.348
+cor_temp_between_10_25 <- cor(uuu[uuu$temp_context_numeric == 1, 'temp_deficit'], uuu[uuu$temp_context_numeric == 1, 'band.diff'])
+
+temp_greater_25_lm <- lm(formula = temp_deficit ~ band.diff, data = uuu[uuu$temp_context_numeric == 2, ])
+rSD_temp_greater_25 <- IQR(temp_greater_25_lm$residuals) / 1.348
+cor_temp_greater_25 <- cor(uuu[uuu$temp_context_numeric == 2, 'temp_deficit'], uuu[uuu$temp_context_numeric == 2, 'band.diff'])
+
+# Whole dataset for comparison
+temp_all_lm <- lm(formula = temp_deficit ~ band.diff, data = uuu)
+rSD_temp_all <- IQR(temp_all_lm$residuals) / 1.348
+cor_temp_all <- cor(uuu$temp_deficit, uuu$band.diff)
+
+```

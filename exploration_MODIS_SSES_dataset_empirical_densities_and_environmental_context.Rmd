@@ -1,0 +1,445 @@
+---
+title: "Exploration of a MODIS SSES Dataset - Empirical Densities"
+author: "Chirag Kumar and Guillermo Podesta"
+output:
+  html_notebook:
+    toc: True
+    theme: united
+---
+
+In this notebook we explore characteristics of the SST residual, defined as satellite minus buoy SST, and what 
+variables and conditions have significant impact on the residual's value and distribution. Our primary tool is
+empirical densities where we explore the effects of conditions on residual density bias, spread, and shape.
+
+We also explore the effect of SST on the relation between band_diff and temp_deficit a la Walton et al. 2016.
+We expect that as band_diff increases, so will temp_deficit but this relationship will begin to plateau at high
+values of band_diff. 
+
+# Prep Workspace and Data
+We use MODIS matchups from 2002 - 2016 that have been read in through a previous script. Here we simply load
+the matchups, any necessary packages, and define necessary functions.
+
+```{r prep_workspace, include=FALSE}
+# Import necessary packages
+require(ggplot2)
+require(dplyr)
+require(RColorBrewer)
+require(circular)
+require(ggmap)
+require(raster)
+require(sfsmisc)
+require(rasterVis)
+require(rgdal)
+
+ggplot <- function(...) {ggplot2::ggplot(...) + theme_bw()}
+
+# Define secant function
+secant.deg <- function(x) {1 / (cos(circular::rad(x)))}
+
+# Source own functions
+# Define direwctory where functions are for each operating system
+
+if (Sys.info()["sysname"] == 'Windows') {
+  fun.dir <- 'D:/matchups/r-projects/Matchup_R_Scripts/Functions/'
+} else if (Sys.info()["sysname"] == 'Linux') {
+  fun.dir <- '/home/ckk/Projects/Matchup_R_Scripts/Functions/'
+}
+
+fun.file <- paste0(fun.dir, 'common_functions.R')
+
+source(file = fun.file,
+  local = FALSE, echo = FALSE, verbose = FALSE)
+rm(fun.dir, fun.file)
+
+
+# Load data
+# For 787
+linux_dir <- '~/Projects/Matchup_R_Scripts/Results/objects/'
+# For Laptop
+#linux_dir <- '~/Projects/Matchup_R_Scripts/'
+linux_file <- 'MODIS_Aqua_GSFC_ALL_Class_6.4.1_ao_2017_04_12_with_ancillary.Rdata'
+AQUA_file <- paste0(linux_dir, linux_file)
+
+if (!file.exists(AQUA_file)) {
+    stop('Input file does not exist')
+  } else {
+    load(AQUA_file, verbose = TRUE)
+    AQUA <- MODIS_Aqua_GSFC_ALL_Class_6.4.1_ao_2017_04_12
+  }
+
+rm(linux_dir, linux_file, AQUA_file)
+rm(MODIS_Aqua_GSFC_ALL_Class_6.4.1_ao_2017_04_12)
+```
+
+The matchup file read in at a previous step is not filtered and contains too many variables. For the purpose of 
+this analysis, we use only nighttime matchups with a quality of 0, 1, or 2 and only keep variables from the infrared
+channels we use.
+
+```{r prep_data, echo=TRUE}
+# Turn POSIXct objects to characters bc dplyr doesn't support POSIXct
+AQUA$sat.timedate <- as.character(AQUA$sat.timedate)
+AQUA$buoy.timedate <- as.character(AQUA$buoy.timedate)
+
+# Apply basic filtering
+AQUA <- dplyr::tbl_df(AQUA) %>%
+  dplyr::filter(solz >= 90) %>%
+  dplyr::filter(qsst == 0 | qsst == 1 | qsst == 2)
+
+# Now grab only variables that may be used to determine retrieval accuracy and make some new variables (i.e. x1, x2, x3)
+# Create df of features
+orig <- dplyr::tbl_df(AQUA) %>%
+  dplyr::mutate(x1 = cen.11000,
+    x2 = cen.11000 - cen.12000,
+    x3 = cen.ref.type.1.SST,
+    satz = satz,
+    x2 = x2 * x3,
+    x3 = ((secant.deg(satz) - 1) * x2),
+    lat = buoy.lat,
+    lon = buoy.lon,
+    sd11 = sd.11000,
+    sd12 = sd.12000,
+    range11 = max.11000 - min.11000,
+    range12 = max.12000 - min.12000,
+    diff.med.min11 = med.11000 - min.11000,
+    diff.med.min12 = med.12000 - min.12000,
+    band.diff = cen.11000 - cen.12000,
+    qsst = qsst,
+    buoy.sst = buoy.sst,
+    cell5deg = cell5deg,
+    buoy.timedate = buoy.timedate,
+    SST.resid.SMB = cen.sst - buoy.sst) %>% # SMB = sat minus buoy - also don't debias SSTs i.e. turn buoy into skin
+  dplyr::select(x1, x2, x3, satz, lon, lat, sd11, sd12, range11, range12, diff.med.min11, diff.med.min12, band.diff, qsst, buoy.sst, cell5deg,
+                buoy.timedate, SST.resid.SMB)
+
+```
+
+
+
+
+# Spatial Distribution of Matchups
+
+Before diving into our analysis of conditions that effect residual magnitude, we do some basic explorations of
+our dataset. First we look at the spatial distribution of matchups
+
+
+```{r spatial_distribution, echo=TRUE}
+mp <- NULL
+mapWorld <- borders("world", colour = "gray50", fill = "gray70") # create a layer of borders
+mp <- ggplot() +  mapWorld +
+  ggplot2::scale_x_continuous(breaks = seq(from = -180, to = 180, by = 60)) +
+  ggplot2::scale_y_continuous(breaks = seq(from = -90, to = 90, by = 30)) +
+  coord_fixed(ratio = 1)
+
+# WARNING: Be careful as this worked with ggplot2 2.1.0 on Linux
+# Try to work on different machines with varying versions of ggplot2
+# Now layer the buoys on top with hexagonal binning
+mp <- mp + 
+  ggplot2::stat_binhex(data = orig,
+    aes(x = lon, # Use hexagonal binning command and give x and y input
+    y = lat,
+    fill = cut(..count.., c(0, 1000, 2000, 5000, 10000, Inf))), # Divides matchups per bin into discrete chunks and colors likewise
+    binwidth = c(10, 10)) +
+  mapWorld + labs(x = NULL, y = NULL) +
+  #scale_fill_hue('value') + # Standard colors with discrete chunking
+  scale_fill_brewer(palette = 'YlOrRd') + # Change colors to Yellow, Orange, and Red - many diff 
+  guides(fill = guide_legend(title = "N of matchups"))
+
+#ggplot2::ggsave(filename = 'spatial_distribution.ps', device = 'ps',
+#       width = 8, height = 6, units = 'in')
+
+mp
+```
+
+```{r N_of_matchups_by_location_raster, echo=TRUE}
+# --- These numbers may help perform statistics for the matchups
+# --- (e.g., number of matchups per cell, etc.).
+
+# --- Create a raster object with 5-degree pixels
+
+crs.string <- "+proj=longlat +datum=WGS84 +no_defs +ellps=WGS84 +towgs84=0,0,0"
+
+grid5deg <- raster::raster(ncol = 72, nrow = 36,
+  xmn = -180, xmx = 180,
+  ymn = -90, ymx = 90,
+  crs = crs.string)
+
+# --- Write cell numbers as value for the grids.
+# --- Cell 1 is the upper left corner and numbers go
+# --- across the top line through its end, then
+# --- start again in the second line, and so forth.
+
+raster::values(grid5deg) <- 1:raster::ncell(grid5deg) # Cell numbers for 5 deg grid
+
+raster::cellFromRowCol(object = grid5deg, rownr = 2, colnr = 72)
+
+raster::xyFromCell(object =  grid5deg, cell = 2592, spatial=FALSE)
+
+qqq <- dplyr::tbl_df(orig) %>%
+  dplyr::group_by(cell5deg) %>%
+  dplyr::summarise(N = n(), med = median(SST.resid.SMB), IQR = IQR(SST.resid.SMB))
+
+qq1 <- rep(NA, (72*36))
+qq1[qqq$cell5deg] <- qqq$N
+
+raster::values(grid5deg) <- qq1
+
+p <- rasterVis::levelplot(grid5deg, margin = FALSE,
+  #at = c(-Inf, seq(from = -0.4, to = 0.4, by = 0.1), Inf), # For med
+  at = c(1, 100, 250, 500, 1000, 2000, 5000, 10000, Inf), # For N
+  col.regions = (RColorBrewer::brewer.pal(9, 'OrRd')))
+
+world.map <- rgdal::readOGR("/home/ckk/Projects/Matchup_R_Scripts", layer = "ne_110m_land", verbose = TRUE)
+
+p <- p + layer(sp.lines(world.map, lwd = .75, fill = 'grey70', col = 'yellow'))
+
+p
+
+```
+
+
+# Temporal Distribution of Matchups
+
+We now look at the temporal distribution of matchups
+
+```{r heatmap_of_matchups, echo=TRUE}
+
+yy <- lubridate::year(orig_filtered$buoy.timedate)     # Year
+mm <- lubridate::month(orig_filtered$buoy.timedate)    # Month
+
+tt1 <- cbind(yy, mm)
+
+tt2 <- dplyr::tbl_df(tt1) %>%
+  dplyr::group_by(yy, mm) %>%
+  dplyr::summarise(n = n()) %>%
+  dplyr::arrange(yy, mm)
+
+yy.vals <- sort(unique(yy))
+mm.vals <- sort(unique(mm))
+tt3 <- expand.grid(mm = mm.vals, yy = yy.vals)
+
+tt4 <- dplyr::left_join(tt3, tt2) %>%
+  dplyr::select(yy, mm, n)
+
+brks <- pretty(tt4$n, n = 5)
+#brks <- floor(quantile(tt4$n, probs = seq(0, 1, 0.25), na.rm = TRUE))
+
+tt4$n <- cut(tt4$n, breaks = brks)
+tt4$mm <- ordered(tt4$mm, labels = month.abb)
+tt4$yy <- ordered(tt4$yy)
+
+hm <- ggplot2::ggplot(data = tt4, aes(mm, yy)) +
+  ggplot2::geom_tile(aes(fill = n), colour = "white") +
+  ggplot2::scale_fill_brewer(type = "seq", palette = 'YlOrRd', direction = 1) +
+  ggplot2::theme_bw() +
+  ggplot2::theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank())+
+  ggplot2::ggsave("Temporal_heatmap.ps", device = 'ps',
+       width = 8, height = 6, units = 'in')
+hm
+```
+
+
+
+
+
+# Statistics of the SST Residual and Basic Exploration of the SST Residual
+
+## Residuals by Quality
+```{r resid_spread_quality, echo=TRUE}
+# First look at statistics for the residuals in general
+cat('\nSummary Statistics for All Residuals\n')
+summary(orig$SST.resid.SMB)
+cat('\n Standard Deviation for All Residuals: ')
+sd(orig$SST.resid.SMB)
+
+# Look at the resid spread among different quality levels
+# qsst == 0
+cat('\nSummary Statistics for Quality = 0\n')
+summary(orig$SST.resid.SMB[orig$qsst == 0])
+cat('\n Standard Deviation for Quality = 0: ')
+sd(orig$SST.resid.SMB[orig$qsst == 0])
+
+# qsst == 1
+cat('\nSummary Statistics for Quality = 1\n')
+summary(orig$SST.resid.SMB[orig$qsst == 1])
+cat('\n Standard Deviation for Quality = 1: ')
+sd(orig$SST.resid.SMB[orig$qsst == 1])
+
+# qsst == 2
+cat('\nSummary Statistics for Quality = 2\n')
+summary(orig$SST.resid.SMB[orig$qsst == 2])
+cat('\n Standard Deviation for Quality = 2: ')
+sd(orig$SST.resid.SMB[orig$qsst == 2])
+```
+
+## Residuals as a Function of Buoy SST
+
+```{r buoy_sst_vs_sst_resid, echo=TRUE}
+ccc <- RColorBrewer::brewer.pal(n = 8, name = 'YlOrRd')
+ccc <- ccc[3:8]
+
+ggplot2::ggplot(data = orig, aes(x = buoy.sst, y = SST.resid.SMB + 0.17,
+  fill = cut(..count.., c(0, 20, 100, 500, 1000, 1500, 2000, 4000, Inf)))) +
+  geom_bin2d(bins = 100) + 
+  #scale_fill_gradientn(colours = ccc)cat('\nSummary Statistics for Quality = 0\n')
+summary(orig$SST.resid.SMB[orig$qsst == 0])
+cat('\n Standard Deviation for Quality = 0: ')
+sd(orig$SST.resid.SMB[orig$qsst == 0]) +
+  scale_fill_hue('count') +
+  geom_abline(slope = 0, intercept = 0, col = 'black')
+
+# Look at the statistics of the residuals
+summary(orig$SST.resid.SMB)
+IQR(orig$SST.resid.SMB)
+```
+
+## Residuals as a Function of Temperature Deficit
+
+```{r sst_resid_vs_temp_deficit, echo=TRUE}
+temp_deficit = orig$buoy.sst - orig$x1
+
+ggplot2::ggplot(data = orig, aes(x = temp_deficit, y = SST.resid.SMB,
+  fill = cut(..count.., c(0, 20, 100, 500, 1000, 1500, 2000, 4000, Inf)))) +
+  geom_bin2d(bins = 100) + 
+  scale_fill_hue('count') +
+  geom_abline(slope = 0, intercept = 0, col = 'black')
+```
+
+## Residuals as a Function of Band Difference
+
+```{r sst_resid_vs_band_diff, echo=TRUE}
+ggplot2::ggplot(data = orig, aes(x = band.diff, y = SST.resid.SMB + 0.17,
+  fill = cut(..count.., c(0, 20, 100, 500, 1000, 1500, 2000, 4000, Inf)))) +
+  geom_bin2d(bins = 100) + 
+  scale_fill_hue('count') +
+  geom_abline(slope = 0, intercept = 0, col = 'black')
+```
+
+
+# Empirical Densities
+
+```{r empirical_density_qsst, echo=TRUE}
+
+ggplot2::ggplot(data = orig) + 
+  geom_density(aes(x = SST.resid.SMB + 0.17, fill = as.factor(qsst)), alpha = 0.3, color = NA)
+
+```
+
+```{r empirical_density_temp_deficit, echo=TRUE}
+
+temp_deficit <- orig$buoy.sst - orig$x1
+cutoff_val <- 15
+qqq <- data.frame(condition = ifelse(temp_deficit > cutoff_val, paste('temp_deficit greater than', cutoff_val), paste('temp_deficit less than', cutoff_val)), resid = orig$SST.resid.SMB)
+
+ggplot2::ggplot(data = qqq, aes(x = resid + 0.17, fill = condition)) +
+  geom_density(alpha = .4, color = NA)
+
+```
+
+```{r empirical_density_band_diff, echo=TRUE}
+
+cutoff_val_down <- 0
+cutoff_val_up <- 3
+qqq <- data.frame(condition_band_diff = ifelse(orig$band.diff > cutoff_val_down, ifelse(orig$band.diff > cutoff_val_up, 2, 1), 0),
+                  resid = orig$SST.resid.SMB + 0.17)
+
+qqq$condition_band_diff <- factor(qqq$condition_band_diff, levels = c(0, 1, 2), labels = c('(-Inf, 0]', '(0, 2]', '(2, Inf)'))
+
+ggplot2::ggplot(data = qqq, aes(x = resid + 0.17, fill = condition_band_diff)) +
+  geom_density(alpha = .4, color = NA) +
+  ggplot2::ggsave('band_diff_empirical_density.pdf')
+
+```
+
+```{r empirical_density_satz, echo=TRUE}
+
+cutoff_val <- 55
+qqq <- data.frame(condition = ifelse(orig$satz > cutoff_val, paste('satz greater than', cutoff_val), paste('satz less than', cutoff_val)), resid = orig$SST.resid.SMB)
+
+ggplot2::ggplot(data = qqq, aes(x = resid + 0.17, fill = condition)) +
+  geom_density(alpha = .4, color = NA) +
+  ggplot2::ggsave('satz_empirical_density.pdf')
+
+```
+
+```{r empirical_density_band_diff_and_satz, echo=TRUE}
+
+cutoff_val <- 0
+qqq <- data.frame(condition_band_diff = ifelse(orig$band.diff > cutoff_val, ifelse(orig$band.diff > 3, 2, 1), 0),
+                  condition_satz = cut(abs(orig$satz), c(0, 55, max(orig$satz) + .01), include.lowest = TRUE), # Somewhat arbitrary - To be revised
+                  resid = orig$SST.resid.SMB + 0.17)
+
+qqq <- qqq[!is.na(qqq$condition_satz), ]
+
+qqq$condition_band_diff <- factor(qqq$condition_band_diff, levels = c(0, 1, 2), labels = c('(-Inf, 0]', '(0, 2]', '(2, Inf)'))
+
+qqq$condition_total <- paste0('band_diff ', as.character(qqq$condition_band_diff), ' and satz ', as.character(qqq$condition_satz))
+
+ggplot2::ggplot(data = qqq, aes(x = resid + 0.17, fill = condition_total)) +
+  geom_density(alpha = .3, color = NA) +
+  ggplot2::ggsave('band_diff_and_satz_empirical_density.pdf')
+
+```
+
+```{r empirical_density_x1, echo=TRUE}
+
+qqq <- data.frame(condition = ifelse(orig$x1 > 10, ifelse(orig$x1 > 25, 2, 1), 0), resid = orig$SST.resid.SMB)
+qqq$condition <- factor(qqq$condition, levels = c(0, 1, 2), labels = c('T_11 less than 10', 'T_11 in-between 10 and 25', 'T_11 greater than 25'))
+
+ggplot2::ggplot(data = qqq, aes(x = resid, fill = condition)) +
+  geom_density(alpha = .4, color = NA) +
+  ggsave('buoy_sst_empirical_density_environmental_context.pdf')
+```
+
+```{r empirical_density_x2, echo=TRUE}
+
+cutoff_val <- 10
+qqq <- data.frame(condition = ifelse(orig$x2 > cutoff_val, 1, 0), resid = orig$SST.resid.SMB)
+qqq$condition <- factor(qqq$condition, levels = c(0, 1), labels = c('x2 less than or equal to 10', 'x2 greater than 10'))
+
+ggplot2::ggplot(data = qqq, aes(x = resid, fill = condition)) +
+  geom_density(alpha = .4, color = NA) +
+  ggsave('x2_empirical_density.pdf')
+
+```
+
+```{r empirical_density_buoy_sst_environmental_context, echo=TRUE}
+
+qqq <- data.frame(condition = ifelse(orig$buoy.sst > 10, ifelse(orig$buoy.sst > 25, 2, 1), 0), resid = orig$SST.resid.SMB)
+qqq$condition <- factor(qqq$condition, levels = c(0, 1, 2), labels = c('buoy SST less than 10', 'buoy SST in-between 10 and 25', 'buoy SST greater than 25'))
+
+ggplot2::ggplot(data = qqq, aes(x = resid, fill = condition)) +
+  geom_density(alpha = .4, color = NA) +
+  ggsave('buoy_sst_empirical_density_environmental_context.pdf')
+
+```
+
+```{r empirical_density_range_11, echo=TRUE}
+
+cutoff_val <- 10
+qqq <- data.frame(condition = ifelse(orig$range11 > cutoff_val, 1, 0), resid = orig$SST.resid.SMB)
+qqq$condition <- factor(qqq$condition, levels = c(0, 1), labels = c('x1 less than or equal to 10', 'x2 greater than 10'))
+
+ggplot2::ggplot(data = qqq, aes(x = resid, fill = condition)) +
+  geom_density(alpha = .4, color = NA) +
+  ggsave('range_11_empirical_density.pdf')
+
+```
+
+```{r empirical_density_product_buoy_SST_and_band_diff, echo=TRUE}
+
+# Question: cutoff values for this plot?
+prod_buoy_SST_band_diff <- orig$buoy.sst * orig$band_diff
+qqq <- data.frame(condition = ifelse(prod_buoy_SST_band_diff > 10, ifelse(prod_buoy_SST_band_diff > 30, ifelse(prod_buoy_SST_band_diff > 75, 3, 2), 1), 0), resid = orig$SST.resid.SMB)
+qqq$condition <- factor(qqq$condition, levels = c(0, 1, 2, 3), labels = c('Product less than 10',
+                                                                       'Product in-between 10 and 30',
+                                                                       'Product in-between 30 and 75',
+                                                                       'Product greater than 75'))
+
+ggplot2::ggplot(data = qqq, aes(x = resid, fill = condition)) +
+  geom_density(alpha = .4, color = NA) +
+  ggsave('product_buoy_SST_band_diff_empirical_density.pdf')
+
+```
+
+
+

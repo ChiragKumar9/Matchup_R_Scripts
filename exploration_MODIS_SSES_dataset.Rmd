@@ -130,6 +130,7 @@ orig <- dplyr::tbl_df(AQUA) %>%
 
 ```
 
+
 # Explore Data
 ## Residuals by Quality
 ```{r resid_spread_quality, echo=TRUE}
@@ -626,11 +627,13 @@ New observations:
 * Again, retrievals are clustered very highly on low residual magnitude
 
 
+
 # Location and Other Geophysical Variables
 Earlier, we explored the distribution of residuals in raster geographical cells.
 Now, we aim to find the cause of residual abnormalities we may have noticed (i.e. low resemblance to the actual residual distribution in a certain cell,
 positive median residual, high IQR of residuals...). We plot geophysical variables that we have explored in the raster cells. Because we contoured the
 geophysical variable plots, we can see if the values of the variables in the abnormal cells are also abnormal.
+
 
 # Geographical Explorations of Atmospheric Variables
 
@@ -1106,6 +1109,7 @@ p
 ```
 
 
+
 # Empirical Densities
 
 ```{r empirical_density_qsst}
@@ -1230,6 +1234,7 @@ overlap_coef <- overlap(qqq[qqq$condition == paste('x3 greater than', cutoff_val
 overlap_coef
 ```
 
+
 # Difference Between T_11 and T_12 (band.diff)
 
 ```{r band_diff_temp_deficit_predictor_buoy_sst}
@@ -1269,6 +1274,7 @@ rSD_temp_all <- IQR(temp_all_lm$residuals) / 1.348
 cor_temp_all <- cor(uuu$temp_deficit, uuu$band.diff)
 
 ```
+
 
 
 
