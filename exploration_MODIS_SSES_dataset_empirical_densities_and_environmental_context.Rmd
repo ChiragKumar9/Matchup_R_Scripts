@@ -348,8 +348,11 @@ ggplot2::ggplot(data = qqq, aes(x = resid + 0.17, fill = condition_band_diff)) +
 
 ```{r empirical_density_satz, echo=TRUE}
 
-cutoff_val <- 55
-qqq <- data.frame(condition = ifelse(orig$satz > cutoff_val, paste('satz greater than', cutoff_val), paste('satz less than', cutoff_val)), resid = orig$SST.resid.SMB)
+cutoff_val_down <- 40
+cutoff_val_up <- 55
+qqq <- data.frame(condition_satz = ifelse(abs(orig$satz) > cutoff_val_down, ifelse(abs(orig$satz) > cutoff_val_up, 2, 1), 0), resid = orig$SST.resid.SMB)
+
+qqq$condition_satz <- factor(qqq$condition_satz, levels = c(0, 1, 2), labels = c('[0, 40}', '(40, 55]', '(55, Inf)'))
 
 ggplot2::ggplot(data = qqq, aes(x = resid + 0.17, fill = condition)) +
   geom_density(alpha = .4, color = NA) +
@@ -380,8 +383,8 @@ ggplot2::ggplot(data = qqq, aes(x = resid + 0.17, fill = condition_total)) +
 
 ```{r empirical_density_x1, echo=TRUE}
 
-qqq <- data.frame(condition = ifelse(orig$x1 > 10, ifelse(orig$x1 > 25, 2, 1), 0), resid = orig$SST.resid.SMB)
-qqq$condition <- factor(qqq$condition, levels = c(0, 1, 2), labels = c('T_11 less than 10', 'T_11 in-between 10 and 25', 'T_11 greater than 25'))
+qqq <- data.frame(condition = ifelse(orig$x1 > 5, ifelse(orig$x1 > 17, 2, 1), 0), resid = orig$SST.resid.SMB)
+qqq$condition <- factor(qqq$condition, levels = c(0, 1, 2), labels = c('T_11 less than 5', 'T_11 in-between 5 and 17', 'T_11 greater than 17'))
 
 ggplot2::ggplot(data = qqq, aes(x = resid + 0.17, fill = condition)) +
   geom_density(alpha = .4, color = NA) +
@@ -416,9 +419,11 @@ ggplot2::ggplot(data = qqq, aes(x = resid, fill = condition)) +
 
 ```{r empirical_density_range_11, echo=TRUE}
 
-cutoff_val <- 1
-qqq <- data.frame(condition = ifelse(orig$range11 > cutoff_val, 1, 0), resid = orig$SST.resid.SMB)
-qqq$condition <- factor(qqq$condition, levels = c(0, 1), labels = c('range11 less than or equal to 1', 'range11 greater than 1'))
+cutoff_val_down <- 0.3
+cutoff_val_up <- 0.8
+qqq <- data.frame(condition = ifelse(orig$range11 > cutoff_val_down, ifelse(orig$range11 > cutoff_val_up, 2, 1), 0), resid = orig$SST.resid.SMB)
+
+qqq$condition <- factor(qqq$condition, levels = c(0, 1, 2), labels = c('[0, 0.3]', '(0.3, 0.8]', '(0.8, Inf)'))
 
 ggplot2::ggplot(data = qqq, aes(x = resid, fill = condition)) +
   geom_density(alpha = .4, color = NA) +
