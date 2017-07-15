@@ -106,29 +106,27 @@ orig <- dplyr::tbl_df(AQUA) %>%
 ```
 
 
-
-
 # Relationship Between band_diff and temp_deficit
 
 ```{r band_diff_temp_deficit_prediction_buoy_sst}
 
-tt1 <- dplyr::tbl_df(orig) %>%
+zz1 <- dplyr::tbl_df(orig) %>%
   dplyr::filter(qsst == 0)
 
 ccc = RColorBrewer::brewer.pal(n = 8, 'YlOrRd')
 ccc <- ccc[3:8]
 
-temp_context <- cut(tt1$buoy.sst, c(-Inf, 10, 25, Inf))
-temp_deficit <- tt1$buoy.sst - tt1$x1
+temp_context <- cut(zz1$buoy.sst, c(-Inf, 10, 25, Inf))
+temp_deficit <- zz1$buoy.sst - zz1$x1
 
-uuu <- data.frame(temp_context = as.factor(temp_context), temp_deficit = temp_deficit, band.diff = tt1$band.diff)
+uuu <- data.frame(temp_context = as.factor(temp_context), temp_deficit = temp_deficit, band.diff = zz1$band.diff)
 
 ggplot2::ggplot(data = uuu, aes(x = temp_deficit, y = band.diff)) +
   geom_bin2d(bins = 100) +
   scale_fill_gradientn(colours = ccc) + 
-  geom_smooth(method = loess, se = FALSE) +
+  geom_smooth(method = loess, se = FALSE, span = 0.5) +
   facet_wrap(~temp_context, nrow = 3, ncol = 1)
-  #ggsave('band_diff_predictor_of_temp_deficit_different_in_situ_windows.eps')
+  ggsave('band_diff_predictor_of_temp_deficit_different_in_situ_windows.pdf')
 
 # Regression equations and statistics for the three facets
 uuu$temp_context_numeric <- factor(as.character(uuu$temp_context), labels = c(0, 1, 2), levels = c('(-Inf,10]', '(10,25]', '(25, Inf]'))
@@ -151,3 +149,34 @@ rSD_temp_all <- IQR(temp_all_lm$residuals) / 1.348
 cor_temp_all <- cor(uuu$temp_deficit, uuu$band.diff)
 
 ```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
