@@ -121,6 +121,11 @@ temp_deficit <- zz1$buoy.sst - zz1$x1
 
 uuu <- data.frame(temp_context = as.factor(temp_context), temp_deficit = temp_deficit, band.diff = zz1$band.diff)
 
+# Take a sample of uuu bc loess requires lots of memory - for testing purposes
+set.seed(42)
+index <- sample(1:nrow(uuu), 1000, replace = FALSE)
+uuu <- uuu[index, ]
+
 ggplot2::ggplot(data = uuu, aes(x = temp_deficit, y = band.diff)) +
   geom_bin2d(bins = 100) +
   scale_fill_gradientn(colours = ccc) + 
