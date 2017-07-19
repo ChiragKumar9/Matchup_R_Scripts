@@ -1,0 +1,195 @@
+---
+title: "Exploration of a MODIS SSES Dataset - Decision Trees"
+author: "Chirag Kumar and Guillermo Podesta"
+output:
+  html_notebook:
+    toc: True
+    theme: united
+---
+
+# Prep Workspace and Data
+We use MODIS matchups from 2002 - 2016 that have been read in through a previous script. Here we simply load
+the matchups, any necessary packages, and define necessary functions.
+
+```{r prep_workspace, include=FALSE}
+# Import necessary packages
+require(ggplot2)
+require(dplyr)
+require(RColorBrewer)
+require(circular)
+require(ggmap)
+require(raster)
+require(sfsmisc)
+require(rasterVis)
+require(rgdal)
+require(rpart)
+require(rpart.plot)
+require(caret)
+require(evtree)
+
+ggplot <- function(...) {ggplot2::ggplot(...) + theme_bw()}
+
+# Define secant function
+secant.deg <- function(x) {1 / (cos(circular::rad(x)))}
+
+# Source own functions
+# Define direwctory where functions are for each operating system
+
+if (Sys.info()["sysname"] == 'Windows') {
+  fun.dir <- 'D:/matchups/r-projects/Matchup_R_Scripts/Functions/'
+} else if (Sys.info()["sysname"] == 'Linux') {
+  fun.dir <- '/home/ckk/Projects/Matchup_R_Scripts/Functions/'
+}
+
+fun.file <- paste0(fun.dir, 'common_functions.R')
+
+source(file = fun.file,
+  local = FALSE, echo = FALSE, verbose = FALSE)
+rm(fun.dir, fun.file)
+
+
+# Load data
+# For 787
+linux_dir <- '~/Projects/Matchup_R_Scripts/Results/objects/'
+# For Laptop
+#linux_dir <- '~/Projects/Matchup_R_Scripts/'
+linux_file <- 'MODIS_Aqua_GSFC_ALL_Class_6.4.1_ao_2017_04_12_with_ancillary.Rdata'
+AQUA_file <- paste0(linux_dir, linux_file)
+
+if (!file.exists(AQUA_file)) {
+    stop('Input file does not exist')
+  } else {
+    load(AQUA_file, verbose = TRUE)
+    AQUA <- MODIS_Aqua_GSFC_ALL_Class_6.4.1_ao_2017_04_12
+  }
+
+rm(linux_dir, linux_file, AQUA_file)
+rm(MODIS_Aqua_GSFC_ALL_Class_6.4.1_ao_2017_04_12)
+```
+
+The matchup file read in at a previous step is not filtered and contains too many variables. For the purpose of 
+this analysis, we use only nighttime matchups with a quality of 0, 1, or 2 and only keep variables from the infrared
+channels we use.
+
+```{r prep_data, echo=TRUE}
+# Turn POSIXct objects to characters bc dplyr doesn't support POSIXct
+AQUA$sat.timedate <- as.character(AQUA$sat.timedate)
+AQUA$buoy.timedate <- as.character(AQUA$buoy.timedate)
+
+# Apply basic filtering
+AQUA <- dplyr::tbl_df(AQUA) %>%
+  dplyr::filter(solz >= 90) %>%
+  dplyr::filter(qsst == 0 | qsst == 1 | qsst == 2)
+
+# Now grab only variables that may be used to determine retrieval accuracy and make some new variables (i.e. x1, x2, x3)
+# Create df of features
+orig <- dplyr::tbl_df(AQUA) %>%
+  dplyr::mutate(T_11 = cen.11000,
+    x2 = cen.11000 - cen.12000,
+    x3 = cen.ref.type.1.SST,
+    satz = satz,
+    x2 = x2 * x3,
+    x3 = ((secant.deg(satz) - 1) * x2),
+    lat = buoy.lat,
+    lon = buoy.lon,
+    sd11 = sd.11000,
+    sd12 = sd.12000,
+    range11 = max.11000 - min.11000,
+    range12 = max.12000 - min.12000,
+    diff.med.min11 = med.11000 - min.11000,
+    diff.med.min12 = med.12000 - min.12000,
+    band.diff = cen.11000 - cen.12000,
+    qsst = qsst,
+    buoy.sst = buoy.sst,
+    cell5deg = cell5deg,
+    buoy.timedate = buoy.timedate,
+    T_12 = cen.12000,
+    ref_SST = cen.ref.type.1.SST,
+    SST.resid.SMB = cen.sst - buoy.sst) %>% # SMB = sat minus buoy - also don't debias SSTs i.e. turn buoy into skin
+  dplyr::select(T_11, x2, x3, satz, lon, lat, sd11, sd12, range11, range12, diff.med.min11, diff.med.min12, band.diff, qsst, buoy.sst, cell5deg,
+                buoy.timedate, T_12, ref_SST, SST.resid.SMB)
+
+```
+
+# Decision Trees
+
+Here we explore the ability of decision trees to accurately classify SST matchups that fall in defined residual
+ranges.  First we prep the data into training and validation sets for the decision tree exploration.
+
+## Prep Data for Decision Trees
+
+```{r prep_data_decision_trees, echo=TRUE}
+
+# Debias SST resid - i.e. account for skin to buil conversion
+orig$SST.resid.SMB <- orig$SST.resid.SMB + 0.17
+
+# Make classes
+class_resid <- ifelse(orig$SST.resid.SMB > 1, 'resid > 1', ifelse(orig$SST.resid.SMB < -1, 'resid < -1', '-1 <= resid <= 1'))
+orig$class_resid <- class_resid
+
+# Divide data into training and validation sets
+set.seed(42)
+prop_train <- .6
+len_train <- floor(prop_train * nrow(orig))
+index <- sample(1:nrow(orig), len_train, replace = FALSE)
+
+orig_train <- orig[index, ]
+orig_test <- orig[-index, ]
+
+```
+
+
+## rpart Decision Trees
+
+```{r rpart_decision_tree, echo=TRUE}
+
+# Train a stard rpart decision tree on above data
+rpart_tree <- rpart::rpart(formula = class_resid ~ T_11 + T_12 + band.diff + ref_SST + satz + range11 + sd11, 
+                           data = orig_train, 
+                           minsplit = 100)
+
+# Plot tree
+rpart.plot::prp(rpart_tree, uniform = TRUE,
+  main = "rpart Classification Tree for Identifying Matchups' Residual Range")
+
+# Evaluate the decision tree's accuracy on validation set
+rpart_tree_predictions <- predict(rpart_tree, data = orig_test, type = 'class', na.action = na.pass)
+
+# Draw confusion matrix for predictions on rpart tree
+rpart_tree_cm <- caret::confusionMatrix(data = rpart_tree_predictions, reference = orig_train$class_resid)
+rpart_tree_cm
+
+```
+
+
+## Evolutionary Tree
+
+
+```{r evtree_decision_tree, echo=TRUE}
+
+# Train a stard evtree decision tree on above data
+evtree_tree <- evtree::evtree(formula = class_resid ~ T_11 + T_12 + band.diff + ref_SST + satz + range11 + sd11, 
+                           data = orig_train, 
+                           minsplit = 100)
+
+# Plot tree
+plot(evtree_tree)
+
+# Evaluate the decision tree's accuracy on validation set
+evtree_tree_predictions <- predict(evtree_tree, data = orig_test, type = 'class', na.action = na.pass)
+
+# Draw confusion matrix for predictions on evtree tree
+evtree_tree_cm <- caret::confusionMatrix(data = evtree_tree_predictions, reference = orig_train$class_resid)
+evtree_tree_cm
+
+```
+
+
+
+
+
+
+
+
+
+
