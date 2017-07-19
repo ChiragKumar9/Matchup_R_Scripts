@@ -106,8 +106,7 @@ orig <- dplyr::tbl_df(AQUA) %>%
     T_12 = cen.12000,
     ref_SST = cen.ref.type.1.SST,
     SST.resid.SMB = cen.sst - buoy.sst) %>% # SMB = sat minus buoy - also don't debias SSTs i.e. turn buoy into skin
-  dplyr::select(T_11, x2, x3, satz, lon, lat, sd11, sd12, range11, range12, diff.med.min11, diff.med.min12, band.diff, qsst, buoy.sst, cell5deg,
-                buoy.timedate, T_12, ref_SST, SST.resid.SMB)
+  dplyr::select(T_11, x2, x3, satz, lon, lat, sd11, sd12, range11, range12, diff.med.min11, diff.med.min12, band.diff, qsst, buoy.sst, cell5deg, buoy.timedate, T_12, ref_SST, SST.resid.SMB)
 
 ```
 
@@ -125,7 +124,7 @@ orig$SST.resid.SMB <- orig$SST.resid.SMB + 0.17
 
 # Make classes
 class_resid <- ifelse(orig$SST.resid.SMB > 1, 'resid > 1', ifelse(orig$SST.resid.SMB < -1, 'resid < -1', '-1 <= resid <= 1'))
-orig$class_resid <- class_resid
+orig$class_resid <- as.factor(class_resid)
 
 # Divide data into training and validation sets
 set.seed(42)
@@ -149,7 +148,7 @@ rpart_tree <- rpart::rpart(formula = class_resid ~ T_11 + T_12 + band.diff + ref
                            minsplit = 100)
 
 # Plot tree
-rpart.plot::prp(rpart_tree, uniform = TRUE,
+rpart.plot::prp(rpart_tree, uniform = TRUE, faclen = 0, varlen = 0,
   main = "rpart Classification Tree for Identifying Matchups' Residual Range")
 
 # Evaluate the decision tree's accuracy on validation set
@@ -168,9 +167,9 @@ rpart_tree_cm
 ```{r evtree_decision_tree, echo=TRUE}
 
 # Train a stard evtree decision tree on above data
-evtree_tree <- evtree::evtree(formula = class_resid ~ T_11 + T_12 + band.diff + ref_SST + satz + range11 + sd11, 
-                           data = orig_train, 
-                           minsplit = 100)
+evtree_tree <- evtree::evtree(formula = class_resid ~ T_11 + T_12 + band.diff + ref_SST + satz + range11 + sd11,
+                              data = orig_train, 
+                              minsplit = 100)
 
 # Plot tree
 plot(evtree_tree)
