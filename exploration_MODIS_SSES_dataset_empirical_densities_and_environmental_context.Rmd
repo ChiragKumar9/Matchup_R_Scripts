@@ -326,7 +326,7 @@ qqq <- data.frame(condition = ifelse(temp_deficit > cutoff_val, paste('temp_defi
 
 ggplot2::ggplot(data = qqq, aes(x = resid + 0.17, fill = condition)) +
   geom_density(alpha = .4, color = NA) +
-  geom_rug(aes(x = SST.resid.SMB + 0.17, y = 0), position = position_jitter(height = 0))
+  geom_rug(aes(x = resid + 0.17, y = 0), position = position_jitter(height = 0))
 
 ```
 
@@ -341,7 +341,7 @@ qqq$condition_band_diff <- factor(qqq$condition_band_diff, levels = c(0, 1, 2), 
 
 ggplot2::ggplot(data = qqq, aes(x = resid + 0.17, fill = condition_band_diff)) +
   geom_density(alpha = .4, color = NA) +
-  geom_rug(aes(x = SST.resid.SMB + 0.17, y = 0), position = position_jitter(height = 0)) +
+  geom_rug(aes(x = resid + 0.17, y = 0), position = position_jitter(height = 0)) +
   ggplot2::ggsave('band_diff_empirical_density.pdf')
 
 ```
@@ -354,9 +354,9 @@ qqq <- data.frame(condition_satz = ifelse(abs(orig$satz) > cutoff_val_down, ifel
 
 qqq$condition_satz <- factor(qqq$condition_satz, levels = c(0, 1, 2), labels = c('[0, 40}', '(40, 55]', '(55, Inf)'))
 
-ggplot2::ggplot(data = qqq, aes(x = resid + 0.17, fill = condition)) +
+ggplot2::ggplot(data = qqq, aes(x = resid + 0.17, fill = condition_satz)) +
   geom_density(alpha = .4, color = NA) +
-  geom_rug(aes(x = SST.resid.SMB + 0.17, y = 0), position = position_jitter(height = 0)) +
+  geom_rug(aes(x = resid + 0.17, y = 0), position = position_jitter(height = 0)) +
   ggplot2::ggsave('satz_empirical_density.pdf')
 
 ```
@@ -376,7 +376,7 @@ qqq$condition_total <- paste0('band_diff ', as.character(qqq$condition_band_diff
 
 ggplot2::ggplot(data = qqq, aes(x = resid + 0.17, fill = condition_total)) +
   geom_density(alpha = .3, color = NA) +
-  geom_rug(aes(x = SST.resid.SMB + 0.17, y = 0), position = position_jitter(height = 0)) +
+  geom_rug(aes(x = resid + 0.17, y = 0), position = position_jitter(height = 0)) +
   ggplot2::ggsave('band_diff_and_satz_empirical_density.pdf')
 
 ```
@@ -388,7 +388,7 @@ qqq$condition <- factor(qqq$condition, levels = c(0, 1, 2), labels = c('T_11 les
 
 ggplot2::ggplot(data = qqq, aes(x = resid + 0.17, fill = condition)) +
   geom_density(alpha = .4, color = NA) +
-  geom_rug(aes(x = SST.resid.SMB + 0.17, y = 0), position = position_jitter(height = 0)) +
+  geom_rug(aes(x = resid + 0.17, y = 0), position = position_jitter(height = 0)) +
   ggsave('buoy_sst_empirical_density_environmental_context.pdf')
 ```
 
@@ -398,9 +398,9 @@ cutoff_val <- 10
 qqq <- data.frame(condition = ifelse(orig$x2 > cutoff_val, 1, 0), resid = orig$SST.resid.SMB)
 qqq$condition <- factor(qqq$condition, levels = c(0, 1), labels = c('x2 less than or equal to 10', 'x2 greater than 10'))
 
-ggplot2::ggplot(data = qqq, aes(x = resid, fill = condition)) +
+ggplot2::ggplot(data = qqq, aes(x = resid + 0.17, fill = condition)) +
   geom_density(alpha = .4, color = NA) +
-  geom_rug(aes(x = SST.resid.SMB + 0.17, y = 0), position = position_jitter(height = 0)) +
+  geom_rug(aes(x = resid + 0.17, y = 0), position = position_jitter(height = 0)) +
   ggsave('x2_empirical_density.pdf')
 
 ```
@@ -410,9 +410,9 @@ ggplot2::ggplot(data = qqq, aes(x = resid, fill = condition)) +
 qqq <- data.frame(condition = ifelse(orig$buoy.sst > 10, ifelse(orig$buoy.sst > 25, 2, 1), 0), resid = orig$SST.resid.SMB)
 qqq$condition <- factor(qqq$condition, levels = c(0, 1, 2), labels = c('buoy SST less than 10', 'buoy SST in-between 10 and 25', 'buoy SST greater than 25'))
 
-ggplot2::ggplot(data = qqq, aes(x = resid, fill = condition)) +
+ggplot2::ggplot(data = qqq, aes(x = resid + 0.17, fill = condition)) +
   geom_density(alpha = .4, color = NA) +
-  geom_rug(aes(x = SST.resid.SMB + 0.17, y = 0), position = position_jitter(height = 0)) +
+  geom_rug(aes(x = resid + 0.17, y = 0), position = position_jitter(height = 0)) +
   ggsave('buoy_sst_empirical_density_environmental_context.pdf')
 
 ```
@@ -425,9 +425,9 @@ qqq <- data.frame(condition = ifelse(orig$range11 > cutoff_val_down, ifelse(orig
 
 qqq$condition <- factor(qqq$condition, levels = c(0, 1, 2), labels = c('[0, 0.3]', '(0.3, 0.8]', '(0.8, Inf)'))
 
-ggplot2::ggplot(data = qqq, aes(x = resid, fill = condition)) +
+ggplot2::ggplot(data = qqq, aes(x = resid + 0.17, fill = condition)) +
   geom_density(alpha = .4, color = NA) +
-  geom_rug(aes(x = SST.resid.SMB + 0.17, y = 0), position = position_jitter(height = 0)) +
+  geom_rug(aes(x = resid + 0.17, y = 0), position = position_jitter(height = 0)) +
   ggsave('range_11_empirical_density.pdf')
 
 ```
@@ -442,9 +442,9 @@ qqq$condition <- factor(qqq$condition, levels = c(0, 1, 2, 3), labels = c('Produ
                                                                        'Product in-between 30 and 75',
                                                                        'Product greater than 75'))
 
-ggplot2::ggplot(data = qqq, aes(x = resid, fill = condition)) +
+ggplot2::ggplot(data = qqq, aes(x = resid + 0.17, fill = condition)) +
   geom_density(alpha = .4, color = NA) +
-  geom_rug(aes(x = SST.resid.SMB + 0.17, y = 0), position = position_jitter(height = 0)) +
+  geom_rug(aes(x = resid + 0.17, y = 0), position = position_jitter(height = 0)) +
   ggsave('product_buoy_SST_band_diff_empirical_density.pdf')
 
 ```
