@@ -65,6 +65,8 @@ if (!file.exists(AQUA_file)) {
 
 rm(linux_dir, linux_file, AQUA_file)
 rm(MODIS_Aqua_GSFC_ALL_Class_6.4.1_ao_2017_04_12)
+
+set.seed(42)
 ```
 
 The matchup file read in at a previous step is not filtered and contains too many variables. For the purpose of 
@@ -85,11 +87,11 @@ AQUA <- dplyr::tbl_df(AQUA) %>%
 # Create df of features
 orig <- dplyr::tbl_df(AQUA) %>%
   dplyr::mutate(T_11 = cen.11000,
-    x2 = cen.11000 - cen.12000,
-    x3 = cen.ref.type.1.SST,
-    satz = satz,
-    x2 = x2 * x3,
-    x3 = ((secant.deg(satz) - 1) * x2),
+    T_12 = cen.12000,
+    band.diff = T_11 - T_12,
+    ref_SST = cen.ref.type.1.SST,
+    x2 = band.diff * ref_SST,
+    x3 = ((secant.deg(satz) - 1) * band.diff),
     lat = buoy.lat,
     lon = buoy.lon,
     sd11 = sd.11000,
@@ -98,15 +100,13 @@ orig <- dplyr::tbl_df(AQUA) %>%
     range12 = max.12000 - min.12000,
     diff.med.min11 = med.11000 - min.11000,
     diff.med.min12 = med.12000 - min.12000,
-    band.diff = cen.11000 - cen.12000,
     qsst = qsst,
     buoy.sst = buoy.sst,
     cell5deg = cell5deg,
     buoy.timedate = buoy.timedate,
-    T_12 = cen.12000,
-    ref_SST = cen.ref.type.1.SST,
     SST.resid.SMB = cen.sst - buoy.sst) %>% # SMB = sat minus buoy - also don't debias SSTs i.e. turn buoy into skin
-  dplyr::select(T_11, x2, x3, satz, lon, lat, sd11, sd12, range11, range12, diff.med.min11, diff.med.min12, band.diff, qsst, buoy.sst, cell5deg, buoy.timedate, T_12, ref_SST, SST.resid.SMB)
+  dplyr::select(T_11, T_12, band.diff, ref_SST, x2, x3, satz, lon, lat, sd11, sd12, range11, range12, diff.med.min11, diff.med.min12,
+    qsst, buoy.sst, cell5deg, buoy.timedate, SST.resid.SMB)
 
 ```
 
@@ -119,15 +119,18 @@ ranges.  First we prep the data into training and validation sets for the decisi
 
 ```{r prep_data_decision_trees, echo=TRUE}
 
-# Debias SST resid - i.e. account for skin to buil conversion
+# Debias SST resid - i.e. account for skin to bulk conversion
 orig$SST.resid.SMB <- orig$SST.resid.SMB + 0.17
 
 # Make classes
-class_resid <- ifelse(orig$SST.resid.SMB > 1, 'resid > 1', ifelse(orig$SST.resid.SMB < -1, 'resid < -1', '-1 <= resid <= 1'))
+class_resid <- ifelse(orig$SST.resid.SMB > .2, 'resid > .2', ifelse(orig$SST.resid.SMB < -.2, 'resid < -.2', '-.2 <= resid <= .2'))
 orig$class_resid <- as.factor(class_resid)
+table(orig$class_resid)
+
+orig %>% dplyr::group_by(class_resid) %>%
+  dplyr::summarise(min = min(SST.resid.SMB), max = max(SST.resid.SMB))
 
 # Divide data into training and validation sets
-set.seed(42)
 prop_train <- .6
 len_train <- floor(prop_train * nrow(orig))
 index <- sample(1:nrow(orig), len_train, replace = FALSE)
@@ -143,12 +146,14 @@ orig_test <- orig[-index, ]
 ```{r rpart_decision_tree, echo=TRUE}
 
 # Train a stard rpart decision tree on above data
-rpart_tree <- rpart::rpart(formula = class_resid ~ T_11 + T_12 + band.diff + ref_SST + satz + range11 + sd11, 
+rpart_tree <- rpart::rpart(formula = class_resid ~ T_11 + T_12 + band.diff + ref_SST + (ref_SST - T_11) + (ref_SST - T_12) + x2 +
+    abs(satz) + range11 + sd11 + range12 + sd12 + x3, 
                            data = orig_train, 
-                           minsplit = 100)
+                           minsplit = 100,
+                           xval = 5)
 
 # Plot tree
-rpart.plot::prp(rpart_tree, uniform = TRUE, faclen = 0, varlen = 0,
+rpart.plot::prp(rpart_tree, uniform = TRUE, faclen = 0, varlen = 0, extra = 4,
   main = "rpart Classification Tree for Identifying Matchups' Residual Range")
 
 # Evaluate the decision tree's accuracy on validation set
@@ -166,10 +171,14 @@ rpart_tree_cm
 
 ```{r evtree_decision_tree, echo=TRUE}
 
+# Further sampling for the evtree because it takes a long time...
+index_evtree <- sample(1:nrow(orig_train), 100, replace = FALSE)
+orig_train_subset <- orig_train[index_evtree, ]
+
 # Train a stard evtree decision tree on above data
-evtree_tree <- evtree::evtree(formula = class_resid ~ T_11 + T_12 + band.diff + ref_SST + satz + range11 + sd11,
+evtree_tree <- evtree::evtree(formula = class_resid ~ T_11 + sd11, #T_11 + band.diff + ref_SST + satz + range11 + sd11,
                               data = orig_train, 
-                              minsplit = 100)
+                              minsplit = 10)
 
 # Plot tree
 plot(evtree_tree)
