@@ -26,6 +26,9 @@ require(rpart)
 require(rpart.plot)
 require(caret)
 require(evtree)
+require(ctree)
+require(partykit)
+require(randomForest)
 
 ggplot <- function(...) {ggplot2::ggplot(...) + theme_bw()}
 
@@ -123,7 +126,9 @@ ranges.  First we prep the data into training and validation sets for the decisi
 orig$SST.resid.SMB <- orig$SST.resid.SMB + 0.17
 
 # Make classes
-class_resid <- ifelse(orig$SST.resid.SMB > .2, 'resid > .2', ifelse(orig$SST.resid.SMB < -.2, 'resid < -.2', '-.2 <= resid <= .2'))
+class_resid <- cut(orig$SST.resid.SMB, breaks = c(min(orig$SST.resid.SMB), -.4, (max(orig$SST.resid.SMB + 0.0001))),
+                   labels = c('bad_low', 'good', 'bad_high'), include.lowest = TRUE)
+#class_resid <- ifelse(orig$SST.resid.SMB > .2, 'resid > .2', ifelse(orig$SST.resid.SMB < -.2, 'resid < -.2', '-.2 <= resid <= .2'))
 orig$class_resid <- as.factor(class_resid)
 table(orig$class_resid)
 
@@ -148,28 +153,72 @@ orig_test <- orig[-index, ]
 # Train a stard rpart decision tree on above data
 rpart_tree <- rpart::rpart(formula = class_resid ~ T_11 + T_12 + band.diff + ref_SST + (ref_SST - T_11) + (ref_SST - T_12) + x2 +
     abs(satz) + range11 + sd11 + range12 + sd12 + x3, 
-                           data = orig_train, 
-                           minsplit = 100,
+                           data = orig_train,
+                           minbucket = 100,
                            xval = 5)
 
 # Plot tree
 rpart.plot::prp(rpart_tree, uniform = TRUE, faclen = 0, varlen = 0, extra = 4,
   main = "rpart Classification Tree for Identifying Matchups' Residual Range")
 
+# Plot the tree as a partykit object
+plot(partykit::as.party(rpart_tree))
+
 # Evaluate the decision tree's accuracy on validation set
 rpart_tree_predictions <- predict(rpart_tree, data = orig_test, type = 'class', na.action = na.pass)
 
 # Draw confusion matrix for predictions on rpart tree
-rpart_tree_cm <- caret::confusionMatrix(data = rpart_tree_predictions, reference = orig_train$class_resid)
+rpart_tree_cm <- caret::confusionMatrix(data = rpart_tree_predictions, reference = orig_test$class_resid)
 rpart_tree_cm
 
 ```
 
+## ctree Decision Trees
 
-## Evolutionary Tree
+```{r ctree, echo=TRUE}
+ctree_tree <- partykit::ctree(formula = class_resid ~ T_11 + T_12 + band.diff + ref_SST + (ref_SST - T_11) + (ref_SST - T_12) + x2 +
+    abs(satz) + range11 + sd11 + range12 + sd12 + x3,
+                              data = orig_train,
+                              minbucket = 100,
+                              mincrit = .95)
+
+# Plot the tree
+plot(ctree_tree)
+
+# Evaluate the decision tree's accuracy on validation set
+ctree_tree_predictions <- predict(ctree_tree, data = orig_test, type = 'class', na.action = na.pass)
+
+# Draw confusion matrix for predictions on rpart tree
+ctree_tree_cm <- caret::confusionMatrix(data = ctree_tree_predictions, reference = orig_test$class_resid)
+ctree_tree_cm
+```
 
 
-```{r evtree_decision_tree, echo=TRUE}
+## Random Forest Decision Forests
+
+```{r random_forest, echo=TRUE}
+rand_for <- randomForest::randomForest(formula = class_resid ~ T_11 + T_12 + band.diff + ref_SST + (ref_SST - T_11) + (ref_SST - T_12) + x2 +
+    abs(satz) + range11 + sd11 + range12 + sd12 + x3,
+                                       data = orig_train,
+                                       ntree = 500, # how many trees should be in the firest we grow
+                                       nodesize = 100, # same as minbucket in rpart
+                                       mtry = 3) # how many variables the rf randomly picks at each branch to do splitting
+
+# Trying to visualize the tree...
+plot(rand_for)
+
+# Evaluate the decision tree's accuracy on validation set
+rand_for_predictions <- predict(rand_for, data = orig_test, type = 'class', na.action = na.pass)
+
+# Draw confusion matrix for predictions on evtree tree
+rand_for_cm <- caret::confusionMatrix(data = rand_for_predictions, reference = orig_test$class_resid)
+rand_for_cm
+```
+
+
+## Evolutionary Decision Trees
+
+```{r evtree_decision_tree_v1, echo=TRUE}
 
 # Further sampling for the evtree because it takes a long time...
 index_evtree <- sample(1:nrow(orig_train), 100, replace = FALSE)
@@ -187,14 +236,53 @@ plot(evtree_tree)
 evtree_tree_predictions <- predict(evtree_tree, data = orig_test, type = 'class', na.action = na.pass)
 
 # Draw confusion matrix for predictions on evtree tree
-evtree_tree_cm <- caret::confusionMatrix(data = evtree_tree_predictions, reference = orig_train$class_resid)
+evtree_tree_cm <- caret::confusionMatrix(data = evtree_tree_predictions, reference = orig_test$class_resid)
+evtree_tree_cm
+
+```
+
+Second iteration - further testing...
+```{r evtree_decision_tree_v2, echo=TRUE}
+
+# Further sampling for the evtree because it takes a long time...
+index_evtree <- sample(1:nrow(orig_train), 10000, replace = FALSE)
+orig_train_subset <- orig_train[index_evtree, ]
+
+# Train a stard evtree decision tree on above data
+evtree_tree <- evtree::evtree(formula = class_resid ~ T_11 + T_12 + band.diff + ref_SST + (ref_SST - T_11) + (ref_SST - T_12) + x2 +
+    abs(satz) + range11 + sd11 + range12 + sd12 + x3, 
+                           data = orig_train, 
+                           minbucket = 100)
+
+# Plot tree
+plot(evtree_tree)
+
+# Evaluate the decision tree's accuracy on validation set
+evtree_tree_predictions <- predict(evtree_tree, data = orig_test, type = 'class', na.action = na.pass)
+
+# Draw confusion matrix for predictions on evtree tree
+evtree_tree_cm <- caret::confusionMatrix(data = evtree_tree_predictions, reference = orig_test$class_resid)
 evtree_tree_cm
 
 ```
 
 
+# Testing...
 
+```{r testing_evtree, echo=TRUE}
+# Example straight from evtree vignette
+# Load data
+data('BBBClub', package = 'evtree')
+head(BBBClub)
+dim(BBBClub)
 
+# Now fit tree
+set.seed(1090)
+ev <- evtree(choice ~ ., data = BBBClub, minbucket = 10, maxdepth = 2)
+plot(ev)
+ev
+
+```
 
 
 
