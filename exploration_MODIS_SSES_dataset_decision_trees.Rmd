@@ -126,7 +126,10 @@ ranges.  First we prep the data into training and validation sets for the decisi
 orig$SST.resid.SMB <- orig$SST.resid.SMB + 0.17
 
 # Make classes
-class_resid <- cut(orig$SST.resid.SMB, breaks = c(min(orig$SST.resid.SMB), -.4, (max(orig$SST.resid.SMB + 0.0001))),
+class_resid <- cut(orig$SST.resid.SMB, breaks = c((min(orig$SST.resid.SMB)),
+                                                  -.4,
+                                                  .4,
+                                                  (max(orig$SST.resid.SMB + 0.01))),
                    labels = c('bad_low', 'good', 'bad_high'), include.lowest = TRUE)
 #class_resid <- ifelse(orig$SST.resid.SMB > .2, 'resid > .2', ifelse(orig$SST.resid.SMB < -.2, 'resid < -.2', '-.2 <= resid <= .2'))
 orig$class_resid <- as.factor(class_resid)
@@ -165,7 +168,7 @@ rpart.plot::prp(rpart_tree, uniform = TRUE, faclen = 0, varlen = 0, extra = 4,
 plot(partykit::as.party(rpart_tree))
 
 # Evaluate the decision tree's accuracy on validation set
-rpart_tree_predictions <- predict(rpart_tree, data = orig_test, type = 'class', na.action = na.pass)
+rpart_tree_predictions <- predict(object = rpart_tree, newdata = orig_test, type = 'class', na.action = na.pass)
 
 # Draw confusion matrix for predictions on rpart tree
 rpart_tree_cm <- caret::confusionMatrix(data = rpart_tree_predictions, reference = orig_test$class_resid)
@@ -186,7 +189,7 @@ ctree_tree <- partykit::ctree(formula = class_resid ~ T_11 + T_12 + band.diff + 
 plot(ctree_tree)
 
 # Evaluate the decision tree's accuracy on validation set
-ctree_tree_predictions <- predict(ctree_tree, data = orig_test, type = 'class', na.action = na.pass)
+ctree_tree_predictions <- predict(ctree_tree, newdata = orig_test, type = 'class', na.action = na.pass)
 
 # Draw confusion matrix for predictions on rpart tree
 ctree_tree_cm <- caret::confusionMatrix(data = ctree_tree_predictions, reference = orig_test$class_resid)
@@ -197,10 +200,12 @@ ctree_tree_cm
 ## Random Forest Decision Forests
 
 ```{r random_forest, echo=TRUE}
+orig_train$abs_satz <- abs(orig_train$satz)
+orig_test$abs_satz <- abs(orig_test$satz)
 rand_for <- randomForest::randomForest(formula = class_resid ~ T_11 + T_12 + band.diff + ref_SST + (ref_SST - T_11) + (ref_SST - T_12) + x2 +
-    abs(satz) + range11 + sd11 + range12 + sd12 + x3,
+    abs_satz + range11 + sd11 + range12 + sd12 + x3,
                                        data = orig_train,
-                                       ntree = 500, # how many trees should be in the firest we grow
+                                       ntree = 500, # how many trees should be in the forest we grow
                                        nodesize = 100, # same as minbucket in rpart
                                        mtry = 3) # how many variables the rf randomly picks at each branch to do splitting
 
@@ -208,7 +213,7 @@ rand_for <- randomForest::randomForest(formula = class_resid ~ T_11 + T_12 + ban
 plot(rand_for)
 
 # Evaluate the decision tree's accuracy on validation set
-rand_for_predictions <- predict(rand_for, data = orig_test, type = 'class', na.action = na.pass)
+rand_for_predictions <- predict(rand_for, newdata = orig_test, type = 'class', na.action = na.pass)
 
 # Draw confusion matrix for predictions on evtree tree
 rand_for_cm <- caret::confusionMatrix(data = rand_for_predictions, reference = orig_test$class_resid)
@@ -233,7 +238,7 @@ evtree_tree <- evtree::evtree(formula = class_resid ~ T_11 + sd11, #T_11 + band.
 plot(evtree_tree)
 
 # Evaluate the decision tree's accuracy on validation set
-evtree_tree_predictions <- predict(evtree_tree, data = orig_test, type = 'class', na.action = na.pass)
+evtree_tree_predictions <- predict(evtree_tree, newdata = orig_test, type = 'class', na.action = na.pass)
 
 # Draw confusion matrix for predictions on evtree tree
 evtree_tree_cm <- caret::confusionMatrix(data = evtree_tree_predictions, reference = orig_test$class_resid)
@@ -258,7 +263,7 @@ evtree_tree <- evtree::evtree(formula = class_resid ~ T_11 + T_12 + band.diff + 
 plot(evtree_tree)
 
 # Evaluate the decision tree's accuracy on validation set
-evtree_tree_predictions <- predict(evtree_tree, data = orig_test, type = 'class', na.action = na.pass)
+evtree_tree_predictions <- predict(evtree_tree, newdata = orig_test, type = 'class', na.action = na.pass)
 
 # Draw confusion matrix for predictions on evtree tree
 evtree_tree_cm <- caret::confusionMatrix(data = evtree_tree_predictions, reference = orig_test$class_resid)
