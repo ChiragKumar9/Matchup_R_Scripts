@@ -35,6 +35,35 @@ ggplot <- function(...) {ggplot2::ggplot(...) + theme_bw()}
 # Define secant function
 secant.deg <- function(x) {1 / (cos(circular::rad(x)))}
 
+# Define function to turn output of gettree from random forest into a dendrogram
+to.dendrogram <- function(dfrep,rownum=1,height.increment=0.1){
+
+  if(dfrep[rownum,'status'] == -1){
+    rval <- list()
+
+    attr(rval,"members") <- 1
+    attr(rval,"height") <- 0.0
+    attr(rval,"label") <- dfrep[rownum,'prediction']
+    attr(rval,"leaf") <- TRUE
+
+  }else{##note the change "to.dendrogram" and not "to.dendogram"
+    left <- to.dendrogram(dfrep,dfrep[rownum,'left daughter'],height.increment)
+    right <- to.dendrogram(dfrep,dfrep[rownum,'right daughter'],height.increment)
+    rval <- list(left,right)
+
+    attr(rval,"members") <- attr(left,"members") + attr(right,"members")
+    attr(rval,"height") <- max(attr(left,"height"),attr(right,"height")) + height.increment
+    attr(rval,"leaf") <- FALSE
+    attr(rval,"edgetext") <- dfrep[rownum,'split var']
+    #To add Split Point in Dendrogram
+    #attr(rval,"edgetext") <- paste(dfrep[rownum,'split var'],"\n<",round(dfrep[rownum,'split point'], digits = 2),"=>", sep = " ")
+  }
+
+  class(rval) <- "dendrogram"
+
+  return(rval)
+}
+
 # Source own functions
 # Define direwctory where functions are for each operating system
 
@@ -183,17 +212,41 @@ ctree_tree <- partykit::ctree(formula = class_resid ~ T_11 + T_12 + band.diff + 
     abs(satz) + range11 + sd11 + range12 + sd12 + x3,
                               data = orig_train,
                               minbucket = 100,
-                              mincrit = .95)
+                              mincrit = .95,
+                              maxdepth = 5)
 
 # Plot the tree
 plot(ctree_tree)
 
 # Evaluate the decision tree's accuracy on validation set
-ctree_tree_predictions <- predict(ctree_tree, newdata = orig_test, type = 'class', na.action = na.pass)
+ctree_tree_predictions <- predict(ctree_tree, newdata = orig_test, type = 'response', na.action = na.pass)
 
 # Draw confusion matrix for predictions on rpart tree
 ctree_tree_cm <- caret::confusionMatrix(data = ctree_tree_predictions, reference = orig_test$class_resid)
 ctree_tree_cm
+```
+
+
+## cforest Decision Forests
+```{r cforest, echo=TRUE}
+
+cforest_clf <- partykit::cforest(formula = class_resid ~ T_11 + T_12 + band.diff + ref_SST + (ref_SST - T_11) + (ref_SST - T_12) + x2 +
+    abs(satz) + range11 + sd11 + range12 + sd12 + x3,
+                              data = orig_train,
+                              minbucket = 100,
+                              control = ctree_control(mincriterion = .95),
+                              maxdepth = 5,
+                              ntree = 500)
+
+# Trying to visualize the forest...
+plot(cforest_clf)
+
+# Evaluate the decision tree's accuracy on validation set
+cforest_clf_predictions <- predict(ctree_tree, newdata = orig_test, type = 'response', na.action = na.pass)
+
+# Draw confusion matrix for predictions on rpart tree
+cforest_clf_cm <- caret::confusionMatrix(data = ctree_tree_predictions, reference = orig_test$class_resid)
+cforest_clf_cm
 ```
 
 
@@ -202,15 +255,27 @@ ctree_tree_cm
 ```{r random_forest, echo=TRUE}
 orig_train$abs_satz <- abs(orig_train$satz)
 orig_test$abs_satz <- abs(orig_test$satz)
+orig_test$ref_SST_minus_T_11 <- orig_test$ref_SST - orig_test$T_11
+orig_test$ref_SST_minus_T_12  <- orig_test$ref_SST - orig_test$T_12
 rand_for <- randomForest::randomForest(formula = class_resid ~ T_11 + T_12 + band.diff + ref_SST + (ref_SST - T_11) + (ref_SST - T_12) + x2 +
     abs_satz + range11 + sd11 + range12 + sd12 + x3,
                                        data = orig_train,
                                        ntree = 500, # how many trees should be in the forest we grow
-                                       nodesize = 100, # same as minbucket in rpart
+                                       nodesize = 500, # same as minbucket in rpart
                                        mtry = 3) # how many variables the rf randomly picks at each branch to do splitting
 
 # Trying to visualize the tree...
 plot(rand_for)
+randomForest::varImpPlot(rand_for)
+#randomForest::MDSplot(rand_for, orig_train$class_resid)
+#randomForest::partialPlot(rand_for, orig_train, x.var = 'band.diff')
+#randomForest::plot.randomForest(rand_for)
+
+# Plot a specific tree
+tree_example <- randomForest::getTree(rand_for, k = 1, labelVar = TRUE)
+tree_example_dendro <- to.dendrogram(tree_example)
+str(tree_example_dendro)
+plot(tree_example_dendro, center = TRUE, leaflab = 'none', edgePar = list(t.cex = 1, p.col = NA, p.lty = 0))
 
 # Evaluate the decision tree's accuracy on validation set
 rand_for_predictions <- predict(rand_for, newdata = orig_test, type = 'class', na.action = na.pass)
@@ -274,6 +339,7 @@ evtree_tree_cm
 
 # Testing...
 
+## Testing evtree
 ```{r testing_evtree, echo=TRUE}
 # Example straight from evtree vignette
 # Load data
@@ -289,7 +355,42 @@ ev
 
 ```
 
+## Testing cforest
+```{r testing_cforest, echo=TRUE}
+library (party)
 
+data ("GlaucomaMVF", package = "ipred")
+
+inputData <- GlaucomaMVF  # plugin your data here, with 'Class' as dependent variable
+
+set.seed (100)
+
+train <- sample(1:nrow(inputData), 0.7*nrow(inputData))  # random sample
+
+trainData <- inputData[train,]  # training data
+
+testData <- inputData[-train,]  # test data
+
+cTreeMod <- ctree (Class ~ ., data = trainData)  # fit cTree with 'Class' as dependent
+
+actuals <- testData$Class # actuals
+
+predicted <- predict(cTreeMod, newdata = testData) # predicted
+
+table(true = actuals, pred = predicted) # confusion matrix
+
+mean (testData$Class != predicted) # Misclassification Error %
+
+cForestMod <- cforest(Class ~ ., data = trainData)  # random Forest model
+
+actuals <- testData$Class # actuals
+
+predicted <- predict(cTreeMod, newdata = testData) # predicted
+
+table (true = actuals, pred = predict(cForestMod, newdata = testData))
+
+mean (testData$Class != predicted) # Misclassification Error %
+```
 
 
 
