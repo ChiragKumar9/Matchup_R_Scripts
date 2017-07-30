@@ -29,6 +29,8 @@ require(evtree)
 require(ctree)
 require(partykit)
 require(randomForest)
+require(RWeka)
+require(DMwR)
 
 ggplot <- function(...) {ggplot2::ggplot(...) + theme_bw()}
 
@@ -177,6 +179,20 @@ orig_test <- orig[-index, ]
 
 ```
 
+### Re-balance Classes
+```{r explore_class_inbalance, echo=TRUE}
+table(orig_train$class_resid)
+```
+
+Our classes are heavily inbalanced. This can negatively effect how our decision trees predict.
+We use a series of re-balancing techniques (under/over-sampling, ROSE, SMOTE) to re-balance our classes.
+
+```{r class_rebalance, echo=TRUE}
+orig_train <- DMwR::SMOTE(class_resid ~ ., orig_train, perc.over = 100, perc.under = 200)
+
+# Now check out the class inbalance
+table(orig_train$class_resid)
+```
 
 ## rpart Decision Trees
 
@@ -197,13 +213,21 @@ rpart.plot::prp(rpart_tree, uniform = TRUE, faclen = 0, varlen = 0, extra = 4,
 plot(partykit::as.party(rpart_tree))
 
 # Evaluate the decision tree's accuracy on validation set
-rpart_tree_predictions <- predict(object = rpart_tree, newdata = orig_test, type = 'class', na.action = na.pass)
+rpart_tree_predictions_test <- predict(object = rpart_tree, newdata = orig_test, type = 'class', na.action = na.pass)
 
 # Draw confusion matrix for predictions on rpart tree
-rpart_tree_cm <- caret::confusionMatrix(data = rpart_tree_predictions, reference = orig_test$class_resid)
-rpart_tree_cm
+rpart_tree_cm_test <- caret::confusionMatrix(data = rpart_tree_predictions_test, reference = orig_test$class_resid)
+rpart_tree_cm_test
 
+# For evaluation purposes, also analyze the accuracy and cm of the train set
+# Evaluate the decision tree's accuracy on validation set
+rpart_tree_predictions_train <- predict(object = rpart_tree, newdata = orig_train, type = 'class', na.action = na.pass)
+
+# Draw confusion matrix for predictions on rpart tree
+rpart_tree_cm_train <- caret::confusionMatrix(data = rpart_tree_predictions_train, reference = orig_train$class_resid)
+rpart_tree_cm_train
 ```
+
 
 ## ctree Decision Trees
 
@@ -219,11 +243,19 @@ ctree_tree <- partykit::ctree(formula = class_resid ~ T_11 + T_12 + band.diff + 
 plot(ctree_tree)
 
 # Evaluate the decision tree's accuracy on validation set
-ctree_tree_predictions <- predict(ctree_tree, newdata = orig_test, type = 'response', na.action = na.pass)
+ctree_tree_predictions_test <- predict(ctree_tree, newdata = orig_test, type = 'response', na.action = na.pass)
 
 # Draw confusion matrix for predictions on rpart tree
-ctree_tree_cm <- caret::confusionMatrix(data = ctree_tree_predictions, reference = orig_test$class_resid)
-ctree_tree_cm
+ctree_tree_cm_test <- caret::confusionMatrix(data = ctree_tree_predictions_test, reference = orig_test$class_resid)
+ctree_tree_cm_test
+
+# For evaluation purposes, also analyze the accuracy and cm of the train set
+# Evaluate the decision tree's accuracy on validation set
+ctree_tree_predictions_traom <- predict(ctree_tree, newdata = orig_train, type = 'response', na.action = na.pass)
+
+# Draw confusion matrix for predictions on rpart tree
+ctree_tree_cm_train <- caret::confusionMatrix(data = ctree_tree_predictions_train, reference = orig_train$class_resid)
+ctree_tree_cm_train
 ```
 
 
@@ -253,11 +285,19 @@ cforest_clf_cm
 ## Random Forest Decision Forests
 
 ```{r random_forest, echo=TRUE}
+# Make some more variables - for testing
+# abs(satz)
 orig_train$abs_satz <- abs(orig_train$satz)
 orig_test$abs_satz <- abs(orig_test$satz)
+# ref_SST - T_11
+orig_train$ref_SST_minus_T_11 <- orig_train$ref_SST - orig_train$T_11
 orig_test$ref_SST_minus_T_11 <- orig_test$ref_SST - orig_test$T_11
+# ref_SST - T_12
+orig_train$ref_SST_minus_T_12  <- orig_train$ref_SST - orig_train$T_12
 orig_test$ref_SST_minus_T_12  <- orig_test$ref_SST - orig_test$T_12
-rand_for <- randomForest::randomForest(formula = class_resid ~ T_11 + T_12 + band.diff + ref_SST + (ref_SST - T_11) + (ref_SST - T_12) + x2 +
+
+# Train random forest
+rand_for <- randomForest::randomForest(formula = class_resid ~ T_11 + T_12 + band.diff + ref_SST + ref_SST_minus_T_11 + ref_SST_minus_T_12 + x2 +
     abs_satz + range11 + sd11 + range12 + sd12 + x3,
                                        data = orig_train,
                                        ntree = 500, # how many trees should be in the forest we grow
@@ -278,11 +318,86 @@ str(tree_example_dendro)
 plot(tree_example_dendro, center = TRUE, leaflab = 'none', edgePar = list(t.cex = 1, p.col = NA, p.lty = 0))
 
 # Evaluate the decision tree's accuracy on validation set
-rand_for_predictions <- predict(rand_for, newdata = orig_test, type = 'class', na.action = na.pass)
+rand_for_predictions_test <- predict(rand_for, newdata = orig_test, type = 'class', na.action = na.pass)
 
 # Draw confusion matrix for predictions on evtree tree
-rand_for_cm <- caret::confusionMatrix(data = rand_for_predictions, reference = orig_test$class_resid)
-rand_for_cm
+rand_for_cm_test <- caret::confusionMatrix(data = rand_for_predictions_test, reference = orig_test$class_resid)
+rand_for_cm_test
+
+# For evaluation purposes, also analyze the accuracy and cm of the train set predictions
+# Evaluate the decision tree's accuracy on validation set
+rand_for_predictions_train <- predict(rand_for, newdata = orig_train, type = 'class', na.action = na.pass)
+
+# Draw confusion matrix for predictions on evtree tree
+rand_for_cm_train <- caret::confusionMatrix(data = rand_for_predictions_train, reference = orig_train$class_resid)
+rand_for_cm_train
+```
+
+
+## C4.5 Decision Trees
+
+```{r C4.5_decision_trees, echo=TRUE}
+
+# Train a stard C4.5 decision tree on above data
+# In the RWeka package, the C4.5 algorithm is called by the J48() command
+# TO DO: CHECK PARAMETER NAMES
+C4.5_tree <- RWeka::J48(formula = class_resid ~ T_11 + T_12 + band.diff + ref_SST + (ref_SST - T_11) + (ref_SST - T_12) + x2 +
+    abs(satz) + range11 + sd11 + range12 + sd12 + x3, 
+                           data = orig_train,
+                           minbucket = 100,
+                           xval = 5)
+
+# Plot tree
+# Plot the tree as a partykit object
+plot(partykit::as.party(C4.5_tree))
+
+# Evaluate the decision tree's accuracy on validation set
+C4.5_tree_predictions_test <- predict(object = C4.5_tree, newdata = orig_test, type = 'class', na.action = na.pass)
+
+# Draw confusion matrix for predictions on rpart tree
+C4.5_tree_cm_test <- caret::confusionMatrix(data = C4.5_tree_predictions_test, reference = orig_test$class_resid)
+C4.5_tree_cm_test
+
+# For evaluation purposes, also analyze the accuracy and cm of the train set
+# Evaluate the decision tree's accuracy on validation set
+C4.5_tree_predictions_train <- predict(object = C4.5_tree, newdata = orig_train, type = 'class', na.action = na.pass)
+
+# Draw confusion matrix for predictions on rpart tree
+C4.5_tree_cm_train <- caret::confusionMatrix(data = C4.5_tree_predictions_train, reference = orig_train$class_resid)
+C4.5_tree_cm_train
+```
+
+## PART Decision Trees
+
+```{r PART_decision_trees, echo=TRUE}
+
+# Train a stard PART decision tree on above data
+# In the RWeka package, the PART algorithm is called by the PART() command
+# TO DO: CHECK PARAMETER NAMES
+PART_tree <- RWeka::PART(formula = class_resid ~ T_11 + T_12 + band.diff + ref_SST + (ref_SST - T_11) + (ref_SST - T_12) + x2 +
+    abs(satz) + range11 + sd11 + range12 + sd12 + x3, 
+                           data = orig_train,
+                           minbucket = 100,
+                           xval = 5)
+
+# Plot tree
+# Plot the tree as a partykit object
+plot(partykit::as.party(PART_tree))
+
+# Evaluate the decision tree's accuracy on validation set
+PART_tree_predictions_test <- predict(object = PART_tree, newdata = orig_test, type = 'class', na.action = na.pass)
+
+# Draw confusion matrix for predictions on rpart tree
+PART_tree_cm_test <- caret::confusionMatrix(data = PART_tree_predictions_test, reference = orig_test$class_resid)
+PART_tree_cm_test
+
+# For evaluation purposes, also analyze the accuracy and cm of the train set
+# Evaluate the decision tree's accuracy on validation set
+PART_tree_predictions_train <- predict(object = PART_tree, newdata = orig_train, type = 'class', na.action = na.pass)
+
+# Draw confusion matrix for predictions on rpart tree
+PART_tree_cm_train <- caret::confusionMatrix(data = PART_tree_predictions_train, reference = orig_train$class_resid)
+PART_tree_cm_train
 ```
 
 
