@@ -163,14 +163,14 @@ class_resid <- cut(orig$SST.resid.SMB, breaks = c((min(orig$SST.resid.SMB)),
                                                   (max(orig$SST.resid.SMB + 0.01))),
                    labels = c('bad_low', 'good', 'bad_high'), include.lowest = TRUE)
 #class_resid <- ifelse(orig$SST.resid.SMB > .2, 'resid > .2', ifelse(orig$SST.resid.SMB < -.2, 'resid < -.2', '-.2 <= resid <= .2'))
-orig$class_resid <- as.factor(class_resid)
+#orig$class_resid <- as.factor(class_resid)
 table(orig$class_resid)
 
 orig %>% dplyr::group_by(class_resid) %>%
   dplyr::summarise(min = min(SST.resid.SMB), max = max(SST.resid.SMB))
 
 # Divide data into training and validation sets
-prop_train <- .6
+prop_train <- .05
 len_train <- floor(prop_train * nrow(orig))
 index <- sample(1:nrow(orig), len_train, replace = FALSE)
 
@@ -182,13 +182,28 @@ orig_test <- orig[-index, ]
 ### Re-balance Classes
 ```{r explore_class_inbalance, echo=TRUE}
 table(orig_train$class_resid)
+
+prop.table(table(orig_train$class_resid))
 ```
 
 Our classes are heavily inbalanced. This can negatively effect how our decision trees predict.
 We use a series of re-balancing techniques (under/over-sampling, ROSE, SMOTE) to re-balance our classes.
 
 ```{r class_rebalance, echo=TRUE}
-orig_train <- DMwR::SMOTE(class_resid ~ ., orig_train, perc.over = 100, perc.under = 200)
+# making orig_train only have two classes - we remove one class
+orig_train2 <- orig_train %>%
+  dplyr::filter(class_resid != 'bad_high') %>%
+  dplyr::select(-buoy.timedate)
+
+orig_train2$class_resid <- factor(orig_train2$class_resid, levels = c('bad_low', 'good'))
+
+# SMOTE
+
+orig_train3 <- DMwR::SMOTE(class_resid ~ ., as.data.frame(orig_train2), perc.over = 200, perc.under = 200)
+
+# ROSE
+
+orig_train3 <- ROSE::ROSE(class_resid ~ ., as.data.frame(orig_train2), seed = 42)$data
 
 # Now check out the class inbalance
 table(orig_train$class_resid)
@@ -251,7 +266,7 @@ ctree_tree_cm_test
 
 # For evaluation purposes, also analyze the accuracy and cm of the train set
 # Evaluate the decision tree's accuracy on validation set
-ctree_tree_predictions_traom <- predict(ctree_tree, newdata = orig_train, type = 'response', na.action = na.pass)
+ctree_tree_predictions_train <- predict(ctree_tree, newdata = orig_train, type = 'response', na.action = na.pass)
 
 # Draw confusion matrix for predictions on rpart tree
 ctree_tree_cm_train <- caret::confusionMatrix(data = ctree_tree_predictions_train, reference = orig_train$class_resid)
@@ -305,7 +320,7 @@ rand_for <- randomForest::randomForest(formula = class_resid ~ T_11 + T_12 + ban
                                        mtry = 3) # how many variables the rf randomly picks at each branch to do splitting
 
 # Trying to visualize the tree...
-plot(rand_for)
+#plot(rand_for)
 randomForest::varImpPlot(rand_for)
 #randomForest::MDSplot(rand_for, orig_train$class_resid)
 #randomForest::partialPlot(rand_for, orig_train, x.var = 'band.diff')
@@ -464,7 +479,7 @@ dim(BBBClub)
 
 # Now fit tree
 set.seed(1090)
-ev <- evtree(choice ~ ., data = BBBClub, minbucket = 10, maxdepth = 2)
+ev <- evtree::evtree(choice ~ ., data = BBBClub, minbucket = 10, maxdepth = 2)
 plot(ev)
 ev
 
