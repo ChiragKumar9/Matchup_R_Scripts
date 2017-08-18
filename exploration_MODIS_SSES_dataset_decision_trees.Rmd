@@ -138,7 +138,7 @@ orig <- dplyr::tbl_df(AQUA) %>%
     buoy.sst = buoy.sst,
     cell5deg = cell5deg,
     buoy.timedate = buoy.timedate,
-    SST.resid.SMB = cen.sst - buoy.sst) %>% # SMB = sat minus buoy - also don't debias SSTs i.e. turn buoy into skin
+    SST.resid.SMB = cen.sst - (buoy.sst - 0.17)) %>% # SMB = sat minus buoy - also debias buoy.sst by turning buoy.sst into a skin measurement
   dplyr::select(T_11, T_12, band.diff, ref_SST, x2, x3, satz, lon, lat, sd11, sd12, range11, range12, diff.med.min11, diff.med.min12,
     qsst, buoy.sst, cell5deg, buoy.timedate, SST.resid.SMB)
 
@@ -153,9 +153,6 @@ ranges.  First we prep the data into training and validation sets for the decisi
 
 ```{r prep_data_decision_trees, echo=TRUE}
 
-# Debias SST resid - i.e. account for skin to bulk conversion
-orig$SST.resid.SMB <- orig$SST.resid.SMB + 0.17
-
 # Make classes
 class_resid <- cut(orig$SST.resid.SMB, breaks = c((min(orig$SST.resid.SMB)),
                                                   -.4,
@@ -163,7 +160,7 @@ class_resid <- cut(orig$SST.resid.SMB, breaks = c((min(orig$SST.resid.SMB)),
                                                   (max(orig$SST.resid.SMB + 0.01))),
                    labels = c('bad_low', 'good', 'bad_high'), include.lowest = TRUE)
 #class_resid <- ifelse(orig$SST.resid.SMB > .2, 'resid > .2', ifelse(orig$SST.resid.SMB < -.2, 'resid < -.2', '-.2 <= resid <= .2'))
-#orig$class_resid <- as.factor(class_resid)
+orig$class_resid <- as.factor(class_resid)
 table(orig$class_resid)
 
 orig %>% dplyr::group_by(class_resid) %>%
@@ -199,15 +196,230 @@ orig_train2$class_resid <- factor(orig_train2$class_resid, levels = c('bad_low',
 
 # SMOTE
 
-orig_train3 <- DMwR::SMOTE(class_resid ~ ., as.data.frame(orig_train2), perc.over = 200, perc.under = 200)
+orig_train_smote <- DMwR::SMOTE(class_resid ~ ., as.data.frame(orig_train2), perc.over = 100, perc.under = 200)
 
 # ROSE
 
-orig_train3 <- ROSE::ROSE(class_resid ~ ., as.data.frame(orig_train2), seed = 42)$data
+orig_train_rose <- ROSE::ROSE(class_resid ~ ., as.data.frame(orig_train2), seed = 42)$data
 
 # Now check out the class inbalance
 table(orig_train$class_resid)
 ```
+
+
+```{r rpart_binary_class_testing_rebalancing, echo=TRUE}
+
+orig_train_smote$ref_SST_minus_T_11 <- orig_train_smote$ref_SST - orig_train_smote$T_11
+orig_train_smote$ref_SST_minus_T_12 <- orig_train_smote$ref_SST - orig_train_smote$T_12
+
+balanced_tree <- rpart::rpart(formula = class_resid ~ T_11 + T_12 + band.diff + ref_SST + ref_SST_minus_T_11 + ref_SST_minus_T_12 + x2 +
+    abs(satz) + range11 + sd11 + range12 + sd12 + x3, 
+                           data = orig_train_smote,
+                           minbucket = 100,
+                           xval = 5)
+
+plot(as.party(balanced_tree))
+
+orig_train2$ref_SST_minus_T_11 <- orig_train2$ref_SST - orig_train2$T_11
+orig_train2$ref_SST_minus_T_12 <- orig_train2$ref_SST - orig_train2$T_12
+
+unbalanced_tree <- rpart::rpart(formula = class_resid ~ T_11 + T_12 + band.diff + ref_SST + ref_SST_minus_T_11 + ref_SST_minus_T_12 + x2 +
+    abs(satz) + range11 + sd11 + range12 + sd12 + x3, 
+                           data = orig_train2,
+                           minbucket = 100,
+                           xval = 5)
+
+plot(as.party(unbalanced_tree))
+```
+
+
+
+
+
+
+```{r class_rebalance_and_three_way_rpart, echo=TRUE}
+orig_train$abs_satz <- abs(orig_train$satz)
+orig_train$ref_SST_diff_T_11 <- orig_train$ref_SST - orig_train$T_11
+orig_train$ref_SST_diff_T_12 <- orig_train$ref_SST - orig_train$T_12
+
+orig_test$abs_satz <- abs(orig_test$satz)
+orig_test$ref_SST_diff_T_11 <- orig_test$ref_SST - orig_test$T_11
+orig_test$ref_SST_diff_T_12 <- orig_test$ref_SST - orig_test$T_12
+
+
+orig_train$class_resid_good <- as.factor(ifelse(orig_train$class_resid == 'good', 'good', 'not good'))
+orig_train$class_resid_bad_low <- as.factor(ifelse(orig_train$class_resid == 'bad_low', 'bad_low', 'not_bad_low'))
+orig_train$class_resid_bad_high <- as.factor(ifelse(orig_train$class_resid == 'bad_high', 'bad_high', 'not_bad_high'))
+
+orig_test$class_resid_good <- as.factor(ifelse(orig_test$class_resid == 'good', 'good', 'not good'))
+orig_test$class_resid_bad_low <- as.factor(ifelse(orig_test$class_resid == 'bad_low', 'bad_low', 'not_bad_low'))
+orig_test$class_resid_bad_high <- as.factor(ifelse(orig_test$class_resid == 'bad_high', 'bad_high', 'not_bad_high'))
+
+orig_train <- orig_train %>%
+  dplyr::select(-buoy.timedate)
+
+orig_train_good <- DMwR::SMOTE(class_resid_good ~., as.data.frame(orig_train), perc.over = 100, perc.under = 200)
+orig_train_bad_low <- DMwR::SMOTE(class_resid_bad_low ~., as.data.frame(orig_train), perc.over = 100, perc.under = 200)
+orig_train_bad_high <- DMwR::SMOTE(class_resid_bad_high ~., as.data.frame(orig_train), perc.over = 100, perc.under = 200)
+
+table(orig_train_good$class_resid_good)
+table(orig_train_bad_low$class_resid_bad_low)
+table(orig_train_bad_high$class_resid_bad_high)
+
+
+good_tree <- rpart::rpart(formula = class_resid_good ~ T_11 + T_12 + band.diff + ref_SST + ref_SST_diff_T_11 + ref_SST_diff_T_12 + x2 +
+    abs_satz + range11 + sd11 + range12 + sd12 + x3, 
+                           data = orig_train_good,
+                           minbucket = 100,
+                           xval = 5)
+
+bad_low_tree <- rpart::rpart(formula = class_resid_bad_low ~ T_11 + T_12 + band.diff + ref_SST + ref_SST_diff_T_11 + ref_SST_diff_T_12 + 
+    x2 + abs_satz + range11 + sd11 + range12 + sd12 + x3, 
+                           data = orig_train_bad_low,
+                           minbucket = 100,
+                           xval = 5)
+
+bad_high_tree <- rpart::rpart(formula = class_resid_bad_high ~ T_11 + T_12 + band.diff + ref_SST + ref_SST_diff_T_11 + ref_SST_diff_T_12 + 
+    x2 + abs_satz + range11 + sd11 + range12 + sd12 + x3, 
+                           data = orig_train_bad_high,
+                           minbucket = 100,
+                           xval = 5)
+
+good_predictions_test <- as.data.frame(stats::predict(good_tree, orig_test, type = 'class', na.action = na.pass))[ , 1]
+bad_low_predictions_test <- as.data.frame(stats::predict(bad_low_tree, orig_test, type = 'class', na.action = na.pass))[ , 1]
+bad_high_predictions_test <- as.data.frame(stats::predict(bad_high_tree, orig_test, type = 'class', na.action = na.pass))[ , 1]
+
+#prediction_final_test <- as.factor(ifelse(good_predictions_test > bad_low_predictions_test & good_predictions_test > bad_high_predictions_test, 'good', ifelse(bad_low_predictions_test > good_predictions_test & bad_low_predictions_test > good_predictions_test, 'bad_low', 'bad_high')))
+
+#prediction_final_test <- factor(prediction_final_test, levels = levels(orig_test$class_resid))
+
+#prediction_final_cm <- caret::confusionMatrix(data = prediction_final_test, reference = orig_test$class_resid)
+
+good_predictions_cm <- caret::confusionMatrix(data = good_predictions_test, reference = orig_test$class_resid_good)
+bad_low_predictions_cm <- caret::confusionMatrix(data = bad_low_predictions_test, reference = orig_test$class_resid_bad_low)
+bad_high_predictions_cm <- caret::confusionMatrix(data = bad_high_predictions_test, reference = orig_test$class_resid_bad_high)
+```
+
+
+```{r two_tree_classifier, echo=TRUE}
+orig_train$abs_satz <- abs(orig_train$satz)
+orig_train$ref_SST_diff_T_11 <- orig_train$ref_SST - orig_train$T_11
+orig_train$ref_SST_diff_T_12 <- orig_train$ref_SST - orig_train$T_12
+
+orig_test$abs_satz <- abs(orig_test$satz)
+orig_test$ref_SST_diff_T_11 <- orig_test$ref_SST - orig_test$T_11
+orig_test$ref_SST_diff_T_12 <- orig_test$ref_SST - orig_test$T_12
+
+orig_train$class_resid_good <- as.factor(ifelse(orig_train$class_resid == 'good', 'good', 'not good'))
+orig_test$class_resid_good <- as.factor(ifelse(orig_test$class_resid == 'good', 'good', 'not good'))
+
+orig_train$class_resid_bad <- orig_train$class_resid
+orig_train <- orig_train %>%
+  dplyr::select(-buoy.timedate)
+
+orig_train_bad <- orig_train %>%
+  dplyr::filter(class_resid_bad != 'good')
+
+orig_train_bad$class_resid_bad <- factor(orig_train_bad$class_resid_bad, levels = c('bad_low', 'bad_high'))
+
+# Apply SMOTE rebalancing
+orig_train <- DMwR::SMOTE(class_resid_good ~., as.data.frame(orig_train), perc.over = 100, perc.under = 200)
+orig_train_bad <- DMwR::SMOTE(class_resid_bad ~., as.data.frame(orig_train_bad), perc.over = 100, perc.under = 200)
+
+good_tree <- rpart::rpart(formula = class_resid_good ~ T_11 + T_12 + band.diff + ref_SST + ref_SST_diff_T_11 +
+    ref_SST_diff_T_12 + x2 + abs_satz + range11 + sd11 + range12 + sd12 + x3, 
+                           data = orig_train,
+                           minbucket = 100,
+                           xval = 5)
+
+bad_tree <- rpart::rpart(formula = class_resid_bad ~ T_11 + T_12 + band.diff + ref_SST + ref_SST_diff_T_11 +
+    ref_SST_diff_T_12 + x2 + abs_satz + range11 + sd11 + range12 + sd12 + x3, 
+                           data = orig_train_bad,
+                           minbucket = 100,
+                           xval = 5)
+
+good_predictions_test <- stats::predict(good_tree, newdata = orig_test, type = 'class', na.action = na.pass)
+
+bad_predictions_test <- stats::predict(bad_tree, newdata = orig_test, type = 'class', na.action = na.pass)
+
+final_predictions_test <- as.factor(ifelse(good_predictions_test == 'good', 'good', ifelse(bad_predictions_test == 'bad_low', 'bad_low', 'bad_high')))
+
+final_cm <- caret::confusionMatrix(data = final_predictions_test, reference = orig_test$class_resid)
+```
+
+```{r individual_class_trees, echo=TRUE}
+orig_train$abs_satz <- abs(orig_train$satz)
+orig_train$ref_SST_diff_T_11 <- orig_train$ref_SST - orig_train$T_11
+orig_train$ref_SST_diff_T_12 <- orig_train$ref_SST - orig_train$T_12
+
+orig_test$abs_satz <- abs(orig_test$satz)
+orig_test$ref_SST_diff_T_11 <- orig_test$ref_SST - orig_test$T_11
+orig_test$ref_SST_diff_T_12 <- orig_test$ref_SST - orig_test$T_12
+
+orig_train <- orig_train %>%
+  dplyr::select(-buoy.timedate)
+
+orig_train_good_bad_low <- orig_train %>%
+  dplyr::filter(class_resid != 'bad_high')
+
+orig_train_good_bad_low$class_resid <- factor(orig_train_good_bad_low$class_resid, levels = c('good', 'bad_low'))
+
+orig_test_good_bad_low <- orig_test %>%
+  dplyr::filter(class_resid != 'bad_high')
+
+orig_test_good_bad_low$class_resid <- factor(orig_test_good_bad_low$class_resid, levels = c('good', 'bad_low'))
+
+# class rebalancing
+
+orig_train_good_bad_low <- DMwR::SMOTE(class_resid ~., as.data.frame(orig_train_good_bad_low), perc.over = 100, perc.under = 200)
+
+
+good_bad_low_rpart <- rpart::rpart(formula = class_resid ~ T_11 + T_12 + band.diff + ref_SST + ref_SST_diff_T_11 +
+    ref_SST_diff_T_12 + x2 + abs_satz + range11 + sd11 + range12 + sd12 + x3, 
+                           data = orig_train_good_bad_low,
+                           minbucket = 100,
+                           xval = 5)
+
+good_bad_low_rpart_predictions <- stats::predict(good_bad_low_rpart, newdata = orig_test_good_bad_low, na.action = na.pass,
+  type = 'class')
+
+good_bad_low_rpart_cm <- caret::confusionMatrix(data = good_bad_low_rpart_predictions, reference = orig_test_good_bad_low$class_resid)
+
+
+
+
+good_bad_low_ctree <- partykit::ctree(formula = class_resid ~ T_11 + T_12 + band.diff + ref_SST + ref_SST_diff_T_11 +
+    ref_SST_diff_T_12 + x2 + abs_satz + range11 + sd11 + range12 + sd12 + x3, 
+                           data = orig_train_good_bad_low,
+                           minbucket = 100,
+                           maxdepth = 5,
+                           mincrit = 0.95)
+
+good_bad_low_ctree_predictions <- stats::predict(good_bad_low_ctree, newdata = orig_test_good_bad_low, na.action = na.pass,
+  type = 'response')
+
+good_bad_low_ctree_cm <- caret::confusionMatrix(data = good_bad_low_ctree_predictions, reference = orig_test_good_bad_low$class_resid)
+
+
+
+
+
+good_bad_low_rf <- randomForest::randomForest(formula = class_resid ~ T_11 + T_12 + band.diff + ref_SST + ref_SST_diff_T_11 +
+    ref_SST_diff_T_12 + x2 + abs_satz + range11 + sd11 + range12 + sd12 + x3, 
+                           data = orig_train_good_bad_low,
+                           nodesize = 100,
+                           ntree = 1000,
+                           mtry = 3)
+
+randomForest::varImpPlot(good_bad_low_rf)
+
+good_bad_low_rf_predictions <- stats::predict(good_bad_low_rf, newdata = orig_test_good_bad_low, na.action = na.pass,
+  type = 'class')
+
+good_bad_low_rf_cm <- caret::confusionMatrix(data = good_bad_low_rf_predictions, reference = orig_test_good_bad_low$class_resid)
+
+```
+
 
 ## rpart Decision Trees
 
