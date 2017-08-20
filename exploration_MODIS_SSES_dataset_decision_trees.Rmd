@@ -186,6 +186,11 @@ prop.table(table(orig_train$class_resid))
 Our classes are heavily inbalanced. This can negatively effect how our decision trees predict.
 We use a series of re-balancing techniques (under/over-sampling, ROSE, SMOTE) to re-balance our classes.
 
+However, these techniques only work on binary classification problems. They can only rebalance classes when only
+two classes are presennt. We have a three class problem (residual < -.4, -.4 <= residual <= .4, or residual > .4)
+so at this step we also simplify to just a two class problem. We now only build models that classify a retrieval into
+either having a residual of < -.4 or -.4 <= residual <= .4. We do not analyze retrievals with a residual > .4.
+
 ```{r class_rebalance, echo=TRUE}
 # making orig_train only have two classes - we remove one class
 orig_train2 <- orig_train %>%
@@ -193,6 +198,13 @@ orig_train2 <- orig_train %>%
   dplyr::select(-buoy.timedate)
 
 orig_train2$class_resid <- factor(orig_train2$class_resid, levels = c('bad_low', 'good'))
+
+# Do the same for orig_test
+orig_test2 <- orig_test %>%
+  dplyr::filter(class_resid != 'bad_high') %>%
+  dplyr::select(-buoy.timedate)
+
+orig_test2$class_resid <- factor(orig_test2$class_resid, levels = c('bad_low', 'good'))
 
 # SMOTE
 
@@ -206,36 +218,252 @@ orig_train_rose <- ROSE::ROSE(class_resid ~ ., as.data.frame(orig_train2), seed 
 table(orig_train$class_resid)
 ```
 
+## RPART Decision Trees
+We use Recursive Partioning Decision Trees (from the rpart package, implemented as the rpart() function)
+to classify retrievals into the bad_low or good class. We first build a model that uses the non-SMOTE'd
+dataset and compare it to a model that used the SMOTE'd dataset.
 
-```{r rpart_binary_class_testing_rebalancing, echo=TRUE}
+```{r initialize_data, echo=TRUE}
+
+# Initialize data for the model
+orig_train2$ref_SST_minus_T_11 <- orig_train2$ref_SST - orig_train2$T_11
+orig_train2$ref_SST_minus_T_12 <- orig_train2$ref_SST - orig_train2$T_12
 
 orig_train_smote$ref_SST_minus_T_11 <- orig_train_smote$ref_SST - orig_train_smote$T_11
 orig_train_smote$ref_SST_minus_T_12 <- orig_train_smote$ref_SST - orig_train_smote$T_12
 
-balanced_tree <- rpart::rpart(formula = class_resid ~ T_11 + T_12 + band.diff + ref_SST + ref_SST_minus_T_11 + ref_SST_minus_T_12 + x2 +
-    abs(satz) + range11 + sd11 + range12 + sd12 + x3, 
-                           data = orig_train_smote,
-                           minbucket = 100,
-                           xval = 5)
+orig_test2$ref_SST_minus_T_11 <- orig_test2$ref_SST - orig_test2$T_11
+orig_test2$ref_SST_minus_T_12 <- orig_test2$ref_SST - orig_test2$T_12
+```
 
-plot(as.party(balanced_tree))
+```{r rpart_binary_classification_no_smote, echo=TRUE}
 
-orig_train2$ref_SST_minus_T_11 <- orig_train2$ref_SST - orig_train2$T_11
-orig_train2$ref_SST_minus_T_12 <- orig_train2$ref_SST - orig_train2$T_12
-
-unbalanced_tree <- rpart::rpart(formula = class_resid ~ T_11 + T_12 + band.diff + ref_SST + ref_SST_minus_T_11 + ref_SST_minus_T_12 + x2 +
+# Build model from unbalanced data
+binary_unbalanced_rpart <- rpart::rpart(formula = class_resid ~ T_11 + T_12 + band.diff + ref_SST + ref_SST_minus_T_11 + ref_SST_minus_T_12 + x2 +
     abs(satz) + range11 + sd11 + range12 + sd12 + x3, 
                            data = orig_train2,
                            minbucket = 100,
                            xval = 5)
 
-plot(as.party(unbalanced_tree))
+# Plot the tree
+plot(as.party(binary_unbalanced_rpart))
+
+# Create a set of predictions from the model on the test set
+binary_unbalanced_rpart_predictions <- stats::predict(object = binary_unbalanced_rpart, newdata = orig_test2, type = 'class', na.action = na.pass)
+# Evaluate the confusion matrix for the test set
+binary_unbalanced_rpart_cm <- caret::confusionMatrix(data = binary_unbalanced_rpart_predictions, reference = orig_test2$class_resid)
+
+binary_unbalanced_rpart_cm
+```
+
+Now we build a model that uses the SMOTE'd dataset
+```{r rpart_binary_classification_smote, echo=TRUE}
+
+# Build model from balanced data
+binary_balanced_rpart <- rpart::rpart(formula = class_resid ~ T_11 + T_12 + band.diff + ref_SST + ref_SST_minus_T_11 + ref_SST_minus_T_12 + x2 +
+    abs(satz) + range11 + sd11 + range12 + sd12 + x3, 
+                           data = orig_train_smote,
+                           minbucket = 100,
+                           xval = 5)
+
+# Plot the tree
+plot(as.party(binary_balanced_rpart))
+
+# Create a set of predictions from the model on the test set
+binary_balanced_rpart_predictions <- stats::predict(object = binary_balanced_rpart, newdata = orig_test2, type = 'class', na.action = na.pass)
+# Evaluate the confusion matrix for the test set
+binary_balanced_rpart_cm <- caret::confusionMatrix(data = binary_balanced_rpart_predictions, reference = orig_test2$class_resid)
+
+binary_balanced_rpart_cm
+```
+
+## CTree Decision Trees
+We now use Conditional Inference Trees (from the partykit package, implemented as the ctree() function) to
+build the same model as above.
+
+We first do the analysis by applying a pruning parameter - we manually set maxdepth to 5.
+```{r ctree_binary_classification_no_smote, echo=TRUE}
+
+# Build model from unbalanced data
+binary_unbalanced_ctree <- partykit::ctree(formula = class_resid ~ T_11 + T_12 + band.diff + ref_SST + ref_SST_minus_T_11 + ref_SST_minus_T_12 + x2 +
+    abs(satz) + range11 + sd11 + range12 + sd12 + x3, 
+                           data = orig_train2,
+                           minbucket = 100,
+                           mincrit = 0.95,
+                           maxdepth = 5)
+
+# Plot the tree
+plot(as.party(binary_unbalanced_ctree))
+
+# Create a set of predictions from the model on the test set
+binary_unbalanced_ctree_predictions <- stats::predict(object = binary_unbalanced_ctree, newdata = orig_test2, type = 'response', na.action = na.pass)
+# Evaluate the confusion matrix for the test set
+binary_unbalanced_ctree_cm <- caret::confusionMatrix(data = binary_unbalanced_ctree_predictions, reference = orig_test2$class_resid)
+
+binary_unbalanced_ctree_cm
+```
+
+Now we build a model that uses the SMOTE'd dataset
+```{r ctree_binary_classification_smote, echo=TRUE}
+
+# Build model from balanced data
+binary_balanced_ctree <- partykit::ctree(formula = class_resid ~ T_11 + T_12 + band.diff + ref_SST + ref_SST_minus_T_11 + ref_SST_minus_T_12 + x2 +
+    abs(satz) + range11 + sd11 + range12 + sd12 + x3, 
+                           data = orig_train_smote,
+                           minbucket = 100,
+                           mincrit = 0.95,
+                           maxdepth = 5)
+
+# Plot the tree
+plot(as.party(binary_balanced_ctree))
+
+# Create a set of predictions from the model on the test set
+binary_balanced_ctree_predictions <- stats::predict(object = binary_balanced_ctree, newdata = orig_test2, type = 'response', na.action = na.pass)
+# Evaluate the confusion matrix for the test set
+binary_balanced_ctree_cm <- caret::confusionMatrix(data = binary_balanced_ctree_predictions, reference = orig_test2$class_resid)
+
+binary_balanced_ctree_cm
+```
+
+
+Now we remove our pruning constraints and allow the tree to prune itself.
+```{r ctree_binary_classification_no_smote_no_pruning, echo=TRUE}
+
+# Build model from unbalanced data
+binary_unbalanced_ctree <- partykit::ctree(formula = class_resid ~ T_11 + T_12 + band.diff + ref_SST + ref_SST_minus_T_11 + ref_SST_minus_T_12 + x2 +
+    abs(satz) + range11 + sd11 + range12 + sd12 + x3, 
+                           data = orig_train2,
+                           minbucket = 100,
+                           mincrit = 0.95)
+
+# Plot the tree
+plot(as.party(binary_unbalanced_ctree))
+
+# Create a set of predictions from the model on the test set
+binary_unbalanced_ctree_predictions <- stats::predict(object = binary_unbalanced_ctree, newdata = orig_test2, type = 'response', na.action = na.pass)
+# Evaluate the confusion matrix for the test set
+binary_unbalanced_ctree_cm <- caret::confusionMatrix(data = binary_unbalanced_ctree_predictions, reference = orig_test2$class_resid)
+
+binary_unbalanced_ctree_cm
+```
+
+Now we build a model that uses the SMOTE'd dataset
+```{r ctree_binary_classification_smote_no_pruning, echo=TRUE}
+
+# Build model from balanced data
+binary_balanced_ctree <- partykit::ctree(formula = class_resid ~ T_11 + T_12 + band.diff + ref_SST + ref_SST_minus_T_11 + ref_SST_minus_T_12 + x2 +
+    abs(satz) + range11 + sd11 + range12 + sd12 + x3, 
+                           data = orig_train_smote,
+                           minbucket = 100,
+                           mincrit = 0.95)
+
+# Plot the tree
+plot(as.party(binary_balanced_ctree))
+
+# Create a set of predictions from the model on the test set
+binary_balanced_ctree_predictions <- stats::predict(object = binary_balanced_ctree, newdata = orig_test2, type = 'response', na.action = na.pass)
+# Evaluate the confusion matrix for the test set
+binary_balanced_ctree_cm <- caret::confusionMatrix(data = binary_balanced_ctree_predictions, reference = orig_test2$class_resid)
+
+binary_balanced_ctree_cm
+```
+
+## Random Forest Decision Forests
+We now do the same analysis but use the Random Forests as our model (from the randomForest package, implemented as
+the randomForest() function).
+
+```{r random_forest_binary_classification_no_smote, echo=TRUE}
+# The rf needs all variables to be pre-defined
+# We need to define an abs_satz variable which is equal to abs(satz)
+# ^We can't do that in the formula
+orig_train2$abs_satz <- abs(orig_train2$satz)
+
+orig_test2$abs_satz <- abs(orig_test2$satz)
+
+# Train random forest
+binary_unbalanced_rand_for <- randomForest::randomForest(formula = class_resid ~ T_11 + T_12 + band.diff + ref_SST + ref_SST_minus_T_11 + 
+  ref_SST_minus_T_12 + x2 + abs_satz + range11 + sd11 + range12 + sd12 + x3,
+                                       data = orig_train2,
+                                       ntree = 750, # how many trees should be in the forest we grow
+                                       nodesize = 100, # same as minbucket in rpart
+                                       mtry = 3) # how many variables the rf randomly picks at each branch to do splitting
+
+# Trying to visualize the tree...
+#plot(rand_for)
+randomForest::varImpPlot(binary_unbalanced_rand_for)
+#randomForest::MDSplot(rand_for, orig_train$class_resid)
+#randomForest::partialPlot(rand_for, orig_train, x.var = 'band.diff')
+#randomForest::plot.randomForest(rand_for)
+
+# Plot a specific tree
+tree_example <- randomForest::getTree(binary_unbalanced_rand_for, k = 1, labelVar = TRUE)
+tree_example_dendro <- to.dendrogram(tree_example)
+str(tree_example_dendro)
+plot(tree_example_dendro, center = TRUE, leaflab = 'none', edgePar = list(t.cex = 1, p.col = NA, p.lty = 0))
+
+# Evaluate the random forests's accuracy on validation set
+binary_unbalanced_rand_for_predictions <- predict(binary_unbalanced_rand_for, newdata = orig_test2, type = 'class', na.action = na.pass)
+
+# Create confusion matrix for predictions on random forest
+binary_unbalanced_rand_for_cm <- caret::confusionMatrix(data = binary_unbalanced_rand_for_predictions, reference = orig_test2$class_resid)
+binary_unbalanced_rand_for_cm
+
+```
+
+Now use the SMOTE'd data
+```{r random_forest_binary_classification_smote, echo=TRUE}
+
+# Same create additional variables step as above
+orig_train_smote$abs_satz <- abs(orig_train_smote$satz)
+
+# Train random forest
+binary_balanced_rand_for <- randomForest::randomForest(formula = class_resid ~ T_11 + T_12 + band.diff + ref_SST + ref_SST_minus_T_11 + 
+  ref_SST_minus_T_12 + x2 + abs_satz + range11 + sd11 + range12 + sd12 + x3,
+                                       data = orig_train_smote,
+                                       ntree = 750, # how many trees should be in the forest we grow
+                                       nodesize = 100, # same as minbucket in rpart
+                                       mtry = 3) # how many variables the rf randomly picks at each branch to do splitting
+
+# Trying to visualize the tree...
+#plot(rand_for)
+randomForest::varImpPlot(binary_balanced_rand_for)
+#randomForest::MDSplot(rand_for, orig_train$class_resid)
+#randomForest::partialPlot(rand_for, orig_train, x.var = 'band.diff')
+#randomForest::plot.randomForest(rand_for)
+
+# Plot a specific tree
+tree_example <- randomForest::getTree(binary_balanced_rand_for, k = 1, labelVar = TRUE)
+tree_example_dendro <- to.dendrogram(tree_example)
+str(tree_example_dendro)
+plot(tree_example_dendro, center = TRUE, leaflab = 'none', edgePar = list(t.cex = 1, p.col = NA, p.lty = 0))
+
+# Evaluate the random forests's accuracy on validation set
+binary_balanced_rand_for_predictions <- predict(binary_balanced_rand_for, newdata = orig_test2, type = 'class', na.action = na.pass)
+
+# Create confusion matrix for predictions on random forest
+binary_balanced_rand_for_cm <- caret::confusionMatrix(data = binary_balanced_rand_for_predictions, reference = orig_test2$class_resid)
+binary_balanced_rand_for_cm
 ```
 
 
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# TESTING
 
 ```{r class_rebalance_and_three_way_rpart, echo=TRUE}
 orig_train$abs_satz <- abs(orig_train$satz)
@@ -679,9 +907,9 @@ evtree_tree_cm
 ```
 
 
-# Testing...
+## Eve More Testing...
 
-## Testing evtree
+### Testing evtree
 ```{r testing_evtree, echo=TRUE}
 # Example straight from evtree vignette
 # Load data
@@ -697,7 +925,7 @@ ev
 
 ```
 
-## Testing cforest
+### Testing cforest
 ```{r testing_cforest, echo=TRUE}
 library (party)
 
