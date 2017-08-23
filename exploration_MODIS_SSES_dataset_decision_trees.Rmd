@@ -167,7 +167,7 @@ orig %>% dplyr::group_by(class_resid) %>%
   dplyr::summarise(min = min(SST.resid.SMB), max = max(SST.resid.SMB))
 
 # Divide data into training and validation sets
-prop_train <- .05
+prop_train <- .6
 len_train <- floor(prop_train * nrow(orig))
 index <- sample(1:nrow(orig), len_train, replace = FALSE)
 
@@ -212,10 +212,12 @@ orig_train_smote <- DMwR::SMOTE(class_resid ~ ., as.data.frame(orig_train2), per
 
 # ROSE
 
-orig_train_rose <- ROSE::ROSE(class_resid ~ ., as.data.frame(orig_train2), seed = 42)$data
+#orig_train_rose <- ROSE::ROSE(class_resid ~ ., as.data.frame(orig_train2), seed = 42)$data
 
 # Now check out the class inbalance
 table(orig_train$class_resid)
+
+table(orig_train_smote$class_resid)
 ```
 
 ## RPART Decision Trees
@@ -260,8 +262,8 @@ Now we build a model that uses the SMOTE'd dataset
 ```{r rpart_binary_classification_smote, echo=TRUE}
 
 # Build model from balanced data
-binary_balanced_rpart <- rpart::rpart(formula = class_resid ~ T_11 + T_12 + band.diff + ref_SST + ref_SST_minus_T_11 + ref_SST_minus_T_12 + x2 +
-    abs(satz) + range11 + sd11 + range12 + sd12 + x3, 
+binary_balanced_rpart <- rpart::rpart(formula = class_resid ~ T_11 + T_12 + band.diff + ref_SST + ref_SST_minus_T_11 + 
+    ref_SST_minus_T_12 + x2 + abs(satz) + range11 + sd11 + range12 + sd12 + x3, 
                            data = orig_train_smote,
                            minbucket = 100,
                            xval = 5)
@@ -293,7 +295,7 @@ binary_unbalanced_ctree <- partykit::ctree(formula = class_resid ~ T_11 + T_12 +
                            maxdepth = 5)
 
 # Plot the tree
-plot(as.party(binary_unbalanced_ctree))
+plot(binary_unbalanced_ctree)
 
 # Create a set of predictions from the model on the test set
 binary_unbalanced_ctree_predictions <- stats::predict(object = binary_unbalanced_ctree, newdata = orig_test2, type = 'response', na.action = na.pass)
@@ -315,7 +317,7 @@ binary_balanced_ctree <- partykit::ctree(formula = class_resid ~ T_11 + T_12 + b
                            maxdepth = 5)
 
 # Plot the tree
-plot(as.party(binary_balanced_ctree))
+plot(binary_balanced_ctree)
 
 # Create a set of predictions from the model on the test set
 binary_balanced_ctree_predictions <- stats::predict(object = binary_balanced_ctree, newdata = orig_test2, type = 'response', na.action = na.pass)
@@ -330,17 +332,16 @@ Now we remove our pruning constraints and allow the tree to prune itself.
 ```{r ctree_binary_classification_no_smote_no_pruning, echo=TRUE}
 
 # Build model from unbalanced data
-binary_unbalanced_ctree <- partykit::ctree(formula = class_resid ~ T_11 + T_12 + band.diff + ref_SST + ref_SST_minus_T_11 + ref_SST_minus_T_12 + x2 +
-    abs(satz) + range11 + sd11 + range12 + sd12 + x3, 
+binary_unbalanced_ctree_maxdepth <- partykit::ctree(formula = class_resid ~ T_11 + T_12 + band.diff + ref_SST + ref_SST_minus_T_11 +      ref_SST_minus_T_12 + x2 + abs(satz) + range11 + sd11 + range12 + sd12 + x3, 
                            data = orig_train2,
                            minbucket = 100,
                            mincrit = 0.95)
 
 # Plot the tree
-plot(as.party(binary_unbalanced_ctree))
+plot(binary_unbalanced_ctree_maxdepth)
 
 # Create a set of predictions from the model on the test set
-binary_unbalanced_ctree_predictions <- stats::predict(object = binary_unbalanced_ctree, newdata = orig_test2, type = 'response', na.action = na.pass)
+binary_unbalanced_ctree_predictions <- stats::predict(object = binary_unbalanced_ctree_maxdepth, newdata = orig_test2, type = 'response', na.action = na.pass)
 # Evaluate the confusion matrix for the test set
 binary_unbalanced_ctree_cm <- caret::confusionMatrix(data = binary_unbalanced_ctree_predictions, reference = orig_test2$class_resid)
 
@@ -351,17 +352,17 @@ Now we build a model that uses the SMOTE'd dataset
 ```{r ctree_binary_classification_smote_no_pruning, echo=TRUE}
 
 # Build model from balanced data
-binary_balanced_ctree <- partykit::ctree(formula = class_resid ~ T_11 + T_12 + band.diff + ref_SST + ref_SST_minus_T_11 + ref_SST_minus_T_12 + x2 +
+binary_balanced_ctree_maxdepth <- partykit::ctree(formula = class_resid ~ T_11 + T_12 + band.diff + ref_SST + ref_SST_minus_T_11 + ref_SST_minus_T_12 + x2 +
     abs(satz) + range11 + sd11 + range12 + sd12 + x3, 
                            data = orig_train_smote,
                            minbucket = 100,
                            mincrit = 0.95)
 
 # Plot the tree
-plot(as.party(binary_balanced_ctree))
+plot(binary_balanced_ctree_maxdepth)
 
 # Create a set of predictions from the model on the test set
-binary_balanced_ctree_predictions <- stats::predict(object = binary_balanced_ctree, newdata = orig_test2, type = 'response', na.action = na.pass)
+binary_balanced_ctree_predictions <- stats::predict(object = binary_balanced_ctree_maxdepth, newdata = orig_test2, type = 'response', na.action = na.pass)
 # Evaluate the confusion matrix for the test set
 binary_balanced_ctree_cm <- caret::confusionMatrix(data = binary_balanced_ctree_predictions, reference = orig_test2$class_resid)
 
