@@ -631,9 +631,8 @@ rm(tt3, uuu)
 # ------------------------------------------------------------------------------
 
 
-
 # -----------------------------------------------------------------------------#
-# --- Clean up all objects EXCEPT  ----
+# --- Clean up all objects EXCEPT ones we want to keep ----
 # --- Do not delete objects with names equal to "orig" or
 # --- starting with string "AQUA" or "TERRA" or "config".
 
