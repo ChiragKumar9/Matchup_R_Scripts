@@ -1,0 +1,199 @@
+---
+title: "Quality Level Analysis in MODIS SSTs"
+output: html_notebook
+---
+
+```{r prep_workspace, echo=TRUE}
+# Necessary packages
+require(dplyr)
+require(ggplot2)
+require(RColorBrewer)
+
+ggplot <- function(...) {ggplot2::ggplot(...) + theme_bw()}
+
+# Source own functions
+# Define direwctory where functions are for each operating system
+
+if (Sys.info()["sysname"] == 'Windows') {
+  fun.dir <- 'D:/matchups/r-projects/Matchup_R_Scripts/Functions/'
+} else if (Sys.info()["sysname"] == 'Linux') {
+  fun.dir <- '/home/ckk/Projects/Matchup_R_Scripts/Functions/'
+}
+
+fun.file <- paste0(fun.dir, 'common_functions.R')
+
+source(file = fun.file,
+  local = FALSE, echo = FALSE, verbose = FALSE)
+rm(fun.dir, fun.file)
+
+
+# Load data
+# For 787
+linux_dir <- '~/Projects/Matchup_R_Scripts/Results/objects/'
+# For Laptop
+#linux_dir <- '~/Projects/Matchup_R_Scripts/'
+linux_file <- 'MODIS_Aqua_GSFC_ALL_Class_6.4.1_ao_2017_04_12_with_ancillary.Rdata'
+AQUA_file <- paste0(linux_dir, linux_file)
+
+if (!file.exists(AQUA_file)) {
+    stop('Input file does not exist')
+  } else {
+    load(AQUA_file, verbose = TRUE)
+    AQUA <- MODIS_Aqua_GSFC_ALL_Class_6.4.1_ao_2017_04_12
+  }
+
+rm(linux_dir, linux_file, AQUA_file)
+rm(MODIS_Aqua_GSFC_ALL_Class_6.4.1_ao_2017_04_12)
+```
+
+```{r filter, echo=TRUE}
+# Apply a basic filtering so we are only looking at nighttime matchups - same ones we will use in error analysis
+# dplyr makes me convert sat.timedate and buoy.timedate to character from posixct - can we get around this?
+AQUA$sat.timedate <- as.character(AQUA$sat.timedate)
+AQUA$buoy.timedate <- as.character(AQUA$buoy.timedate)
+
+AQUA <- dplyr::tbl_df(AQUA) %>%
+  dplyr::filter(solz >= 90)
+
+# Plain R
+#AQUA <- AQUA[AQUA$solz >= 90]
+```
+
+
+```{r table_qsst, echo=TRUE}
+table(AQUA$qsst)
+```
+
+```{r AQUA_SST, echo=TRUE}
+# AQUA SSTs against buoy SSTs
+ggplot2::ggplot(data = AQUA, aes(x = cen.sst, y = buoy.sst)) +
+  stat_bin2d(bins = 100)
+```
+
+```{r, echo=TRUE}
+# Now plot AQUA SSts against buoy SSTs but with color as quality level
+qsst_sst <- ggplot2::ggplot(data = AQUA, aes(x = cen.sst, y = buoy.sst, col = qsst, alpha = 0.3, pch = '.')) +
+  geom_point() +
+  scale_fill_discrete()
+```
+
+```{r, echo=TRUE}
+# Above plot doesn't give us an idea of density of points
+# Do a lattice-like grided plot 
+ggplot2::ggplot(data = AQUA, aes(x = cen.sst, y = buoy.sst, alpha = 0.3, pch = '.')) +
+  geom_point() +
+  facet_wrap(~qsst) +
+  labs(x = c(-2, 32), y = c(-2, 32))
+```
+
+```{r, echo=TRUE}
+# Same thing as above except showing the density of points as well
+sst_faceted_qsst_density <- ggplot2::ggplot(data = AQUA, aes(x = cen.sst, y = buoy.sst, pch = '.')) +
+  stat_bin2d() +
+  facet_wrap(~qsst) +
+  labs(x = c(-2, 32), y = c(-2, 32)) +
+  geom_abline(intercept = 0, slope = 1, col = 'tomato')
+
+sst_faceted_qsst_density
+```
+
+
+
+```{r qsst_hists, echo=TRUE}
+# Hist of all residuals
+ggplot2::ggplot(data = AQUA) +
+  geom_histogram(aes(sst.minus.buoy.sst))
+```
+
+```{r, echo=TRUE}
+# Hist of residuals by quality
+ggplot2::ggplot(data = AQUA) +
+  geom_histogram(aes(sst.minus.buoy.sst)) +
+  facet_wrap(~qsst)
+```
+
+```{r, echo=TRUE}
+# Cumulative quality residual hists
+quality_level_thresh_down <- 3
+hist_quality_down <- ggplot2::ggplot(data = AQUA[AQUA$qsst <= quality_level_thresh, ]) +
+    geom_histogram(aes(sst.minus.buoy.sst))
+hist_quality_up
+
+```
+
+
+```{r, echo=TRUE}
+# Now go the other way where we start with quality 4 and go backwards
+quality_level_thresh_up <- 3
+hist_quality_down <- ggplot2::ggplot(data = AQUA[AQUA$qsst >= quality_level, ]) +
+    geom_histogram(aes(sst.minus.buoy.sst))
+hist_quality_down
+
+```
+
+
+
+```{r}
+# Goal is to understand what quality levels to use in error analysis
+# Get an idea of how geophyisical variables influence quality - what we should use so
+# quality isn't making data too homogenous but we don't have completely uncontrolled data either
+# Range 11 is used as an indicator for clouds - plot a hist of it by quality
+# Plot hist of range11 by quality level
+range_11 <- AQUA$max.11000 - AQUA$min.11000
+
+ggplot2::ggplot(AQUA) +
+  geom_histogram(aes(range_11)) +
+  facet_grid(~qsst)
+```
+
+```{r, echo=TRUE}
+# Plot location by quality level
+
+mp <- NULL
+mapWorld <- borders("world", colour = "gray50", fill = "gray70") # create a layer of borders
+mp <- ggplot() +  mapWorld +
+  ggplot2::scale_x_continuous(breaks = seq(from = -180, to = 180, by = 60)) +
+  ggplot2::scale_y_continuous(breaks = seq(from = -90, to = 90, by = 30)) +
+  coord_fixed(ratio = 1)
+
+mp <- mp + 
+  ggplot2::geom_point(data = AQUA,
+    aes(x = buoy.lon, 
+    y = buoy.lat,
+    col = qsst, pch = '.')) +
+  mapWorld + labs(x = NULL, y = NULL)
+
+mp
+```
+
+
+```{r, echo=TRUE}
+# Plot location faceted by quality level
+
+mp <- NULL
+mapWorld <- borders("world", colour = "gray50", fill = "gray70") # create a layer of borders
+mp <- ggplot() +  mapWorld +
+  ggplot2::scale_x_continuous(breaks = seq(from = -180, to = 180, by = 60)) +
+  ggplot2::scale_y_continuous(breaks = seq(from = -90, to = 90, by = 30)) +
+  coord_fixed(ratio = 1)
+
+mp <- mp + 
+  ggplot2::geom_point(data = AQUA,
+    aes(x = buoy.lon, 
+    y = buoy.lat,
+    col = qsst, pch = '.')) +
+  facet_grid(~qsst) +
+  mapWorld + labs(x = NULL, y = NULL)
+
+mp
+```
+
+
+
+
+
+
+
+
+
+

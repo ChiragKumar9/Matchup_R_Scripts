@@ -1,0 +1,968 @@
+---
+title: "Exploration of a MODIS SSES Dataset - Decision Trees"
+author: "Chirag Kumar and Guillermo Podesta"
+output:
+  html_notebook:
+    toc: True
+    theme: united
+---
+
+# Prep Workspace and Data
+We use MODIS matchups from 2002 - 2016 that have been read in through a previous script. Here we simply load
+the matchups, any necessary packages, and define necessary functions.
+
+```{r prep_workspace, include=FALSE}
+# Import necessary packages
+require(ggplot2)
+require(dplyr)
+require(RColorBrewer)
+require(circular)
+require(ggmap)
+require(raster)
+require(sfsmisc)
+require(rasterVis)
+require(rgdal)
+require(rpart)
+require(rpart.plot)
+require(caret)
+require(evtree)
+require(ctree)
+require(partykit)
+require(randomForest)
+require(RWeka)
+require(DMwR)
+
+ggplot <- function(...) {ggplot2::ggplot(...) + theme_bw()}
+
+# Define secant function
+secant.deg <- function(x) {1 / (cos(circular::rad(x)))}
+
+# Define function to turn output of gettree from random forest into a dendrogram
+to.dendrogram <- function(dfrep,rownum=1,height.increment=0.1){
+
+  if(dfrep[rownum,'status'] == -1){
+    rval <- list()
+
+    attr(rval,"members") <- 1
+    attr(rval,"height") <- 0.0
+    attr(rval,"label") <- dfrep[rownum,'prediction']
+    attr(rval,"leaf") <- TRUE
+
+  }else{##note the change "to.dendrogram" and not "to.dendogram"
+    left <- to.dendrogram(dfrep,dfrep[rownum,'left daughter'],height.increment)
+    right <- to.dendrogram(dfrep,dfrep[rownum,'right daughter'],height.increment)
+    rval <- list(left,right)
+
+    attr(rval,"members") <- attr(left,"members") + attr(right,"members")
+    attr(rval,"height") <- max(attr(left,"height"),attr(right,"height")) + height.increment
+    attr(rval,"leaf") <- FALSE
+    attr(rval,"edgetext") <- dfrep[rownum,'split var']
+    #To add Split Point in Dendrogram
+    #attr(rval,"edgetext") <- paste(dfrep[rownum,'split var'],"\n<",round(dfrep[rownum,'split point'], digits = 2),"=>", sep = " ")
+  }
+
+  class(rval) <- "dendrogram"
+
+  return(rval)
+}
+
+# Source own functions
+# Define direwctory where functions are for each operating system
+
+if (Sys.info()["sysname"] == 'Windows') {
+  fun.dir <- 'D:/matchups/r-projects/Matchup_R_Scripts/Functions/'
+} else if (Sys.info()["sysname"] == 'Linux') {
+  fun.dir <- '/home/ckk/Projects/Matchup_R_Scripts/Functions/'
+}
+
+fun.file <- paste0(fun.dir, 'common_functions.R')
+
+source(file = fun.file,
+  local = FALSE, echo = FALSE, verbose = FALSE)
+rm(fun.dir, fun.file)
+
+
+# Load data
+# For 787
+linux_dir <- '~/Projects/Matchup_R_Scripts/Results/objects/'
+# For Laptop
+#linux_dir <- '~/Projects/Matchup_R_Scripts/'
+linux_file <- 'MODIS_Aqua_GSFC_ALL_Class_6.4.1_ao_2017_04_12_with_ancillary.Rdata'
+AQUA_file <- paste0(linux_dir, linux_file)
+
+if (!file.exists(AQUA_file)) {
+    stop('Input file does not exist')
+  } else {
+    load(AQUA_file, verbose = TRUE)
+    AQUA <- MODIS_Aqua_GSFC_ALL_Class_6.4.1_ao_2017_04_12
+  }
+
+rm(linux_dir, linux_file, AQUA_file)
+rm(MODIS_Aqua_GSFC_ALL_Class_6.4.1_ao_2017_04_12)
+
+set.seed(42)
+```
+
+The matchup file read in at a previous step is not filtered and contains too many variables. For the purpose of 
+this analysis, we use only nighttime matchups with a quality of 0, 1, or 2 and only keep variables from the infrared
+channels we use.
+
+```{r prep_data, echo=TRUE}
+# Turn POSIXct objects to characters bc dplyr doesn't support POSIXct
+AQUA$sat.timedate <- as.character(AQUA$sat.timedate)
+AQUA$buoy.timedate <- as.character(AQUA$buoy.timedate)
+
+# Apply basic filtering
+AQUA <- dplyr::tbl_df(AQUA) %>%
+  dplyr::filter(solz >= 90) %>%
+  dplyr::filter(qsst == 0 | qsst == 1 | qsst == 2)
+
+# Now grab only variables that may be used to determine retrieval accuracy and make some new variables (i.e. x1, x2, x3)
+# Create df of features
+orig <- dplyr::tbl_df(AQUA) %>%
+  dplyr::mutate(T_11 = cen.11000,
+    T_12 = cen.12000,
+    band.diff = T_11 - T_12,
+    ref_SST = cen.ref.type.1.SST,
+    x2 = band.diff * ref_SST,
+    x3 = ((secant.deg(satz) - 1) * band.diff),
+    lat = buoy.lat,
+    lon = buoy.lon,
+    sd11 = sd.11000,
+    sd12 = sd.12000,
+    range11 = max.11000 - min.11000,
+    range12 = max.12000 - min.12000,
+    diff.med.min11 = med.11000 - min.11000,
+    diff.med.min12 = med.12000 - min.12000,
+    qsst = qsst,
+    buoy.sst = buoy.sst,
+    cell5deg = cell5deg,
+    buoy.timedate = buoy.timedate,
+    SST.resid.SMB = cen.sst - (buoy.sst - 0.17)) %>% # SMB = sat minus buoy - also debias buoy.sst by turning buoy.sst into a skin measurement
+  dplyr::select(T_11, T_12, band.diff, ref_SST, x2, x3, satz, lon, lat, sd11, sd12, range11, range12, diff.med.min11, diff.med.min12,
+    qsst, buoy.sst, cell5deg, buoy.timedate, SST.resid.SMB)
+
+```
+
+# Decision Trees
+
+Here we explore the ability of decision trees to accurately classify SST matchups that fall in defined residual
+ranges.  First we prep the data into training and validation sets for the decision tree exploration.
+
+## Prep Data for Decision Trees
+
+```{r prep_data_decision_trees, echo=TRUE}
+
+# Make classes
+class_resid <- cut(orig$SST.resid.SMB, breaks = c((min(orig$SST.resid.SMB)),
+                                                  -.4,
+                                                  .4,
+                                                  (max(orig$SST.resid.SMB + 0.01))),
+                   labels = c('bad_low', 'good', 'bad_high'), include.lowest = TRUE)
+#class_resid <- ifelse(orig$SST.resid.SMB > .2, 'resid > .2', ifelse(orig$SST.resid.SMB < -.2, 'resid < -.2', '-.2 <= resid <= .2'))
+orig$class_resid <- as.factor(class_resid)
+table(orig$class_resid)
+
+orig %>% dplyr::group_by(class_resid) %>%
+  dplyr::summarise(min = min(SST.resid.SMB), max = max(SST.resid.SMB))
+
+# Divide data into training and validation sets
+prop_train <- .6
+len_train <- floor(prop_train * nrow(orig))
+index <- sample(1:nrow(orig), len_train, replace = FALSE)
+
+orig_train <- orig[index, ]
+orig_test <- orig[-index, ]
+
+```
+
+### Re-balance Classes
+```{r explore_class_inbalance, echo=TRUE}
+table(orig_train$class_resid)
+
+prop.table(table(orig_train$class_resid))
+```
+
+Our classes are heavily inbalanced. This can negatively effect how our decision trees predict.
+We use a series of re-balancing techniques (under/over-sampling, ROSE, SMOTE) to re-balance our classes.
+
+However, these techniques only work on binary classification problems. They can only rebalance classes when only
+two classes are presennt. We have a three class problem (residual < -.4, -.4 <= residual <= .4, or residual > .4)
+so at this step we also simplify to just a two class problem. We now only build models that classify a retrieval into
+either having a residual of < -.4 or -.4 <= residual <= .4. We do not analyze retrievals with a residual > .4.
+
+```{r class_rebalance, echo=TRUE}
+# making orig_train only have two classes - we remove one class
+orig_train2 <- orig_train %>%
+  dplyr::filter(class_resid != 'bad_high') %>%
+  dplyr::select(-buoy.timedate)
+
+orig_train2$class_resid <- factor(orig_train2$class_resid, levels = c('bad_low', 'good'))
+
+# Do the same for orig_test
+orig_test2 <- orig_test %>%
+  dplyr::filter(class_resid != 'bad_high') %>%
+  dplyr::select(-buoy.timedate)
+
+orig_test2$class_resid <- factor(orig_test2$class_resid, levels = c('bad_low', 'good'))
+
+# SMOTE
+
+orig_train_smote <- DMwR::SMOTE(class_resid ~ ., as.data.frame(orig_train2), perc.over = 100, perc.under = 200)
+
+# ROSE
+
+#orig_train_rose <- ROSE::ROSE(class_resid ~ ., as.data.frame(orig_train2), seed = 42)$data
+
+# Now check out the class inbalance
+table(orig_train$class_resid)
+
+table(orig_train_smote$class_resid)
+```
+
+## RPART Decision Trees
+We use Recursive Partioning Decision Trees (from the rpart package, implemented as the rpart() function)
+to classify retrievals into the bad_low or good class. We first build a model that uses the non-SMOTE'd
+dataset and compare it to a model that used the SMOTE'd dataset.
+
+```{r initialize_data, echo=TRUE}
+
+# Initialize data for the model
+orig_train2$ref_SST_minus_T_11 <- orig_train2$ref_SST - orig_train2$T_11
+orig_train2$ref_SST_minus_T_12 <- orig_train2$ref_SST - orig_train2$T_12
+
+orig_train_smote$ref_SST_minus_T_11 <- orig_train_smote$ref_SST - orig_train_smote$T_11
+orig_train_smote$ref_SST_minus_T_12 <- orig_train_smote$ref_SST - orig_train_smote$T_12
+
+orig_test2$ref_SST_minus_T_11 <- orig_test2$ref_SST - orig_test2$T_11
+orig_test2$ref_SST_minus_T_12 <- orig_test2$ref_SST - orig_test2$T_12
+```
+
+```{r rpart_binary_classification_no_smote, echo=TRUE}
+
+# Build model from unbalanced data
+binary_unbalanced_rpart <- rpart::rpart(formula = class_resid ~ T_11 + T_12 + band.diff + ref_SST + ref_SST_minus_T_11 + ref_SST_minus_T_12 + x2 +
+    abs(satz) + range11 + sd11 + range12 + sd12 + x3, 
+                           data = orig_train2,
+                           minbucket = 100,
+                           xval = 5)
+
+# Plot the tree
+plot(as.party(binary_unbalanced_rpart))
+
+# Create a set of predictions from the model on the test set
+binary_unbalanced_rpart_predictions <- stats::predict(object = binary_unbalanced_rpart, newdata = orig_test2, type = 'class', na.action = na.pass)
+# Evaluate the confusion matrix for the test set
+binary_unbalanced_rpart_cm <- caret::confusionMatrix(data = binary_unbalanced_rpart_predictions, reference = orig_test2$class_resid)
+
+binary_unbalanced_rpart_cm
+```
+
+Now we build a model that uses the SMOTE'd dataset
+```{r rpart_binary_classification_smote, echo=TRUE}
+
+# Build model from balanced data
+binary_balanced_rpart <- rpart::rpart(formula = class_resid ~ T_11 + T_12 + band.diff + ref_SST + ref_SST_minus_T_11 + 
+    ref_SST_minus_T_12 + x2 + abs(satz) + range11 + sd11 + range12 + sd12 + x3, 
+                           data = orig_train_smote,
+                           minbucket = 100,
+                           xval = 5)
+
+# Plot the tree
+plot(as.party(binary_balanced_rpart))
+
+# Create a set of predictions from the model on the test set
+binary_balanced_rpart_predictions <- stats::predict(object = binary_balanced_rpart, newdata = orig_test2, type = 'class', na.action = na.pass)
+# Evaluate the confusion matrix for the test set
+binary_balanced_rpart_cm <- caret::confusionMatrix(data = binary_balanced_rpart_predictions, reference = orig_test2$class_resid)
+
+binary_balanced_rpart_cm
+```
+
+## CTree Decision Trees
+We now use Conditional Inference Trees (from the partykit package, implemented as the ctree() function) to
+build the same model as above.
+
+We first do the analysis by applying a pruning parameter - we manually set maxdepth to 5.
+```{r ctree_binary_classification_no_smote, echo=TRUE}
+
+# Build model from unbalanced data
+binary_unbalanced_ctree <- partykit::ctree(formula = class_resid ~ T_11 + T_12 + band.diff + ref_SST + ref_SST_minus_T_11 + ref_SST_minus_T_12 + x2 +
+    abs(satz) + range11 + sd11 + range12 + sd12 + x3, 
+                           data = orig_train2,
+                           minbucket = 100,
+                           mincrit = 0.95,
+                           maxdepth = 5)
+
+# Plot the tree
+plot(binary_unbalanced_ctree)
+
+# Create a set of predictions from the model on the test set
+binary_unbalanced_ctree_predictions <- stats::predict(object = binary_unbalanced_ctree, newdata = orig_test2, type = 'response', na.action = na.pass)
+# Evaluate the confusion matrix for the test set
+binary_unbalanced_ctree_cm <- caret::confusionMatrix(data = binary_unbalanced_ctree_predictions, reference = orig_test2$class_resid)
+
+binary_unbalanced_ctree_cm
+```
+
+Now we build a model that uses the SMOTE'd dataset
+```{r ctree_binary_classification_smote, echo=TRUE}
+
+# Build model from balanced data
+binary_balanced_ctree <- partykit::ctree(formula = class_resid ~ T_11 + T_12 + band.diff + ref_SST + ref_SST_minus_T_11 + ref_SST_minus_T_12 + x2 +
+    abs(satz) + range11 + sd11 + range12 + sd12 + x3, 
+                           data = orig_train_smote,
+                           minbucket = 100,
+                           mincrit = 0.95,
+                           maxdepth = 5)
+
+# Plot the tree
+plot(binary_balanced_ctree)
+
+# Create a set of predictions from the model on the test set
+binary_balanced_ctree_predictions <- stats::predict(object = binary_balanced_ctree, newdata = orig_test2, type = 'response', na.action = na.pass)
+# Evaluate the confusion matrix for the test set
+binary_balanced_ctree_cm <- caret::confusionMatrix(data = binary_balanced_ctree_predictions, reference = orig_test2$class_resid)
+
+binary_balanced_ctree_cm
+```
+
+
+Now we remove our pruning constraints and allow the tree to prune itself.
+```{r ctree_binary_classification_no_smote_no_pruning, echo=TRUE}
+
+# Build model from unbalanced data
+binary_unbalanced_ctree_maxdepth <- partykit::ctree(formula = class_resid ~ T_11 + T_12 + band.diff + ref_SST + ref_SST_minus_T_11 +      ref_SST_minus_T_12 + x2 + abs(satz) + range11 + sd11 + range12 + sd12 + x3, 
+                           data = orig_train2,
+                           minbucket = 100,
+                           mincrit = 0.95)
+
+# Plot the tree
+plot(binary_unbalanced_ctree_maxdepth)
+
+# Create a set of predictions from the model on the test set
+binary_unbalanced_ctree_predictions <- stats::predict(object = binary_unbalanced_ctree_maxdepth, newdata = orig_test2, type = 'response', na.action = na.pass)
+# Evaluate the confusion matrix for the test set
+binary_unbalanced_ctree_cm <- caret::confusionMatrix(data = binary_unbalanced_ctree_predictions, reference = orig_test2$class_resid)
+
+binary_unbalanced_ctree_cm
+```
+
+Now we build a model that uses the SMOTE'd dataset
+```{r ctree_binary_classification_smote_no_pruning, echo=TRUE}
+
+# Build model from balanced data
+binary_balanced_ctree_maxdepth <- partykit::ctree(formula = class_resid ~ T_11 + T_12 + band.diff + ref_SST + ref_SST_minus_T_11 + ref_SST_minus_T_12 + x2 +
+    abs(satz) + range11 + sd11 + range12 + sd12 + x3, 
+                           data = orig_train_smote,
+                           minbucket = 100,
+                           mincrit = 0.95)
+
+# Plot the tree
+plot(binary_balanced_ctree_maxdepth)
+
+# Create a set of predictions from the model on the test set
+binary_balanced_ctree_predictions <- stats::predict(object = binary_balanced_ctree_maxdepth, newdata = orig_test2, type = 'response', na.action = na.pass)
+# Evaluate the confusion matrix for the test set
+binary_balanced_ctree_cm <- caret::confusionMatrix(data = binary_balanced_ctree_predictions, reference = orig_test2$class_resid)
+
+binary_balanced_ctree_cm
+```
+
+## Random Forest Decision Forests
+We now do the same analysis but use the Random Forests as our model (from the randomForest package, implemented as
+the randomForest() function).
+
+```{r random_forest_binary_classification_no_smote, echo=TRUE}
+# The rf needs all variables to be pre-defined
+# We need to define an abs_satz variable which is equal to abs(satz)
+# ^We can't do that in the formula
+orig_train2$abs_satz <- abs(orig_train2$satz)
+
+orig_test2$abs_satz <- abs(orig_test2$satz)
+
+# Train random forest
+binary_unbalanced_rand_for <- randomForest::randomForest(formula = class_resid ~ T_11 + T_12 + band.diff + ref_SST + ref_SST_minus_T_11 + 
+  ref_SST_minus_T_12 + x2 + abs_satz + range11 + sd11 + range12 + sd12 + x3,
+                                       data = orig_train2,
+                                       ntree = 750, # how many trees should be in the forest we grow
+                                       nodesize = 100, # same as minbucket in rpart
+                                       mtry = 3) # how many variables the rf randomly picks at each branch to do splitting
+
+# Trying to visualize the tree...
+#plot(rand_for)
+randomForest::varImpPlot(binary_unbalanced_rand_for)
+#randomForest::MDSplot(rand_for, orig_train$class_resid)
+#randomForest::partialPlot(rand_for, orig_train, x.var = 'band.diff')
+#randomForest::plot.randomForest(rand_for)
+
+# Plot a specific tree
+tree_example <- randomForest::getTree(binary_unbalanced_rand_for, k = 1, labelVar = TRUE)
+tree_example_dendro <- to.dendrogram(tree_example)
+str(tree_example_dendro)
+plot(tree_example_dendro, center = TRUE, leaflab = 'none', edgePar = list(t.cex = 1, p.col = NA, p.lty = 0))
+
+# Evaluate the random forests's accuracy on validation set
+binary_unbalanced_rand_for_predictions <- predict(binary_unbalanced_rand_for, newdata = orig_test2, type = 'class', na.action = na.pass)
+
+# Create confusion matrix for predictions on random forest
+binary_unbalanced_rand_for_cm <- caret::confusionMatrix(data = binary_unbalanced_rand_for_predictions, reference = orig_test2$class_resid)
+binary_unbalanced_rand_for_cm
+
+```
+
+Now use the SMOTE'd data
+```{r random_forest_binary_classification_smote, echo=TRUE}
+
+# Same create additional variables step as above
+orig_train_smote$abs_satz <- abs(orig_train_smote$satz)
+
+# Train random forest
+binary_balanced_rand_for <- randomForest::randomForest(formula = class_resid ~ T_11 + T_12 + band.diff + ref_SST + ref_SST_minus_T_11 + 
+  ref_SST_minus_T_12 + x2 + abs_satz + range11 + sd11 + range12 + sd12 + x3,
+                                       data = orig_train_smote,
+                                       ntree = 750, # how many trees should be in the forest we grow
+                                       nodesize = 100, # same as minbucket in rpart
+                                       mtry = 3) # how many variables the rf randomly picks at each branch to do splitting
+
+# Trying to visualize the tree...
+#plot(rand_for)
+randomForest::varImpPlot(binary_balanced_rand_for)
+#randomForest::MDSplot(rand_for, orig_train$class_resid)
+#randomForest::partialPlot(rand_for, orig_train, x.var = 'band.diff')
+#randomForest::plot.randomForest(rand_for)
+
+# Plot a specific tree
+tree_example <- randomForest::getTree(binary_balanced_rand_for, k = 1, labelVar = TRUE)
+tree_example_dendro <- to.dendrogram(tree_example)
+str(tree_example_dendro)
+plot(tree_example_dendro, center = TRUE, leaflab = 'none', edgePar = list(t.cex = 1, p.col = NA, p.lty = 0))
+
+# Evaluate the random forests's accuracy on validation set
+binary_balanced_rand_for_predictions <- predict(binary_balanced_rand_for, newdata = orig_test2, type = 'class', na.action = na.pass)
+
+# Create confusion matrix for predictions on random forest
+binary_balanced_rand_for_cm <- caret::confusionMatrix(data = binary_balanced_rand_for_predictions, reference = orig_test2$class_resid)
+binary_balanced_rand_for_cm
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# TESTING
+
+```{r class_rebalance_and_three_way_rpart, echo=TRUE}
+orig_train$abs_satz <- abs(orig_train$satz)
+orig_train$ref_SST_diff_T_11 <- orig_train$ref_SST - orig_train$T_11
+orig_train$ref_SST_diff_T_12 <- orig_train$ref_SST - orig_train$T_12
+
+orig_test$abs_satz <- abs(orig_test$satz)
+orig_test$ref_SST_diff_T_11 <- orig_test$ref_SST - orig_test$T_11
+orig_test$ref_SST_diff_T_12 <- orig_test$ref_SST - orig_test$T_12
+
+
+orig_train$class_resid_good <- as.factor(ifelse(orig_train$class_resid == 'good', 'good', 'not good'))
+orig_train$class_resid_bad_low <- as.factor(ifelse(orig_train$class_resid == 'bad_low', 'bad_low', 'not_bad_low'))
+orig_train$class_resid_bad_high <- as.factor(ifelse(orig_train$class_resid == 'bad_high', 'bad_high', 'not_bad_high'))
+
+orig_test$class_resid_good <- as.factor(ifelse(orig_test$class_resid == 'good', 'good', 'not good'))
+orig_test$class_resid_bad_low <- as.factor(ifelse(orig_test$class_resid == 'bad_low', 'bad_low', 'not_bad_low'))
+orig_test$class_resid_bad_high <- as.factor(ifelse(orig_test$class_resid == 'bad_high', 'bad_high', 'not_bad_high'))
+
+orig_train <- orig_train %>%
+  dplyr::select(-buoy.timedate)
+
+orig_train_good <- DMwR::SMOTE(class_resid_good ~., as.data.frame(orig_train), perc.over = 100, perc.under = 200)
+orig_train_bad_low <- DMwR::SMOTE(class_resid_bad_low ~., as.data.frame(orig_train), perc.over = 100, perc.under = 200)
+orig_train_bad_high <- DMwR::SMOTE(class_resid_bad_high ~., as.data.frame(orig_train), perc.over = 100, perc.under = 200)
+
+table(orig_train_good$class_resid_good)
+table(orig_train_bad_low$class_resid_bad_low)
+table(orig_train_bad_high$class_resid_bad_high)
+
+
+good_tree <- rpart::rpart(formula = class_resid_good ~ T_11 + T_12 + band.diff + ref_SST + ref_SST_diff_T_11 + ref_SST_diff_T_12 + x2 +
+    abs_satz + range11 + sd11 + range12 + sd12 + x3, 
+                           data = orig_train_good,
+                           minbucket = 100,
+                           xval = 5)
+
+bad_low_tree <- rpart::rpart(formula = class_resid_bad_low ~ T_11 + T_12 + band.diff + ref_SST + ref_SST_diff_T_11 + ref_SST_diff_T_12 + 
+    x2 + abs_satz + range11 + sd11 + range12 + sd12 + x3, 
+                           data = orig_train_bad_low,
+                           minbucket = 100,
+                           xval = 5)
+
+bad_high_tree <- rpart::rpart(formula = class_resid_bad_high ~ T_11 + T_12 + band.diff + ref_SST + ref_SST_diff_T_11 + ref_SST_diff_T_12 + 
+    x2 + abs_satz + range11 + sd11 + range12 + sd12 + x3, 
+                           data = orig_train_bad_high,
+                           minbucket = 100,
+                           xval = 5)
+
+good_predictions_test <- as.data.frame(stats::predict(good_tree, orig_test, type = 'class', na.action = na.pass))[ , 1]
+bad_low_predictions_test <- as.data.frame(stats::predict(bad_low_tree, orig_test, type = 'class', na.action = na.pass))[ , 1]
+bad_high_predictions_test <- as.data.frame(stats::predict(bad_high_tree, orig_test, type = 'class', na.action = na.pass))[ , 1]
+
+#prediction_final_test <- as.factor(ifelse(good_predictions_test > bad_low_predictions_test & good_predictions_test > bad_high_predictions_test, 'good', ifelse(bad_low_predictions_test > good_predictions_test & bad_low_predictions_test > good_predictions_test, 'bad_low', 'bad_high')))
+
+#prediction_final_test <- factor(prediction_final_test, levels = levels(orig_test$class_resid))
+
+#prediction_final_cm <- caret::confusionMatrix(data = prediction_final_test, reference = orig_test$class_resid)
+
+good_predictions_cm <- caret::confusionMatrix(data = good_predictions_test, reference = orig_test$class_resid_good)
+bad_low_predictions_cm <- caret::confusionMatrix(data = bad_low_predictions_test, reference = orig_test$class_resid_bad_low)
+bad_high_predictions_cm <- caret::confusionMatrix(data = bad_high_predictions_test, reference = orig_test$class_resid_bad_high)
+```
+
+
+```{r two_tree_classifier, echo=TRUE}
+orig_train$abs_satz <- abs(orig_train$satz)
+orig_train$ref_SST_diff_T_11 <- orig_train$ref_SST - orig_train$T_11
+orig_train$ref_SST_diff_T_12 <- orig_train$ref_SST - orig_train$T_12
+
+orig_test$abs_satz <- abs(orig_test$satz)
+orig_test$ref_SST_diff_T_11 <- orig_test$ref_SST - orig_test$T_11
+orig_test$ref_SST_diff_T_12 <- orig_test$ref_SST - orig_test$T_12
+
+orig_train$class_resid_good <- as.factor(ifelse(orig_train$class_resid == 'good', 'good', 'not good'))
+orig_test$class_resid_good <- as.factor(ifelse(orig_test$class_resid == 'good', 'good', 'not good'))
+
+orig_train$class_resid_bad <- orig_train$class_resid
+orig_train <- orig_train %>%
+  dplyr::select(-buoy.timedate)
+
+orig_train_bad <- orig_train %>%
+  dplyr::filter(class_resid_bad != 'good')
+
+orig_train_bad$class_resid_bad <- factor(orig_train_bad$class_resid_bad, levels = c('bad_low', 'bad_high'))
+
+# Apply SMOTE rebalancing
+orig_train <- DMwR::SMOTE(class_resid_good ~., as.data.frame(orig_train), perc.over = 100, perc.under = 200)
+orig_train_bad <- DMwR::SMOTE(class_resid_bad ~., as.data.frame(orig_train_bad), perc.over = 100, perc.under = 200)
+
+good_tree <- rpart::rpart(formula = class_resid_good ~ T_11 + T_12 + band.diff + ref_SST + ref_SST_diff_T_11 +
+    ref_SST_diff_T_12 + x2 + abs_satz + range11 + sd11 + range12 + sd12 + x3, 
+                           data = orig_train,
+                           minbucket = 100,
+                           xval = 5)
+
+bad_tree <- rpart::rpart(formula = class_resid_bad ~ T_11 + T_12 + band.diff + ref_SST + ref_SST_diff_T_11 +
+    ref_SST_diff_T_12 + x2 + abs_satz + range11 + sd11 + range12 + sd12 + x3, 
+                           data = orig_train_bad,
+                           minbucket = 100,
+                           xval = 5)
+
+good_predictions_test <- stats::predict(good_tree, newdata = orig_test, type = 'class', na.action = na.pass)
+
+bad_predictions_test <- stats::predict(bad_tree, newdata = orig_test, type = 'class', na.action = na.pass)
+
+final_predictions_test <- as.factor(ifelse(good_predictions_test == 'good', 'good', ifelse(bad_predictions_test == 'bad_low', 'bad_low', 'bad_high')))
+
+final_cm <- caret::confusionMatrix(data = final_predictions_test, reference = orig_test$class_resid)
+```
+
+```{r individual_class_trees, echo=TRUE}
+orig_train$abs_satz <- abs(orig_train$satz)
+orig_train$ref_SST_diff_T_11 <- orig_train$ref_SST - orig_train$T_11
+orig_train$ref_SST_diff_T_12 <- orig_train$ref_SST - orig_train$T_12
+
+orig_test$abs_satz <- abs(orig_test$satz)
+orig_test$ref_SST_diff_T_11 <- orig_test$ref_SST - orig_test$T_11
+orig_test$ref_SST_diff_T_12 <- orig_test$ref_SST - orig_test$T_12
+
+orig_train <- orig_train %>%
+  dplyr::select(-buoy.timedate)
+
+orig_train_good_bad_low <- orig_train %>%
+  dplyr::filter(class_resid != 'bad_high')
+
+orig_train_good_bad_low$class_resid <- factor(orig_train_good_bad_low$class_resid, levels = c('good', 'bad_low'))
+
+orig_test_good_bad_low <- orig_test %>%
+  dplyr::filter(class_resid != 'bad_high')
+
+orig_test_good_bad_low$class_resid <- factor(orig_test_good_bad_low$class_resid, levels = c('good', 'bad_low'))
+
+# class rebalancing
+
+orig_train_good_bad_low <- DMwR::SMOTE(class_resid ~., as.data.frame(orig_train_good_bad_low), perc.over = 100, perc.under = 200)
+
+
+good_bad_low_rpart <- rpart::rpart(formula = class_resid ~ T_11 + T_12 + band.diff + ref_SST + ref_SST_diff_T_11 +
+    ref_SST_diff_T_12 + x2 + abs_satz + range11 + sd11 + range12 + sd12 + x3, 
+                           data = orig_train_good_bad_low,
+                           minbucket = 100,
+                           xval = 5)
+
+good_bad_low_rpart_predictions <- stats::predict(good_bad_low_rpart, newdata = orig_test_good_bad_low, na.action = na.pass,
+  type = 'class')
+
+good_bad_low_rpart_cm <- caret::confusionMatrix(data = good_bad_low_rpart_predictions, reference = orig_test_good_bad_low$class_resid)
+
+
+
+
+good_bad_low_ctree <- partykit::ctree(formula = class_resid ~ T_11 + T_12 + band.diff + ref_SST + ref_SST_diff_T_11 +
+    ref_SST_diff_T_12 + x2 + abs_satz + range11 + sd11 + range12 + sd12 + x3, 
+                           data = orig_train_good_bad_low,
+                           minbucket = 100,
+                           maxdepth = 5,
+                           mincrit = 0.95)
+
+good_bad_low_ctree_predictions <- stats::predict(good_bad_low_ctree, newdata = orig_test_good_bad_low, na.action = na.pass,
+  type = 'response')
+
+good_bad_low_ctree_cm <- caret::confusionMatrix(data = good_bad_low_ctree_predictions, reference = orig_test_good_bad_low$class_resid)
+
+
+
+
+
+good_bad_low_rf <- randomForest::randomForest(formula = class_resid ~ T_11 + T_12 + band.diff + ref_SST + ref_SST_diff_T_11 +
+    ref_SST_diff_T_12 + x2 + abs_satz + range11 + sd11 + range12 + sd12 + x3, 
+                           data = orig_train_good_bad_low,
+                           nodesize = 100,
+                           ntree = 1000,
+                           mtry = 3)
+
+randomForest::varImpPlot(good_bad_low_rf)
+
+good_bad_low_rf_predictions <- stats::predict(good_bad_low_rf, newdata = orig_test_good_bad_low, na.action = na.pass,
+  type = 'class')
+
+good_bad_low_rf_cm <- caret::confusionMatrix(data = good_bad_low_rf_predictions, reference = orig_test_good_bad_low$class_resid)
+
+```
+
+
+## rpart Decision Trees
+
+```{r rpart_decision_tree, echo=TRUE}
+
+# Train a stard rpart decision tree on above data
+rpart_tree <- rpart::rpart(formula = class_resid ~ T_11 + T_12 + band.diff + ref_SST + (ref_SST - T_11) + (ref_SST - T_12) + x2 +
+    abs(satz) + range11 + sd11 + range12 + sd12 + x3, 
+                           data = orig_train,
+                           minbucket = 100,
+                           xval = 5)
+
+# Plot tree
+rpart.plot::prp(rpart_tree, uniform = TRUE, faclen = 0, varlen = 0, extra = 4,
+  main = "rpart Classification Tree for Identifying Matchups' Residual Range")
+
+# Plot the tree as a partykit object
+plot(partykit::as.party(rpart_tree))
+
+# Evaluate the decision tree's accuracy on validation set
+rpart_tree_predictions_test <- predict(object = rpart_tree, newdata = orig_test, type = 'class', na.action = na.pass)
+
+# Draw confusion matrix for predictions on rpart tree
+rpart_tree_cm_test <- caret::confusionMatrix(data = rpart_tree_predictions_test, reference = orig_test$class_resid)
+rpart_tree_cm_test
+
+# For evaluation purposes, also analyze the accuracy and cm of the train set
+# Evaluate the decision tree's accuracy on validation set
+rpart_tree_predictions_train <- predict(object = rpart_tree, newdata = orig_train, type = 'class', na.action = na.pass)
+
+# Draw confusion matrix for predictions on rpart tree
+rpart_tree_cm_train <- caret::confusionMatrix(data = rpart_tree_predictions_train, reference = orig_train$class_resid)
+rpart_tree_cm_train
+```
+
+
+## ctree Decision Trees
+
+```{r ctree, echo=TRUE}
+ctree_tree <- partykit::ctree(formula = class_resid ~ T_11 + T_12 + band.diff + ref_SST + (ref_SST - T_11) + (ref_SST - T_12) + x2 +
+    abs(satz) + range11 + sd11 + range12 + sd12 + x3,
+                              data = orig_train,
+                              minbucket = 100,
+                              mincrit = .95,
+                              maxdepth = 5)
+
+# Plot the tree
+plot(ctree_tree)
+
+# Evaluate the decision tree's accuracy on validation set
+ctree_tree_predictions_test <- predict(ctree_tree, newdata = orig_test, type = 'response', na.action = na.pass)
+
+# Draw confusion matrix for predictions on rpart tree
+ctree_tree_cm_test <- caret::confusionMatrix(data = ctree_tree_predictions_test, reference = orig_test$class_resid)
+ctree_tree_cm_test
+
+# For evaluation purposes, also analyze the accuracy and cm of the train set
+# Evaluate the decision tree's accuracy on validation set
+ctree_tree_predictions_train <- predict(ctree_tree, newdata = orig_train, type = 'response', na.action = na.pass)
+
+# Draw confusion matrix for predictions on rpart tree
+ctree_tree_cm_train <- caret::confusionMatrix(data = ctree_tree_predictions_train, reference = orig_train$class_resid)
+ctree_tree_cm_train
+```
+
+
+## cforest Decision Forests
+```{r cforest, echo=TRUE}
+
+cforest_clf <- partykit::cforest(formula = class_resid ~ T_11 + T_12 + band.diff + ref_SST + (ref_SST - T_11) + (ref_SST - T_12) + x2 +
+    abs(satz) + range11 + sd11 + range12 + sd12 + x3,
+                              data = orig_train,
+                              minbucket = 100,
+                              control = ctree_control(mincriterion = .95),
+                              maxdepth = 5,
+                              ntree = 500)
+
+# Trying to visualize the forest...
+plot(cforest_clf)
+
+# Evaluate the decision tree's accuracy on validation set
+cforest_clf_predictions <- predict(ctree_tree, newdata = orig_test, type = 'response', na.action = na.pass)
+
+# Draw confusion matrix for predictions on rpart tree
+cforest_clf_cm <- caret::confusionMatrix(data = ctree_tree_predictions, reference = orig_test$class_resid)
+cforest_clf_cm
+```
+
+
+## Random Forest Decision Forests
+
+```{r random_forest, echo=TRUE}
+# Make some more variables - for testing
+# abs(satz)
+orig_train$abs_satz <- abs(orig_train$satz)
+orig_test$abs_satz <- abs(orig_test$satz)
+# ref_SST - T_11
+orig_train$ref_SST_minus_T_11 <- orig_train$ref_SST - orig_train$T_11
+orig_test$ref_SST_minus_T_11 <- orig_test$ref_SST - orig_test$T_11
+# ref_SST - T_12
+orig_train$ref_SST_minus_T_12  <- orig_train$ref_SST - orig_train$T_12
+orig_test$ref_SST_minus_T_12  <- orig_test$ref_SST - orig_test$T_12
+
+# Train random forest
+rand_for <- randomForest::randomForest(formula = class_resid ~ T_11 + T_12 + band.diff + ref_SST + ref_SST_minus_T_11 + ref_SST_minus_T_12 + x2 +
+    abs_satz + range11 + sd11 + range12 + sd12 + x3,
+                                       data = orig_train,
+                                       ntree = 500, # how many trees should be in the forest we grow
+                                       nodesize = 500, # same as minbucket in rpart
+                                       mtry = 3) # how many variables the rf randomly picks at each branch to do splitting
+
+# Trying to visualize the tree...
+#plot(rand_for)
+randomForest::varImpPlot(rand_for)
+#randomForest::MDSplot(rand_for, orig_train$class_resid)
+#randomForest::partialPlot(rand_for, orig_train, x.var = 'band.diff')
+#randomForest::plot.randomForest(rand_for)
+
+# Plot a specific tree
+tree_example <- randomForest::getTree(rand_for, k = 1, labelVar = TRUE)
+tree_example_dendro <- to.dendrogram(tree_example)
+str(tree_example_dendro)
+plot(tree_example_dendro, center = TRUE, leaflab = 'none', edgePar = list(t.cex = 1, p.col = NA, p.lty = 0))
+
+# Evaluate the decision tree's accuracy on validation set
+rand_for_predictions_test <- predict(rand_for, newdata = orig_test, type = 'class', na.action = na.pass)
+
+# Draw confusion matrix for predictions on evtree tree
+rand_for_cm_test <- caret::confusionMatrix(data = rand_for_predictions_test, reference = orig_test$class_resid)
+rand_for_cm_test
+
+# For evaluation purposes, also analyze the accuracy and cm of the train set predictions
+# Evaluate the decision tree's accuracy on validation set
+rand_for_predictions_train <- predict(rand_for, newdata = orig_train, type = 'class', na.action = na.pass)
+
+# Draw confusion matrix for predictions on evtree tree
+rand_for_cm_train <- caret::confusionMatrix(data = rand_for_predictions_train, reference = orig_train$class_resid)
+rand_for_cm_train
+```
+
+
+## C4.5 Decision Trees
+
+```{r C4.5_decision_trees, echo=TRUE}
+
+# Train a stard C4.5 decision tree on above data
+# In the RWeka package, the C4.5 algorithm is called by the J48() command
+# TO DO: CHECK PARAMETER NAMES
+C4.5_tree <- RWeka::J48(formula = class_resid ~ T_11 + T_12 + band.diff + ref_SST + (ref_SST - T_11) + (ref_SST - T_12) + x2 +
+    abs(satz) + range11 + sd11 + range12 + sd12 + x3, 
+                           data = orig_train,
+                           minbucket = 100,
+                           xval = 5)
+
+# Plot tree
+# Plot the tree as a partykit object
+plot(partykit::as.party(C4.5_tree))
+
+# Evaluate the decision tree's accuracy on validation set
+C4.5_tree_predictions_test <- predict(object = C4.5_tree, newdata = orig_test, type = 'class', na.action = na.pass)
+
+# Draw confusion matrix for predictions on rpart tree
+C4.5_tree_cm_test <- caret::confusionMatrix(data = C4.5_tree_predictions_test, reference = orig_test$class_resid)
+C4.5_tree_cm_test
+
+# For evaluation purposes, also analyze the accuracy and cm of the train set
+# Evaluate the decision tree's accuracy on validation set
+C4.5_tree_predictions_train <- predict(object = C4.5_tree, newdata = orig_train, type = 'class', na.action = na.pass)
+
+# Draw confusion matrix for predictions on rpart tree
+C4.5_tree_cm_train <- caret::confusionMatrix(data = C4.5_tree_predictions_train, reference = orig_train$class_resid)
+C4.5_tree_cm_train
+```
+
+## PART Decision Trees
+
+```{r PART_decision_trees, echo=TRUE}
+
+# Train a stard PART decision tree on above data
+# In the RWeka package, the PART algorithm is called by the PART() command
+# TO DO: CHECK PARAMETER NAMES
+PART_tree <- RWeka::PART(formula = class_resid ~ T_11 + T_12 + band.diff + ref_SST + (ref_SST - T_11) + (ref_SST - T_12) + x2 +
+    abs(satz) + range11 + sd11 + range12 + sd12 + x3, 
+                           data = orig_train,
+                           minbucket = 100,
+                           xval = 5)
+
+# Plot tree
+# Plot the tree as a partykit object
+plot(partykit::as.party(PART_tree))
+
+# Evaluate the decision tree's accuracy on validation set
+PART_tree_predictions_test <- predict(object = PART_tree, newdata = orig_test, type = 'class', na.action = na.pass)
+
+# Draw confusion matrix for predictions on rpart tree
+PART_tree_cm_test <- caret::confusionMatrix(data = PART_tree_predictions_test, reference = orig_test$class_resid)
+PART_tree_cm_test
+
+# For evaluation purposes, also analyze the accuracy and cm of the train set
+# Evaluate the decision tree's accuracy on validation set
+PART_tree_predictions_train <- predict(object = PART_tree, newdata = orig_train, type = 'class', na.action = na.pass)
+
+# Draw confusion matrix for predictions on rpart tree
+PART_tree_cm_train <- caret::confusionMatrix(data = PART_tree_predictions_train, reference = orig_train$class_resid)
+PART_tree_cm_train
+```
+
+
+## Evolutionary Decision Trees
+
+```{r evtree_decision_tree_v1, echo=TRUE}
+
+# Further sampling for the evtree because it takes a long time...
+index_evtree <- sample(1:nrow(orig_train), 100, replace = FALSE)
+orig_train_subset <- orig_train[index_evtree, ]
+
+# Train a stard evtree decision tree on above data
+evtree_tree <- evtree::evtree(formula = class_resid ~ T_11 + sd11, #T_11 + band.diff + ref_SST + satz + range11 + sd11,
+                              data = orig_train, 
+                              minsplit = 10)
+
+# Plot tree
+plot(evtree_tree)
+
+# Evaluate the decision tree's accuracy on validation set
+evtree_tree_predictions <- predict(evtree_tree, newdata = orig_test, type = 'class', na.action = na.pass)
+
+# Draw confusion matrix for predictions on evtree tree
+evtree_tree_cm <- caret::confusionMatrix(data = evtree_tree_predictions, reference = orig_test$class_resid)
+evtree_tree_cm
+
+```
+
+Second iteration - further testing...
+```{r evtree_decision_tree_v2, echo=TRUE}
+
+# Further sampling for the evtree because it takes a long time...
+index_evtree <- sample(1:nrow(orig_train), 10000, replace = FALSE)
+orig_train_subset <- orig_train[index_evtree, ]
+
+# Train a stard evtree decision tree on above data
+evtree_tree <- evtree::evtree(formula = class_resid ~ T_11 + T_12 + band.diff + ref_SST + (ref_SST - T_11) + (ref_SST - T_12) + x2 +
+    abs(satz) + range11 + sd11 + range12 + sd12 + x3, 
+                           data = orig_train, 
+                           minbucket = 100)
+
+# Plot tree
+plot(evtree_tree)
+
+# Evaluate the decision tree's accuracy on validation set
+evtree_tree_predictions <- predict(evtree_tree, newdata = orig_test, type = 'class', na.action = na.pass)
+
+# Draw confusion matrix for predictions on evtree tree
+evtree_tree_cm <- caret::confusionMatrix(data = evtree_tree_predictions, reference = orig_test$class_resid)
+evtree_tree_cm
+
+```
+
+
+## Eve More Testing...
+
+### Testing evtree
+```{r testing_evtree, echo=TRUE}
+# Example straight from evtree vignette
+# Load data
+data('BBBClub', package = 'evtree')
+head(BBBClub)
+dim(BBBClub)
+
+# Now fit tree
+set.seed(1090)
+ev <- evtree::evtree(choice ~ ., data = BBBClub, minbucket = 10, maxdepth = 2)
+plot(ev)
+ev
+
+```
+
+### Testing cforest
+```{r testing_cforest, echo=TRUE}
+library (party)
+
+data ("GlaucomaMVF", package = "ipred")
+
+inputData <- GlaucomaMVF  # plugin your data here, with 'Class' as dependent variable
+
+set.seed (100)
+
+train <- sample(1:nrow(inputData), 0.7*nrow(inputData))  # random sample
+
+trainData <- inputData[train,]  # training data
+
+testData <- inputData[-train,]  # test data
+
+cTreeMod <- ctree (Class ~ ., data = trainData)  # fit cTree with 'Class' as dependent
+
+actuals <- testData$Class # actuals
+
+predicted <- predict(cTreeMod, newdata = testData) # predicted
+
+table(true = actuals, pred = predicted) # confusion matrix
+
+mean (testData$Class != predicted) # Misclassification Error %
+
+cForestMod <- cforest(Class ~ ., data = trainData)  # random Forest model
+
+actuals <- testData$Class # actuals
+
+predicted <- predict(cTreeMod, newdata = testData) # predicted
+
+table (true = actuals, pred = predict(cForestMod, newdata = testData))
+
+mean (testData$Class != predicted) # Misclassification Error %
+```
+
+
+
+
