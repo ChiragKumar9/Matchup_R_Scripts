@@ -7,7 +7,7 @@
 
 Log.info('Calculating hypercubes...')
 
-config$geophys.var <- "SST3b" # SST to be used
+config$geophys.var <- "SST2b" # SST to be used
 
 # -----------------------------------------------------------------------------#
 # --- Install required R packages ----
@@ -54,16 +54,17 @@ if (exists('orig')) {
 }
 # ------------------------------------------------------------------------------
 
-# ------------------------------------------------------------------------------
-# ------------------------------------------------------------------------------
-# --- DEFINE FACTORS FOR EACH VARIABLE USED TO DEFINE BINS IN THE HYPERCUBE
-# ------------------------------------------------------------------------------
-# ------------------------------------------------------------------------------
 
-Log.info('Defining factors for variables in hypercube...')
+# ------------------------------------------------------------------------------
+# ------------------------------------------------------------------------------
+# --- WORK ON SST RESIDUALS
+# ------------------------------------------------------------------------------
+# ------------------------------------------------------------------------------
 
 # -----------------------------------------------------------------------------#
-# --- 1. Day or Night ----   
+# --- 1. Select day/night or only night records ----
+
+# --- Define Day or Night:  
 # --- Use 90 degrees as the solar zenith angle threshold separating day and night.
 # --- This is for MODIS and VIIRS processing (80 degrees is used for AVHRR).
 
@@ -84,6 +85,15 @@ orig$day.or.nite <- day.or.nite # Add day or night to 'orig' tibble
 
 table(orig$day.or.nite, useNA = 'always')
 
+# --- Plot proportion of day or night matchups
+
+barplot(prop.table(xtabs(~ orig$day.or.nite)),
+  names = names(table(orig$day.or.nite)),
+  main = paste(config$sensor, "- Matchups by Day/Night"),
+  xlab = "Proportion of Matchups",
+  col = "lemonchiffon2", horiz = TRUE, las = 1)
+box()
+
 # --- NOTE: For long IR SST (Modis) and SST2b (VIIRS),
 # --- hypercube statistics are calculated for both day and night.
 # --- Instead, we do not calculate SST4 (MODIS) or SST3b (VIIRS) statistics
@@ -99,19 +109,129 @@ if (config$geophys.var == "SST4" | config$geophys.var == "SST3b") {
   # Work with day AND night records
   orig2 <- dplyr::tbl_df(orig)
 } # End of check for SST4 or SST3b (mid-IR SSTs for MODIS and VIIRS respectively)
-
-# --- Plot proportion of day or night matchups
-
-barplot(prop.table(xtabs(~ orig2$day.or.nite)),
-  names = names(table(orig2$day.or.nite)),
-  main = paste(config$sensor, "- Matchups by Day/Night"),
-  xlab = "Proportion of Matchups",
-  col = "lemonchiffon2", horiz = TRUE, las = 1)
-box()
 # ------------------------------------------------------------------------------
 
 # -----------------------------------------------------------------------------#
-# --- 2. Quarters of the year ----
+# --- 2. Define variable to be used as SST residuals -----
+
+# MODIS LWIR SST residuals
+if ((config$sensor == "MODIS") & (config$geophys.var == "SST")) {
+  sst.resid <- orig2$sst.minus.buoy.sst
+}
+
+# MODIS MWIR SST residuals
+if ((config$sensor == "MODIS") & (config$geophys.var == "SST4")) {
+  sst.resid <- orig2$sst4.minus.buoy.sst
+}
+
+# VIIRS LWIR SST residuals
+if ((config$sensor == "VIIRS") & (config$geophys.var == "SST2b")) {
+  sst.resid <- orig2$sst.minus.buoy.sst
+}
+
+# VIIRS MWIR SST residuals
+if ((config$sensor == "VIIRS") & (config$geophys.var == "SST3b")) {
+  sst.resid <- orig2$sst3b.minus.buoy.sst
+}
+
+Log.info(paste("Using SST residuals for",
+  config$sensor,
+  config$algorithm$type,
+  config$geophys.var, "..."))
+# ------------------------------------------------------------------------------
+
+# -----------------------------------------------------------------------------#
+# --- 3. Define SST quality levels for which hypercube stats will be calculated ----
+
+Log.info(paste("Looking at quality values for",
+  config$sensor, config$algorithm$type, config$geophys.var, "..."))
+
+# --- MODIS LWIR SST
+if ((config$sensor == "MODIS") & (config$geophys.var == "SST")) {
+  if (config$algorithm$type == "latband1") {
+    orig2$qsst.unif <- ordered(orig2$qsst.new)
+    quality.levels <- sort(unique(orig2$qsst.new))	# Quality levels to analyze
+    orig2$resid.unif <- orig2$sst.minus.buoy.sst
+  } else if (config$algorithm$type == "V5") {
+    orig2$qsst.unif <- ordered(orig2$qsst)
+    quality.levels <- sort(unique(orig2$qsst))	    # Quality levels to analyze
+    orig2$resid.unif <- orig2$sst.minus.buoy.sst
+  }
+}
+
+# --- MODIS MWIR SST
+if ((config$sensor == "MODIS") & (config$geophys.var == "SST4")) {
+  if (config$algorithm$type == "latband1") {
+    orig2$qsst.unif <- ordered(orig2$qsst4.new)
+    quality.levels <- sort(unique(orig2$qsst4.new))	  # Quality levels to analyze
+    orig2$resid.unif <- orig2$sst4.minus.buoy.sst
+  } else if (config$algorithm$type == "V5") {
+    orig2$qsst.unif <- ordered(orig2$qsst4)
+    quality.levels <- sort(unique(orig2$qsst4))	  # Quality levels to analyze
+    orig2$resid.unif <- orig2$sst4.minus.buoy.sst
+  }
+}
+
+# --- VIIRS LWIR SST
+if ((config$sensor == "VIIRS") & (config$geophys.var == "SST2b")) {
+  orig2$qsst.unif <- ordered(orig2$qsst)
+  quality.levels <- sort(unique(orig2$qsst))	  # Quality levels to analyze
+  orig2$resid.unif <- orig2$sst.minus.buoy.sst
+}
+
+# --- VIIRS MWIR SST
+if ((config$sensor == "VIIRS") & (config$geophys.var == "SST3b")) {
+  orig2$qsst.unif <- ordered(orig2$qsst3b)
+  quality.levels <- sort(unique(orig2$qsst3b))	  # Quality levels to analyze
+  orig2$resid.unif <- orig2$sst3b.minus.buoy.sst
+}
+
+table(quality.levels)
+table(orig2$qsst.unif)
+# ------------------------------------------------------------------------------
+
+# -----------------------------------------------------------------------------#
+# --- 4. ADD "skin" bias to SST residuals ----
+# --- This will make the residuals be referenced to a skin depth.
+# Suppose the SST algorithm and buoy measurements were both perfect.
+# In this case, each residual should be -0.17 because
+# SST resid = skin satellite SST - buoy SST and
+# whatever the SST, the satellite would always be 0.17C cooler.
+
+# From GHRSST User manual (sent by Kay 1 July 2017):  
+# The application of the SSES bias provided in the L2P product maintains the
+# depth of the satellite SST observation.
+# So, if the satellite SST is SSTskin, then the application of the SSES bias
+# will provide an improved SSTskin relative to the reference. 
+
+# --- Skin bias is 0.17 for all IR radiometers and wavelengths.
+# --- This bias means that the skin is, on average, 0.17 COLDER than
+# --- buoy (bulk) SSTs.
+
+skin.offset <- 0.17 	# Skin SSTs are 0.17 degrees COLDER than "bulk" SSTs
+
+Log.info(paste("Adding skin bias to residuals for",
+  config$sensor, 
+  config$algorithm$type,
+  config$geophys.var, "..."))
+
+# Add skin offset to SST residuals
+SST.res <- sst.resid + skin.offset	  # SST residuals PLUS skin offset
+
+rm(skin.offset)
+# ------------------------------------------------------------------------------
+
+
+# ------------------------------------------------------------------------------
+# ------------------------------------------------------------------------------
+# --- DEFINE FACTORS FOR EACH VARIABLE USED TO DEFINE BINS IN THE HYPERCUBE
+# ------------------------------------------------------------------------------
+# ------------------------------------------------------------------------------
+
+Log.info('Defining factors for variables in hypercube...')
+
+# -----------------------------------------------------------------------------#
+# --- 5. Quarters of the year ----
 
 tt1 <- lubridate::quarter(orig2$sat.timedate, with_year = FALSE)
 
@@ -134,18 +254,17 @@ barplot(prop.table(xtabs(~ quarter.of.yr)), names=names(table(quarter.of.yr)),
 	col = "lemonchiffon2", horiz = TRUE, las = 1)
 box()
 
-rm(tt1)
+rm(tt1); gc()
 # ------------------------------------------------------------------------------
 
 # -----------------------------------------------------------------------------#
-# --- 3. Latitude intervals ----
+# --- 6. Latitude intervals ----
 
-latband <- orig2$latband
-
-check <- tapply(orig2$buoy.lat, INDEX = latband,
+check <- tapply(orig2$buoy.lat, INDEX = orig2$latband,
 	FUN = range, simplify = TRUE)
 
-barplot(prop.table(xtabs(~ latband)), names.arg = levels(latband),
+barplot(prop.table(xtabs(~ orig2$latband)),
+  names.arg = levels(orig2$latband),
 	main = paste(config$sensor,"- Matchups by Latitude Interval"),
 	xlab = "Proportion of Matchups",
 	col = "lemonchiffon2", horiz = TRUE, las = 1, cex.names = 0.7)
@@ -153,7 +272,7 @@ box()
 # ------------------------------------------------------------------------------
 
 # -----------------------------------------------------------------------------#
-# --- 4. Buoy SST intervals ----
+# --- 7. Buoy SST intervals ----
 
 bsstint <- ordered(cut(orig2$buoy.sst,
 	breaks = c(-2, 3, 8, 13, 18, 23, 28, max(orig2$buoy.sst, na.rm = TRUE) + 0.1),
@@ -171,15 +290,15 @@ barplot(prop.table(xtabs(~ bsstint)), names.arg=levels(bsstint),
 	col = "lemonchiffon2", horiz = TRUE, cex.names = 0.7, las = 1)
 box()
 
-quantile(orig2$buoy.sst, probs=c(0, 0.20, 0.40, 0.60, 0.80, 1))
+quantile(orig2$buoy.sst, probs=c(0, 0.20, 0.40, 0.50, 0.60, 0.80, 1))
 # ------------------------------------------------------------------------------
 
 # -----------------------------------------------------------------------------#
-# --- 5. Satellite zenith angle intervals ----
+# --- 8. Satellite zenith angle intervals ----
 # --- NOTE: This considers only ABSOLUTE values of zenith angle
 
 satzint <- ordered(cut(abs(orig2$satz),
-	breaks=c(0, 30, 40, 50, max(abs(orig2$satz))+ 5),
+	breaks=c(0, 30, 40, 50, max(abs(orig2$satz)) + 5),
 	labels=c("0 to 30 deg","30+ to 40 deg","40+ to 50 deg","50+ deg"), 
 	include.lowest=TRUE))
 
@@ -191,11 +310,11 @@ barplot(prop.table(xtabs(~ satzint)), names.arg = levels(satzint),
 	col = "lemonchiffon2", horiz = TRUE, cex.names = 0.5, las = 1)
 box()
 
-quantile(abs(orig2$satz), probs = seq(from = 0, to = 1, by = 0.25))
+quantile(abs(orig2$satz), probs = seq(from = 0, to = 1, by = 0.2))
 # ------------------------------------------------------------------------------
 
 # -----------------------------------------------------------------------------#
-# --- 6. Channel differences ----
+# --- 9. Channel differences ----
 
 # --- MODIS or VIIRS LWIR SST (SST for MODIS, SST2b for VIIRS)
 # --- 11 micron BT minus 12 micron BT intervals
@@ -238,7 +357,6 @@ if (((config$sensor == "MODIS") | (config$sensor == "VIIRS")) &
     col = "lemonchiffon2", horiz = TRUE, cex.names = 0.8, las = 1)
   box()
   
-  rm(BTdiff.int)
   rm(uu0); gc()
 } # End of BT difference calculation for LWIR SSTs
 
@@ -248,9 +366,7 @@ if (((config$sensor == "MODIS") | (config$sensor == "VIIRS")) &
 
 if (config$sensor == "MODIS" & config$geophys.var == "SST4") {
   
-  uu0 <- orig2$cen.39.40.ref.new
-  
-  BTdiff.int <- ordered(cut(uu0,
+  BTdiff.int <- ordered(cut(orig2$cen.39.40.ref.new,
     breaks=c(min(uu0, na.rm=T)-0.01, -0.5, 0.0, 0.5, max(uu0, na.rm=TRUE)+0.01),
     labels=c("< -0.5C", "-0.5+ to 0.0C", "0.0+ to 0.5C", ">0.5C"),
     include.lowest=TRUE))
@@ -310,132 +426,18 @@ if (config$sensor == "VIIRS" & config$geophys.var == "SST3b") {
 
 # ------------------------------------------------------------------------------
 # ------------------------------------------------------------------------------
-# --- WORK ON SST RESIDUALS
+# --- COMBINATION OF VARIABLES THAT DEFINE BINS IN THE HYPERCUBE
 # ------------------------------------------------------------------------------
 # ------------------------------------------------------------------------------
 
 # -----------------------------------------------------------------------------#
-# --- Define variable to be used as SST residuals -----
-
-# MODIS LWIR SST residuals
-if ((config$sensor == "MODIS") & (config$geophys.var == "SST")) {
-  sst.resid <- orig2$sst.minus.buoy.sst
-}
-
-# MODIS MWIR SST residuals
-if ((config$sensor == "MODIS") & (config$geophys.var == "SST4")) {
-  sst.resid <- orig2$sst4.minus.buoy.sst
-}
-
-# VIIRS LWIR SST residuals
-if ((config$sensor == "VIIRS") & (config$geophys.var == "SST2b")) {
-  sst.resid <- orig2$sst.minus.buoy.sst
-}
-
-# VIIRS MWIR SST residuals
-if ((config$sensor == "VIIRS") & (config$geophys.var == "SST3b")) {
-  sst.resid <- orig2$sst3b.minus.buoy.sst
-}
-
-Log.info(paste("Using SST residuals for",
-  config$sensor,
-  config$algorithm$type,
-  config$geophys.var, "..."))
-# ------------------------------------------------------------------------------
-
-# -----------------------------------------------------------------------------#
-# --- Define SST quality levels for which hypercube stats will be calculated ----
-
-Log.info(paste("Looking at quality values for",
-  config$sensor, config$algorithm$type, config$geophys.var, "..."))
-
-# --- MODIS LWIR SST
-if ((config$sensor == "MODIS") & (config$geophys.var == "SST")) {
-  if (config$algorithm$type == "latband1") {
-    orig$qsst.unif <- ordered(orig$qsst.new)
-    quality.levels <- sort(unique(orig$qsst.new))	# Quality levels to analyze
-    orig$resid.unif <- orig$sst.minus.buoy.sst
-  } else if (config$algorithm$type == "V5") {
-    orig$qsst.unif <- ordered(orig$qsst)
-    quality.levels <- sort(unique(orig$qsst))	    # Quality levels to analyze
-    orig$resid.unif <- orig$sst.minus.buoy.sst
-  }
-}
-
-# --- MODIS MWIR SST
-if ((config$sensor == "MODIS") & (config$geophys.var == "SST4")) {
-  if (config$algorithm$type == "latband1") {
-    orig$qsst.unif <- ordered(orig$qsst4.new)
-    quality.levels <- sort(unique(orig$qsst4.new))	  # Quality levels to analyze
-    orig$resid.unif <- orig$sst4.minus.buoy.sst
-  } else if (config$algorithm$type == "V5") {
-    orig$qsst.unif <- ordered(orig$qsst4)
-    quality.levels <- sort(unique(orig$qsst4))	  # Quality levels to analyze
-    orig$resid.unif <- orig$sst4.minus.buoy.sst
-  }
-}
-
-# --- VIIRS LWIR SST
-if ((config$sensor == "VIIRS") & (config$geophys.var == "SST2b")) {
-  orig$qsst.unif <- ordered(orig$qsst)
-  quality.levels <- sort(unique(orig$qsst))	  # Quality levels to analyze
-  orig$resid.unif <- orig$sst.minus.buoy.sst
-}
-
-# --- VIIRS MWIR SST
-if ((config$sensor == "VIIRS") & (config$geophys.var == "SST3b")) {
-  orig$qsst.unif <- ordered(orig$qsst3b)
-  quality.levels <- sort(unique(orig$qsst3b))	  # Quality levels to analyze
-  orig$resid.unif <- orig$sst3b.minus.buoy.sst
-}
-
-table(quality.levels)
-table(orig$qsst.unif)
-# ------------------------------------------------------------------------------
-
-# -----------------------------------------------------------------------------#
-# --- ADD "skin" bias to SST residuals ----
-# --- This will make the residuals be referenced to a skin depth.
-# Suppose the SST algorithm and buoy measurements were both perfect.
-# In this case, each residual should be -0.17 because
-# SST resid = skin satellite SST - buoy SST and
-# whatever the SST, the satellite would always be 0.17C cooler.
-
-# From GHRSST User manual (sent by Kay 1 July 2017):  
-# The application of the SSES bias provided in the L2P product maintains the
-# depth of the satellite SST observation.
-# So, if the satellite SST is SSTskin, then the application of the SSES bias
-# will provide an improved SSTskin relative to the reference. 
-
-# --- Skin bias is 0.17 for all IR radiometers and wavelengths.
-# --- This bias means that the skin is, on average, 0.17 COLDER than
-# --- buoy (bulk) SSTs.
-
-skin.offset <- 0.17 	# Skin SSTs are 0.17 degrees COLDER than "bulk" SSTs
-
-Log.info(paste("Adding skin bias to residuals for",
-  config$sensor, 
-  config$algorithm$type,
-  config$geophys.var, "..."))
-	
-# Add skin offset to SST residuals
-SST.res <- sst.resid + skin.offset	  # SST residuals PLUS skin offset
-
-rm(skin.offset)
-# ------------------------------------------------------------------------------
-
-# -----------------------------------------------------------------------------#
-# --- Generate data frame with set of coordinates for each bin ----
+# --- 10. Generate data frame with set of coordinates for each bin ----
 # --- All possible coordinate combinations are listed.
-# --- The bin coordinates as currently defined yield 26880 bins
-# --- for day/night situations.
-# --- This number comes from: 2 * 5 * 4 * 6 * 7 * 4 * 4 
-# --- (the number of levels for each dimension).
 
 n.of.bins <- length(levels(orig2$day.or.nite)) *
   length(levels(orig2$qsst.unif)) *
   length(levels(quarter.of.yr)) * 
-  length(levels(latband)) *
+  length(levels(orig2$latband)) *
   length(levels(bsstint)) *
   length(levels(satzint)) *
   length(levels(BTdiff.int))
@@ -446,7 +448,7 @@ ttt <- data.frame(expand.grid(list(
   levels(orig2$day.or.nite),
   levels(orig2$qsst.unif),
   levels(quarter.of.yr),
-  levels(latband),
+  levels(orig2$latband),
   levels(bsstint),
   levels(satzint),
   levels(BTdiff.int))))
@@ -462,14 +464,14 @@ rm(ttt); gc()
 # ------------------------------------------------------------------------------
 
 # -----------------------------------------------------------------------------#
-# --- Generate "quality.cube.input" data frame to be used as input ---- 
+# --- 11. Generate "quality.cube.input" data frame to be used as input ---- 
 # --- for calculation of hypercube quantities.
 
 tt1 <- data.frame(
   day.or.nite = orig2$day.or.nite,
   qsst = orig2$qsst.unif,
   quarter.of.yr = quarter.of.yr,
-	latband = latband,
+	latband = orig2$latband,
 	bsstint = bsstint,
 	satzint = satzint,
 	BTdiff.int = BTdiff.int,
@@ -485,7 +487,7 @@ rm(tt1); gc()
 # ------------------------------------------------------------------------------
 
 # -----------------------------------------------------------------------------#
-# --- Calculate statistics of SST residuals for each bin ----
+# --- 12. Calculate statistics of SST residuals for each bin ----
 
 tt1 <- quality.cube.input %>%
   dplyr::group_by(day.or.nite, qsst, quarter.of.yr, latband, bsstint,
@@ -503,7 +505,10 @@ tt1 <- quality.cube.input %>%
 hypercube.stats <- dplyr::left_join(bin.coords, tt1) %>%
   dplyr::mutate(res.N = dplyr::if_else(is.na(res.N), 0L, res.N)) %>%
   dplyr::arrange(day.or.nite, quarter.of.yr, latband,
-    bsstint, satzint, BTdiff.int, qsst)
+    bsstint, satzint, BTdiff.int, qsst) %>%
+  dplyr::mutate(res.sd = ifelse(res.N < 2, NA, res.sd),
+    res.mad = ifelse(res.N < 2, NA, res.mad),
+    res.rsd = ifelse(res.N < 2, NA, res.rsd))
 
 Log.info(paste('Hypercube statistics object has',
   nrow(hypercube.stats), 'rows...'))
@@ -519,14 +524,14 @@ Log.info(paste('Hypercube statistics object has',
 # ------------------------------------------------------------------------------
 
 # -----------------------------------------------------------------------------#
-# --- TO DO: Decide if we use a fill-in value for empty bins ----
+# --- 13. TO DO: Decide if we use a fill-in value for empty bins ----
 
 # --- For now we do not use any fill-in values.
 # --- Conversation with Kay, 1 July 2017.
 # ------------------------------------------------------------------------------
 
 # -----------------------------------------------------------------------------#
-# --- Write out hypercube results ----
+# --- 14.Write out hypercube results ----
 # --- First, write out statistics for day AND night, and for ALL quality levels
 
 cube.outdir <- paste0(config$results_dir,'hypercubes/') # Dir for output file
@@ -573,11 +578,18 @@ for (i in levels(orig2$day.or.nite)) {
   } # End of looping through quality levels (index j)
 } # End of looping through day or night (index i)
 
-rm(tt1, cube.outdir, outfile); gc()
+rm(tt1, cube.outdir, outfile, i, j); gc()
+# ------------------------------------------------------------------------------
+
+
+# ------------------------------------------------------------------------------
+# ------------------------------------------------------------------------------
+# --- GRAPHICS DESCRIBING BIN OCCUPATION
+# ------------------------------------------------------------------------------
 # ------------------------------------------------------------------------------
 
 # -----------------------------------------------------------------------------#
-# --- Calculate bin occupation statistics for each quality level -----
+# --- 15. Calculate bin occupation statistics for each quality level -----
 
 # --- Table with number of bins occupied and empty
 tt3 <- hypercube.stats %>%
@@ -611,7 +623,7 @@ ggplot2::ggplot(data = tt4, ggplot2::aes(x = qsst, y = prop, fill = occupied)) +
 # ------------------------------------------------------------------------------
 
 # -----------------------------------------------------------------------------#
-# --- Plot histograms of numbers of matchups in non-empty bins ----
+# --- 16. Plot histograms of numbers of matchups in non-empty bins ----
 
 tt3 <- hypercube.stats %>%
   dplyr::filter(res.N > 0) %>%
@@ -632,7 +644,7 @@ rm(tt3, uuu)
 
 
 # -----------------------------------------------------------------------------#
-# --- Clean up all objects EXCEPT ones we want to keep ----
+# --- 17. Clean up all objects EXCEPT ones we want to keep ----
 # --- Do not delete objects with names equal to "orig" or
 # --- starting with string "AQUA" or "TERRA" or "config".
 
@@ -641,9 +653,12 @@ tt2a <- str_detect(tt1, "^orig$")
 tt2b <- str_detect(tt1, "^AQUA")
 tt2c <- str_detect(tt1, "^TERRA")
 tt2d <- str_detect(tt1, "^config")
-tt3 <- tt2a | tt2b | tt2c | tt2d
+tt2e <- str_detect(tt1, "^VIIRS")
+tt3 <- tt2a | tt2b | tt2c | tt2d | tt2e
 tt4 <- tt1[!tt3]
 rm(list=tt4)
 
-rm(tt1,tt2a,tt2b,tt2c,tt2d,tt3,tt4); gc()
+rm(tt1,tt2a,tt2b,tt2c,tt2d,tt2e,tt3,tt4); gc()
 # ------------------------------------------------------------------------------
+
+
