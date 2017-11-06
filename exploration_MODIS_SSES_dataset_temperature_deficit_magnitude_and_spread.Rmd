@@ -1,0 +1,468 @@
+---
+title: "Exploration of a MODIS SSES Dataset - Temperature Deficit"
+author: "Chirag Kumar and Guillermo Podesta"
+output:
+  html_notebook:
+    toc: True
+    theme: united
+---
+
+
+# Prep Workspace and Data
+We use MODIS matchups from 2002 - 2016 that have been read in through a previous script. Here we simply load
+the matchups, any necessary packages, and define necessary functions.
+
+```{r prep_workspace, include=FALSE}
+# Import necessary packages
+require(ggplot2)
+require(dplyr)
+require(RColorBrewer)
+require(circular)
+require(ggmap)
+require(raster)
+require(sfsmisc)
+require(rasterVis)
+require(rgdal)
+require(rpart)
+require(rpart.plot)
+require(caret)
+require(evtree)
+require(ctree)
+require(partykit)
+require(randomForest)
+require(RWeka)
+require(DMwR)
+
+ggplot <- function(...) {ggplot2::ggplot(...) + theme_bw()}
+
+# Define secant function
+secant.deg <- function(x) {1 / (cos(circular::rad(x)))}
+
+# Define function to turn output of gettree from random forest into a dendrogram
+to.dendrogram <- function(dfrep,rownum=1,height.increment=0.1){
+
+  if(dfrep[rownum,'status'] == -1){
+    rval <- list()
+
+    attr(rval,"members") <- 1
+    attr(rval,"height") <- 0.0
+    attr(rval,"label") <- dfrep[rownum,'prediction']
+    attr(rval,"leaf") <- TRUE
+
+  }else{##note the change "to.dendrogram" and not "to.dendogram"
+    left <- to.dendrogram(dfrep,dfrep[rownum,'left daughter'],height.increment)
+    right <- to.dendrogram(dfrep,dfrep[rownum,'right daughter'],height.increment)
+    rval <- list(left,right)
+
+    attr(rval,"members") <- attr(left,"members") + attr(right,"members")
+    attr(rval,"height") <- max(attr(left,"height"),attr(right,"height")) + height.increment
+    attr(rval,"leaf") <- FALSE
+    attr(rval,"edgetext") <- dfrep[rownum,'split var']
+    #To add Split Point in Dendrogram
+    #attr(rval,"edgetext") <- paste(dfrep[rownum,'split var'],"\n<",round(dfrep[rownum,'split point'], digits = 2),"=>", sep = " ")
+  }
+
+  class(rval) <- "dendrogram"
+
+  return(rval)
+}
+
+# Source own functions
+# Define direwctory where functions are for each operating system
+
+if (Sys.info()["sysname"] == 'Windows') {
+  fun.dir <- 'D:/matchups/r-projects/Matchup_R_Scripts/Functions/'
+} else if (Sys.info()["sysname"] == 'Linux') {
+  fun.dir <- '/home/ckk/Projects/Matchup_R_Scripts/Functions/'
+}
+
+fun.file <- paste0(fun.dir, 'common_functions.R')
+
+source(file = fun.file,
+  local = FALSE, echo = FALSE, verbose = FALSE)
+rm(fun.dir, fun.file)
+
+
+# Load data
+# For 787
+linux_dir <- '~/Projects/Matchup_R_Scripts/Results/objects/'
+# For Laptop
+#linux_dir <- '~/Projects/Matchup_R_Scripts/'
+linux_file <- 'MODIS_Aqua_GSFC_ALL_Class_6.4.1_ao_2017_04_12_with_ancillary.Rdata'
+AQUA_file <- paste0(linux_dir, linux_file)
+
+if (!file.exists(AQUA_file)) {
+    stop('Input file does not exist')
+  } else {
+    load(AQUA_file, verbose = TRUE)
+    AQUA <- MODIS_Aqua_GSFC_ALL_Class_6.4.1_ao_2017_04_12
+  }
+
+rm(linux_dir, linux_file, AQUA_file)
+rm(MODIS_Aqua_GSFC_ALL_Class_6.4.1_ao_2017_04_12)
+
+set.seed(42)
+```
+
+The matchup file read in at a previous step is not filtered and contains too many variables. For the purpose of 
+this analysis, we use only nighttime matchups with a quality of 0, 1, or 2 and only keep variables from the infrared
+channels we use.
+
+```{r prep_data, echo=TRUE}
+# Turn POSIXct objects to characters bc dplyr doesn't support POSIXct
+AQUA$sat.timedate <- as.character(AQUA$sat.timedate)
+AQUA$buoy.timedate <- as.character(AQUA$buoy.timedate)
+
+# Apply basic filtering
+AQUA <- dplyr::tbl_df(AQUA) %>%
+  dplyr::filter(solz >= 90) %>%
+  dplyr::filter(qsst == 0 | qsst == 1 | qsst == 2)
+
+# Now grab only variables that may be used to determine retrieval accuracy and make some new variables (i.e. x1, x2, x3)
+# Create df of features
+orig <- dplyr::tbl_df(AQUA) %>%
+  dplyr::mutate(T_11 = cen.11000,
+    T_12 = cen.12000,
+    band.diff = T_11 - T_12,
+    ref_SST = cen.ref.type.1.SST,
+    x2 = band.diff * ref_SST,
+    x3 = ((secant.deg(satz) - 1) * band.diff),
+    lat = buoy.lat,
+    lon = buoy.lon,
+    sd11 = sd.11000,
+    sd12 = sd.12000,
+    range11 = max.11000 - min.11000,
+    range12 = max.12000 - min.12000,
+    diff.med.min11 = med.11000 - min.11000,
+    diff.med.min12 = med.12000 - min.12000,
+    qsst = qsst,
+    buoy.sst = buoy.sst,
+    cell5deg = cell5deg,
+    buoy.timedate = buoy.timedate,
+    SST.resid.SMB = cen.sst - (buoy.sst - 0.17)) %>% # SMB = sat minus buoy - also debias buoy.sst by turning buoy.sst into a skin measurement
+  dplyr::select(T_11, T_12, band.diff, ref_SST, x2, x3, satz, lon, lat, sd11, sd12, range11, range12, diff.med.min11, diff.med.min12,
+    qsst, buoy.sst, cell5deg, buoy.timedate, SST.resid.SMB)
+
+```
+
+
+# Increased Spread of Residuals at Higher Buoy SSTs
+We are interested in exploring the combinations of geophysical conditions that impact residual magnitude.
+For starters, we plot the buoy SST against the SST residual.
+```{r residuals_vs_buoy_SST, echo = TRUE}
+ccc = RColorBrewer::brewer.pal(n = 8, 'YlOrRd')
+ccc <- ccc[3:8]
+
+ggplot2::ggplot(data = orig, mapping = aes(x = buoy.sst, y = SST.resid.SMB,
+  fill = cut(..count.., c(0, 100, 500, 1000, 2500, 5000, Inf)))) +
+  geom_bin2d(bins = 100) +
+  #scale_fill_gradientn(colours = ccc) +
+  scale_fill_hue('count') +
+  geom_abline(slope = 0, intercept = 0, col = 'black')
+
+```
+
+We see that for higher buoy SST values, the spread and magnitude of the residuals increases. At, say, 25 deg C this trend becomes even 
+more evident where there is a clump of retrievals around residual = -2.
+We demonstrate that observation with the following statistics.
+
+```{r table_residual_spread_for_buoy_sst_cutoffs, echo = TRUE}
+residuals_buoy_sst_lm <- lm(SST.resid.SMB ~ buoy.sst, data = orig)
+
+cutoff <- 23
+
+summary(orig$SST.resid.SMB[orig$buoy.sst < cutoff])
+summary(orig$SST.resid.SMB[orig$buoy.sst >= cutoff])
+
+IQR(orig$SST.resid.SMB[orig$buoy.sst < cutoff])
+IQR(orig$SST.resid.SMB[orig$buoy.sst >= cutoff])
+```
+
+We see very clearly that the spread and magnitude of the residual increases as the buoy SST increases.
+This trend becomes fairly evident at an SST of over 23 degrees Celsius. We now explore the nature of 
+this increase and hypothesize to what may cause it.
+
+In terms of identifying SST retrievals of varying residual magnitudes, figuring out what causes this spread and magnitude
+increase would enable us to identify those retrievals.
+
+# Atmospheric Absorption at Warmer SSTs
+The Clausius-Clapeyron equation says that as temperature increases, the atmosphere can hold more water vapor.
+The temperature deficit is a measure of atmospheric absorption so we should see it increase with SST.
+
+```{r temp_deficit_vs_buoy_sst, echo = TRUE}
+
+ccc = RColorBrewer::brewer.pal(n = 8, 'YlOrRd')
+ccc <- ccc[3:8]
+
+temp_deficit <- orig$buoy.sst - orig$T_11
+
+ggplot2::ggplot(data = orig, mapping = aes(x = buoy.sst, y = temp_deficit,
+  fill = cut(..count.., c(0, 100, 500, 1000, 2500, 5000, Inf)))) +
+  geom_bin2d(bins = 100) +
+  scale_fill_hue('count')
+  #scale_fill_gradientn(colours = ccc)
+
+```
+
+We have now observed, in multiple forms, that the residuals and temperature deficit increase in spread and magnitude as the
+buoy SST increases.
+
+We use the band.diff (T_11 - T_12) as a proxy for atmospheric absorption. Because atmospheric absorption 
+increases at higher SSTs, we should also see band.diff increase at higher SSTs.
+
+```{r band_diff_vs_buoy_SST, echo = TRUE}
+
+ccc = RColorBrewer::brewer.pal(n = 8, 'YlOrRd')
+ccc <- ccc[3:8]
+
+ggplot2::ggplot(data = orig, aes(x = buoy.sst, y = band.diff,
+  fill = cut(..count.., c(0, 100, 500, 1000, 2500, 5000, Inf)))) +
+  geom_bin2d(bins = 100) +
+  scale_fill_hue('count')
+  #scale_fill_gradientn(colours = ccc)
+
+```
+
+While band.diff does increase as SST increase in much of the same shape as temp_deficit increases with buoy SST,
+band.diff increases less implying that it becomes less responsive at higher SSTs! We can see this explicitly when
+we plot band.diff vs temp_deficit at SST greater than 23 degrees Celsius (a somewhat arbitrary value but we previously
+dubbed this our cutoff value.)
+
+```{r temp_deficit_vs_band_diff, echo = TRUE}
+
+ccc = RColorBrewer::brewer.pal(n = 8, 'YlOrRd')
+ccc <- ccc[3:8]
+
+#zz1 <- dplyr::tbl_df(orig) %>%
+#  dplyr::filter(qsst == 0)
+
+zz1 <- orig
+
+cutoff_SST <- 23
+
+temp_deficit <- zz1$buoy.sst - zz1$T_11
+
+uuu <- data.frame(temp_deficit = temp_deficit[zz1$buoy.sst > 23], band.diff = zz1$band.diff[zz1$buoy.sst > 23])
+
+# Take a sample of uuu bc loess requires lots of memory - for testing purposes
+set.seed(42)
+size <- 25000
+index <- sample(1:nrow(uuu), size, replace = FALSE)
+uuu <- uuu[index, ]
+
+ggplot2::ggplot(data = uuu, aes(x = band.diff, y = temp_deficit)) +
+  geom_bin2d(bins = 100) +
+  scale_fill_gradientn(colours = ccc) +
+  geom_smooth(method = 'loess', se = FALSE, span = 0.45)
+  #ggsave('band_diff_predictor_of_temp_deficit_different_in_situ_windows.pdf')
+
+# Regression equations and statistics for the three facets
+#uuu$temp_context_numeric <- factor(as.character(uuu$temp_context), labels = c(0, 1, 2), levels = c('(-Inf,10]', '(10,25]', '(25, Inf]'))
+
+#temp_less_10_lm <- lm(formula = band.diff ~ temp_deficit, data = uuu[uuu$temp_context_numeric == 0, ])
+#rSD_temp_less_10 <- IQR(temp_less_10_lm$residuals) / 1.348
+#cor_temp_less_10 <- cor(uuu[uuu$temp_context_numeric == 0, 'temp_deficit'], uuu[uuu$temp_context_numeric == 0, 'band.diff'])
+
+#temp_between_10_25_lm <- lm(formula = band.diff ~ temp_deficit, data = uuu[uuu$temp_context_numeric == 1, ])
+#rSD_temp_between_10_25 <- IQR(temp_between_10_25_lm$residuals) / 1.348
+#cor_temp_between_10_25 <- cor(uuu[uuu$temp_context_numeric == 1, 'temp_deficit'], uuu[uuu$temp_context_numeric == 1, 'band.diff'])
+
+#temp_greater_25_lm <- lm(formula = band.diff ~ temp_deficit, data = uuu[uuu$temp_context_numeric == 2, ])
+#rSD_temp_greater_25 <- IQR(temp_greater_25_lm$residuals) / 1.348
+#cor_temp_greater_25 <- cor(uuu[uuu$temp_context_numeric == 2, 'temp_deficit'], uuu[uuu$temp_context_numeric == 2, 'band.diff'])
+
+# Whole dataset for comparison
+#temp_all_lm <- lm(formula = band.diff ~ temp_deficit, data = uuu)
+#rSD_temp_all <- IQR(temp_all_lm$residuals) / 1.348
+#cor_temp_all <- cor(uuu$temp_deficit, uuu$band.diff)
+
+```
+
+To correct for this lose in proportionality between the temperature deficit and band difference
+at higher temperatures, the NLSST algorithm "scales" the band.diff by the reference SST and
+the secant of the satellite zenith angle.
+
+While these scaling measures help to create a term that is proportional to the temperature deficit at high SSTs,
+they do not completely fix the problem.
+
+We plot the "re-scaled" band difference against the temperature deficit and there is still a loss of
+proportionality at high re-scaled band difference values. High re-scaled band difference values
+refer to those where the atmospheric absorption is high (we know there is an issue there) or when the
+reference SST is large (again, we know there is an issue there too.)
+
+```{r temp_deficit_vs_x2, echo = TRUE}
+
+ccc = RColorBrewer::brewer.pal(n = 8, 'YlOrRd')
+ccc <- ccc[3:8]
+
+#zz1 <- dplyr::tbl_df(orig) %>%
+#  dplyr::filter(qsst == 0)
+
+zz1  <- orig
+
+cutoff_SST <- 23
+
+temp_deficit <- zz1$buoy.sst - zz1$T_11
+
+uuu <- data.frame(temp_deficit = temp_deficit[zz1$buoy.sst > 23], x2 = zz1$x2[zz1$buoy.sst > 23])
+
+# Take a sample of uuu bc loess requires lots of memory - for testing purposes
+set.seed(42)
+size <- 25000
+index <- sample(1:nrow(uuu), size, replace = FALSE)
+uuu <- uuu[index, ]
+
+ggplot2::ggplot(data = uuu, aes(x = x2, y = temp_deficit)) +
+  geom_bin2d(bins = 100) +
+  scale_fill_gradientn(colours = ccc) +
+  geom_smooth(method = 'loess', se = FALSE, span = 0.45)
+```
+
+
+
+```{r temp_deficit_vs_x3, echo = TRUE}
+
+ccc = RColorBrewer::brewer.pal(n = 8, 'YlOrRd')
+ccc <- ccc[3:8]
+
+#zz1 <- dplyr::tbl_df(orig) %>%
+#  dplyr::filter(qsst == 0)
+
+zz1 <- orig
+
+cutoff_SST <- 23
+
+temp_deficit <- zz1$buoy.sst - zz1$T_11
+
+uuu <- data.frame(temp_deficit = temp_deficit[zz1$buoy.sst > 23], x3 = zz1$x3[zz1$buoy.sst > 23])
+
+# Take a sample of uuu bc loess requires lots of memory - for testing purposes
+set.seed(42)
+size <- 25000
+index <- sample(1:nrow(uuu), size, replace = FALSE)
+uuu <- uuu[index, ]
+
+ggplot2::ggplot(data = uuu, aes(x = x3, y = temp_deficit)) +
+  geom_bin2d(bins = 100) +
+  scale_fill_gradientn(colours = ccc) +
+  geom_smooth(method = loess, se = FALSE, span = 0.45)
+```
+
+# Empirical Densities
+
+We now try to identify the combinations of conditions that lead to the retrievals with a larger residual magnitude
+when SST is greater than 23 deg C.
+We use empirical density estimates as our visualization tool.
+
+```{r empirical_density_sd11, echo = TRUE}
+
+qqq <- orig %>%
+  dplyr::filter(buoy.sst >= 23)
+
+ttt <- data.frame(condition = ifelse(qqq$sd11 > .05, ifelse(qqq$sd11 > .2, 2, 1), 0), resid = qqq$SST.resid.SMB)
+ttt$condition <- factor(ttt$condition, levels = c(0, 1, 2), labels = c('sd11 less than .05', 'sd11 in-between .05 and .2', 'sd11 greater than .2'))
+
+ggplot2::ggplot(data = ttt, aes(x = resid, fill = condition)) +
+  geom_density(alpha = .4, color = NA) +
+  geom_rug(aes(x = resid, y = 0), position = position_jitter(height = 0))
+```
+
+
+# Decision Trees
+
+## Prep Data for Decision Trees
+
+
+```{r prep_data_decision_trees, echo=TRUE}
+
+# Filter dataframe so we are only dealing with retrievals with an SST of above cutoff
+
+SST_cutoff <- 23
+
+orig_filtered <- dplyr::tbl_df(orig) %>%
+  dplyr::filter(buoy.sst > SST_cutoff)
+
+# Make classes
+class_resid <- cut(orig_filtered$SST.resid.SMB, breaks = c((min(orig_filtered$SST.resid.SMB)),
+                                                -.4,
+                                                .4,
+                                                (max(orig$SST.resid.SMB + 0.01))),
+                   labels = c('bad_low', 'good', 'bad_high'), include.lowest = TRUE)
+
+#class_resid <- ifelse(orig$SST.resid.SMB > .2, 'resid > .2', ifelse(orig$SST.resid.SMB < -.2, 'resid < -.2', '-.2 <= resid <= .2'))
+orig_filtered$class_resid <- as.factor(class_resid)
+table(orig_filtered$class_resid)
+
+orig_filtered %>% dplyr::group_by(class_resid) %>%
+  dplyr::summarise(min = min(SST.resid.SMB), max = max(SST.resid.SMB))
+
+# Divide data into training and validation sets
+prop_train <- .6
+len_train <- floor(prop_train * nrow(orig_filtered))
+index <- sample(1:nrow(orig_filtered), len_train, replace = FALSE)
+
+orig_filtered_train <- orig_filtered[index, ]
+orig_filtered_test <- orig_filtered[-index, ]
+
+```
+
+### Rebalance Classes
+
+
+```{r class_rebalance, echo=TRUE}
+# making orig_train only have two classes - we remove one class
+orig_filtered_train <- orig_filtered_train %>%
+  dplyr::filter(class_resid != 'bad_high') %>%
+  dplyr::select(-buoy.timedate)
+
+orig_filtered_train$class_resid <- factor(orig_filtered_train$class_resid, levels = c('bad_low', 'good'))
+
+# Do the same for orig_test
+orig_filtered_test <- orig_filtered_test %>%
+  dplyr::filter(class_resid != 'bad_high') %>%
+  dplyr::select(-buoy.timedate)
+
+orig_filtered_test$class_resid <- factor(orig_filtered_test$class_resid, levels = c('bad_low', 'good'))
+
+# SMOTE
+
+orig_filtered_train_smote <- DMwR::SMOTE(class_resid ~ ., as.data.frame(orig_filtered_train), perc.over = 100, perc.under = 200)
+
+# ROSE
+
+#orig_train_rose <- ROSE::ROSE(class_resid ~ ., as.data.frame(orig_train2), seed = 42)$data
+
+# Now check out the class inbalance
+table(orig_filtered_train$class_resid)
+
+table(orig_filtered_train_smote$class_resid)
+```
+
+## RPart Decision Trees
+
+```{r initialize_data, echo=TRUE}
+
+# Initialize data for the model
+orig_filtered_train_smote$ref_SST_minus_T_11 <- orig_filtered_train_smote$ref_SST - orig_filtered_train_smote$T_11
+orig_filtered_train_smote$ref_SST_minus_T_12 <- orig_filtered_train_smote$ref_SST - orig_filtered_train_smote$T_12
+
+orig_filtered_test$ref_SST_minus_T_11 <- orig_filtered_test$ref_SST - orig_filtered_test$T_11
+orig_filtered_test$ref_SST_minus_T_12 <- orig_filtered_test$ref_SST - orig_filtered_test$T_12
+```
+
+```{r rpart_decision_tree, echo = TRUE}
+
+clf_high_sst_smote <- rpart::rpart(formula = class_resid ~ T_11 + T_12 + band.diff + ref_SST + ref_SST_minus_T_11 + ref_SST_minus_T_12 + x2 +
+    abs(satz) + range11 + sd11 + range12 + sd12 + x3, 
+                           data = orig_train2,
+                           minbucket = 100,
+                           xval = 5)
+```
+
+
+
+
+
+
+
+
