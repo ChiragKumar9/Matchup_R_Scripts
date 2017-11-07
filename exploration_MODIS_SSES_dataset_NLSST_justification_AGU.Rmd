@@ -1,0 +1,168 @@
+---
+title: "Exploration of a MODIS SSES Dataset - NLSST Justification AGU"
+author: "Chirag Kumar and Guillermo Podesta"
+output:
+  html_notebook:
+    toc: True
+    theme: united
+---
+
+
+# Prep Workspace and Data
+We use MODIS matchups from 2002 - 2016 that have been read in through a previous script. Here we simply load
+the matchups, any necessary packages, and define necessary functions.
+
+```{r prep_workspace, include=FALSE}
+# Import necessary packages
+require(ggplot2)
+require(dplyr)
+require(RColorBrewer)
+require(circular)
+require(ggmap)
+require(raster)
+require(sfsmisc)
+require(rasterVis)
+require(rgdal)
+require(rpart)
+require(rpart.plot)
+require(caret)
+require(evtree)
+require(ctree)
+require(partykit)
+require(randomForest)
+require(RWeka)
+require(DMwR)
+
+ggplot <- function(...) {ggplot2::ggplot(...) + theme_bw()}
+
+# Define secant function
+secant.deg <- function(x) {1 / (cos(circular::rad(x)))}
+
+# Define function to turn output of gettree from random forest into a dendrogram
+to.dendrogram <- function(dfrep,rownum=1,height.increment=0.1){
+
+  if(dfrep[rownum,'status'] == -1){
+    rval <- list()
+
+    attr(rval,"members") <- 1
+    attr(rval,"height") <- 0.0
+    attr(rval,"label") <- dfrep[rownum,'prediction']
+    attr(rval,"leaf") <- TRUE
+
+  }else{##note the change "to.dendrogram" and not "to.dendogram"
+    left <- to.dendrogram(dfrep,dfrep[rownum,'left daughter'],height.increment)
+    right <- to.dendrogram(dfrep,dfrep[rownum,'right daughter'],height.increment)
+    rval <- list(left,right)
+
+    attr(rval,"members") <- attr(left,"members") + attr(right,"members")
+    attr(rval,"height") <- max(attr(left,"height"),attr(right,"height")) + height.increment
+    attr(rval,"leaf") <- FALSE
+    attr(rval,"edgetext") <- dfrep[rownum,'split var']
+    #To add Split Point in Dendrogram
+    #attr(rval,"edgetext") <- paste(dfrep[rownum,'split var'],"\n<",round(dfrep[rownum,'split point'], digits = 2),"=>", sep = " ")
+  }
+
+  class(rval) <- "dendrogram"
+
+  return(rval)
+}
+
+# Source own functions
+# Define direwctory where functions are for each operating system
+
+if (Sys.info()["sysname"] == 'Windows') {
+  fun.dir <- 'D:/matchups/r-projects/Matchup_R_Scripts/Functions/'
+} else if (Sys.info()["sysname"] == 'Linux') {
+  fun.dir <- '/home/ckk/Projects/Matchup_R_Scripts/Functions/'
+}
+
+fun.file <- paste0(fun.dir, 'common_functions.R')
+
+source(file = fun.file,
+  local = FALSE, echo = FALSE, verbose = FALSE)
+rm(fun.dir, fun.file)
+
+
+# Load data
+# For 787
+linux_dir <- '~/Projects/Matchup_R_Scripts/Results/objects/'
+# For Laptop
+#linux_dir <- '~/Projects/Matchup_R_Scripts/'
+linux_file <- 'MODIS_Aqua_GSFC_ALL_Class_6.4.1_ao_2017_04_12_with_ancillary.Rdata'
+AQUA_file <- paste0(linux_dir, linux_file)
+
+if (!file.exists(AQUA_file)) {
+    stop('Input file does not exist')
+  } else {
+    load(AQUA_file, verbose = TRUE)
+    AQUA <- MODIS_Aqua_GSFC_ALL_Class_6.4.1_ao_2017_04_12
+  }
+
+rm(linux_dir, linux_file, AQUA_file)
+rm(MODIS_Aqua_GSFC_ALL_Class_6.4.1_ao_2017_04_12)
+
+set.seed(42)
+```
+
+The matchup file read in at a previous step is not filtered and contains too many variables. For the purpose of 
+this analysis, we use only nighttime matchups with a quality of 0, 1, or 2 and only keep variables from the infrared
+channels we use.
+
+```{r prep_data, echo=TRUE}
+# Turn POSIXct objects to characters bc dplyr doesn't support POSIXct
+AQUA$sat.timedate <- as.character(AQUA$sat.timedate)
+AQUA$buoy.timedate <- as.character(AQUA$buoy.timedate)
+
+# Apply basic filtering
+AQUA <- dplyr::tbl_df(AQUA) %>%
+  dplyr::filter(solz >= 90) %>%
+  dplyr::filter(qsst == 0 | qsst == 1 | qsst == 2)
+
+# Now grab only variables that may be used to determine retrieval accuracy and make some new variables (i.e. x1, x2, x3)
+# Create df of features
+orig <- dplyr::tbl_df(AQUA) %>%
+  dplyr::mutate(T_11 = cen.11000,
+    T_12 = cen.12000,
+    band.diff = T_11 - T_12,
+    ref_SST = cen.ref.type.1.SST,
+    x2 = band.diff * ref_SST,
+    x3 = ((secant.deg(satz) - 1) * band.diff),
+    lat = buoy.lat,
+    lon = buoy.lon,
+    sd11 = sd.11000,
+    sd12 = sd.12000,
+    range11 = max.11000 - min.11000,
+    range12 = max.12000 - min.12000,
+    diff.med.min11 = med.11000 - min.11000,
+    diff.med.min12 = med.12000 - min.12000,
+    qsst = qsst,
+    buoy.sst = buoy.sst,
+    cell5deg = cell5deg,
+    buoy.timedate = buoy.timedate,
+    SST.resid.SMB = cen.sst - (buoy.sst - 0.17)) %>% # SMB = sat minus buoy - also debias buoy.sst by turning buoy.sst into a skin measurement
+  dplyr::select(T_11, T_12, band.diff, ref_SST, x2, x3, satz, lon, lat, sd11, sd12, range11, range12, diff.med.min11, diff.med.min12,
+    qsst, buoy.sst, cell5deg, buoy.timedate, SST.resid.SMB)
+
+```
+
+
+
+# Increased Spread of Residuals at Higher Buoy SSTs
+We are interested in exploring the combinations of geophysical conditions that impact residual magnitude.
+For starters, we plot the buoy SST against the SST residual and see that the spread of the residual greatly
+increases at higher SST values.
+
+```{r residuals_vs_buoy_SST, echo = TRUE}
+ccc = RColorBrewer::brewer.pal(n = 8, 'YlOrRd')
+ccc <- ccc[3:8]
+
+ggplot2::ggplot(data = orig, mapping = aes(x = buoy.sst, y = SST.resid.SMB,
+  fill = cut(..count.., c(0, 100, 500, 1000, 2500, 5000, Inf)))) +
+  geom_bin2d(bins = 100) +
+  #scale_fill_gradientn(colours = ccc) +
+  scale_fill_hue('count') +
+  geom_abline(slope = 0, intercept = 0, col = 'black')
+
+```
+
+
