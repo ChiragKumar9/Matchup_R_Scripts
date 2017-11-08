@@ -675,9 +675,9 @@ if (config$sensor == 'VIIRS' | config$sensor == 'MODIS') {
 # --- First create a vector of dates/times with the dates/times
 # --- listed in the matchups.
 
-tt1 <- paste(substr(orig$buoy.date, 1, 4),
-  substr(orig$buoy.date, 5, 6),
-  substr(orig$buoy.date, 7, 8),
+tt1 <- paste(stringr::str_sub(orig$buoy.date, start = 1L, end = 4L),
+  stringr::str_sub(orig$buoy.date, start = 5L, end = 6L),
+  stringr::str_sub(orig$buoy.date, start = 7L, end = 8L),
   sep = '-')
 
 tt2 <- orig$buoy.time
@@ -713,11 +713,11 @@ rm(tt1, tt2, tt3, xx1, xx2, buoy.timeDate2); gc()
 # --- For more info see: http://www.cl.cam.ac.uk/~mgk25/iso-time.html
 
 if (config$matchups$format == 'MIA_L2GEN') {
-  tt1 <- paste(substr(orig$sat.date, 1, 4),
-    substr(orig$sat.date, 5, 6),
-    substr(orig$sat.date, 7, 8),
+  tt1 <- paste(stringr::str_sub(orig$sat.date, start = 1L, end = 4L),
+    stringr::str_sub(orig$sat.date, start = 5L, end = 6L),
+    stringr::str_sub(orig$sat.date, start = 7L, end = 8L),
     sep = '-')
-
+  
   tt2 <- orig$sat.time
 
   sat.timeDate <- lubridate::ymd_hms(paste(tt1, tt2), tz = 'UTC')
