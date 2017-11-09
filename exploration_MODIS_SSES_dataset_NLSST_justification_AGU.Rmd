@@ -146,7 +146,6 @@ orig <- dplyr::tbl_df(AQUA) %>%
 ```
 
 
-
 # Increased Spread of Residuals at Higher Buoy SSTs
 We are interested in exploring the combinations of geophysical conditions that impact residual magnitude.
 For starters, we plot the buoy SST against the SST residual and see that the spread of the residual greatly
@@ -165,4 +164,252 @@ ggplot2::ggplot(data = orig, mapping = aes(x = buoy.sst, y = SST.resid.SMB,
 
 ```
 
+# Relationship Between band_diff and temp_deficit
+
+## SST as a Separator
+```{r band_diff_temp_deficit_context_SST}
+
+zz1 <- dplyr::tbl_df(orig) %>%
+  dplyr::filter(qsst == 0)
+
+ccc = RColorBrewer::brewer.pal(n = 8, 'YlOrRd')
+ccc <- ccc[3:8]
+
+temp_context <- cut(zz1$buoy.sst, c(-Inf, 10, 25, Inf))
+temp_deficit <- zz1$buoy.sst - zz1$x1
+
+uuu <- data.frame(temp_context = as.factor(temp_context), temp_deficit = temp_deficit, band.diff = zz1$band.diff)
+
+# Take a sample of uuu bc loess requires lots of memory - for testing purposes
+#set.seed(42)
+#index <- sample(1:nrow(uuu), 1000, replace = FALSE)
+#uuu <- uuu[index, ]
+
+ggplot2::ggplot(data = uuu, aes(x = band.diff, y = temp_deficit)) +
+  geom_bin2d(bins = 50) +
+  scale_fill_gradientn(colours = ccc) + 
+  geom_smooth(method = loess, se = FALSE, span = 0.5) +
+  facet_wrap(~temp_context, nrow = 3, ncol = 1) +
+  labs(x = 'T_11 - T_12', y = 'Temperature Deficit')
+  #ggsave('band_diff_predictor_of_temp_deficit_different_in_situ_windows.pdf')
+
+# Correlation of each subset
+## SST < 10
+
+## 10 < SST < 25
+
+## 25 < SST
+
+# Correlation of whole dataset
+cor(uuu$band.diff, uuu$temp_deficit)
+cor.test(uuu$band.diff, uuu$temp_deficit, method = 'spearman', continuity = FAlSE, conf.level = 0.95)
+
+```
+
+## Residual as a Separator
+```{r band_diff_temp_deficit_context_residual_qsst0_only}
+
+zz1 <- dplyr::tbl_df(orig) %>%
+  dplyr::filter(qsst == 0)
+
+ccc = RColorBrewer::brewer.pal(n = 8, 'YlOrRd')
+ccc <- ccc[3:8]
+
+resid_context <- cut(zz1$SST.resid.SMB, c(-Inf, -.4, .4, Inf))
+temp_deficit <- zz1$buoy.sst - zz1$x1
+
+uuu <- data.frame(temp_context = as.factor(resid_context), temp_deficit = temp_deficit, band.diff = zz1$band.diff)
+
+# Take a sample of uuu bc loess requires lots of memory - for testing purposes
+#set.seed(42)
+#index <- sample(1:nrow(uuu), 1000, replace = FALSE)
+#uuu <- uuu[index, ]
+
+ggplot2::ggplot(data = uuu, aes(x = band.diff, y = temp_deficit)) +
+  geom_bin2d(bins = 50) +
+  scale_fill_gradientn(colours = ccc) + 
+  geom_smooth(method = loess, se = FALSE, span = 0.5) +
+  facet_wrap(~resid_context, nrow = 3, ncol = 1) +
+  labs(x = 'T_11 - T_12', y = 'Temperature Deficit')
+  #ggsave('band_diff_predictor_of_temp_deficit_different_in_situ_windows.pdf')
+
+# Correlation of each subset
+## resid < -.4
+
+## -.4 < resid < .4
+
+## .4 < resid
+
+# Correlation of whole dataset
+cor(uuu$band.diff, uuu$temp_deficit)
+cor.test(uuu$band.diff, uuu$temp_deficit, method = 'spearman', continuity = FALSE, conf.level = 0.95)
+
+```
+
+Same plot as above but qsst == 0, 1, or 2.
+```{r band_diff_temp_deficit_context_residual_all_qualities}
+
+zz1 <- dplyr::tbl_df(orig) %>%
+  dplyr::filter(qsst != 3) %>%
+  dplyr::filter(qsst != 4)
+
+ccc = RColorBrewer::brewer.pal(n = 8, 'YlOrRd')
+ccc <- ccc[3:8]
+
+resid_context <- cut(zz1$SST.resid.SMB, c(-Inf, -.4, .4, Inf))
+temp_deficit <- zz1$buoy.sst - zz1$x1
+
+uuu <- data.frame(temp_context = as.factor(resid_context), temp_deficit = temp_deficit, band.diff = zz1$band.diff)
+
+# Take a sample of uuu bc loess requires lots of memory - for testing purposes
+#set.seed(42)
+#index <- sample(1:nrow(uuu), 1000, replace = FALSE)
+#uuu <- uuu[index, ]
+
+ggplot2::ggplot(data = uuu, aes(x = band.diff, y = temp_deficit)) +
+  geom_bin2d(bins = 50) +
+  scale_fill_gradientn(colours = ccc) + 
+  geom_smooth(method = loess, se = FALSE, span = 0.5) +
+  facet_wrap(~resid_context, nrow = 3, ncol = 1) +
+  labs(x = 'T_11 - T_12', y = 'Temperature Deficit')
+  #ggsave('band_diff_predictor_of_temp_deficit_different_in_situ_windows.pdf')
+
+# Correlation of each subset
+## resid < -.4
+
+## -.4 < resid < .4
+
+## .4 < resid
+
+# Correlation of whole dataset
+cor(uuu$band.diff, uuu$temp_deficit)
+cor.test(uuu$band.diff, uuu$temp_deficit, method = 'spearman', continuity = FALSE, conf.level = 0.95)
+
+```
+
+# Applying the NLSST Correction
+
+NLSST accounts for the loss in linear correlation between the band difference and temperature deficit by
+multiplying the band difference by the reference SST. We now explore that correlation.
+
+## SST as a Separator
+```{r band_diff_product_temp_deficit_context_sst}
+
+zz1 <- dplyr::tbl_df(orig) %>%
+  dplyr::filter(qsst == 0)
+
+ccc = RColorBrewer::brewer.pal(n = 8, 'YlOrRd')
+ccc <- ccc[3:8]
+
+temp_context <- cut(zz1$buoy.sst, c(-Inf, 10, 25, Inf))
+temp_deficit <- zz1$buoy.sst - zz1$x1
+
+uuu <- data.frame(temp_context = as.factor(temp_context), temp_deficit = temp_deficit, product = (zz1$band.diff * zz1$ref_SST))
+
+# Take a sample of uuu bc loess requires lots of memory - for testing purposes
+#set.seed(42)
+#index <- sample(1:nrow(uuu), 1000, replace = FALSE)
+#uuu <- uuu[index, ]
+
+ggplot2::ggplot(data = uuu, aes(x = product, y = temp_deficit)) +
+  geom_bin2d(bins = 50) +
+  scale_fill_gradientn(colours = ccc) + 
+  geom_smooth(method = loess, se = FALSE, span = 0.5) +
+  facet_wrap(~temp_context, nrow = 3, ncol = 1) +
+  labs(x = '(T_11 - T_12) * ref_SST', y = 'Temperature Deficit')
+  #ggsave('band_diff_predictor_of_temp_deficit_different_in_situ_windows.pdf')
+
+# Correlation of each subset
+## SST < 10
+
+## 10 < SST < 25
+
+## 25 < SST
+
+# Correlation of whole dataset
+cor(uuu$product, uuu$temp_deficit)
+cor.test(uuu$product, uuu$temp_deficit, method = 'spearman', continuity = FAlSE, conf.level = 0.95)
+
+```
+
+## Residual as a Separator
+```{r band_diff_product_temp_deficit_context_residual_qsst0_only}
+
+zz1 <- dplyr::tbl_df(orig) %>%
+  dplyr::filter(qsst == 0)
+
+ccc = RColorBrewer::brewer.pal(n = 8, 'YlOrRd')
+ccc <- ccc[3:8]
+
+resid_context <- cut(zz1$SST.resid.SMB, c(-Inf, -.4, .4, Inf))
+temp_deficit <- zz1$buoy.sst - zz1$x1
+
+uuu <- data.frame(temp_context = as.factor(resid_context), temp_deficit = temp_deficit, product = (zz1$band.diff * zz1$ref_SST))
+
+# Take a sample of uuu bc loess requires lots of memory - for testing purposes
+#set.seed(42)
+#index <- sample(1:nrow(uuu), 1000, replace = FALSE)
+#uuu <- uuu[index, ]
+
+ggplot2::ggplot(data = uuu, aes(x = product, y = temp_deficit)) +
+  geom_bin2d(bins = 50) +
+  scale_fill_gradientn(colours = ccc) + 
+  geom_smooth(method = loess, se = FALSE, span = 0.5) +
+  facet_wrap(~resid_context, nrow = 3, ncol = 1) +
+  labs(x = '(T_11 - T_12) * ref_SST', y = 'Temperature Deficit')
+  #ggsave('band_diff_predictor_of_temp_deficit_different_in_situ_windows.pdf')
+
+# Correlation of each subset
+## resid < -.4
+
+## -.4 < resid < .4
+
+## .4 < resid
+
+# Correlation of whole dataset
+cor(uuu$product, uuu$temp_deficit)
+cor.test(uuu$product, uuu$temp_deficit, method = 'spearman', continuity = FALSE, conf.level = 0.95)
+
+```
+
+Same plot as above but qsst == 0, 1, or 2.
+```{r band_diff_product_temp_deficit_context_residual_all_qualities}
+
+zz1 <- dplyr::tbl_df(orig) %>%
+  dplyr::filter(qsst != 3) %>%
+  dplyr::filter(qsst != 4)
+
+ccc = RColorBrewer::brewer.pal(n = 8, 'YlOrRd')
+ccc <- ccc[3:8]
+
+resid_context <- cut(zz1$SST.resid.SMB, c(-Inf, -.4, .4, Inf))
+temp_deficit <- zz1$buoy.sst - zz1$x1
+
+uuu <- data.frame(temp_context = as.factor(resid_context), temp_deficit = temp_deficit, product = (zz1$band.diff * zz1$ref_SST))
+
+# Take a sample of uuu bc loess requires lots of memory - for testing purposes
+#set.seed(42)
+#index <- sample(1:nrow(uuu), 1000, replace = FALSE)
+#uuu <- uuu[index, ]
+
+ggplot2::ggplot(data = uuu, aes(x = product, y = temp_deficit)) +
+  geom_bin2d(bins = 50) +
+  scale_fill_gradientn(colours = ccc) + 
+  geom_smooth(method = loess, se = FALSE, span = 0.5) +
+  facet_wrap(~resid_context, nrow = 3, ncol = 1) +
+  labs(x = '(T_11 - T_12) * ref_SST', y = 'Temperature Deficit')
+  #ggsave('band_diff_predictor_of_temp_deficit_different_in_situ_windows.pdf')
+
+# Correlation of each subset
+## resid < -.4
+
+## -.4 < resid < .4
+
+## .4 < resid
+
+# Correlation of whole dataset
+cor(uuu$product, uuu$temp_deficit)
+cor.test(uuu$product, uuu$temp_deficit, method = 'spearman', continuity = FALSE, conf.level = 0.95)
+
+```
 
