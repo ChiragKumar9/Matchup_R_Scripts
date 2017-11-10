@@ -156,8 +156,8 @@ ccc = RColorBrewer::brewer.pal(n = 8, 'YlOrRd')
 ccc <- ccc[3:8]
 
 ggplot2::ggplot(data = orig, mapping = aes(x = buoy.sst, y = SST.resid.SMB,
-  fill = cut(..count.., c(0, 100, 500, 1000, 2500, 5000, Inf)))) +
-  geom_bin2d(bins = 100) +
+  fill = cut(..count.., c(0, 10, 50, 100, 250, 500, 1000, 2500, 5000, Inf)))) +
+  geom_bin2d(bins = 75) +
   #scale_fill_gradientn(colours = ccc) +
   scale_fill_hue('count') +
   geom_abline(slope = 0, intercept = 0, col = 'black')
@@ -167,7 +167,11 @@ ggplot2::ggplot(data = orig, mapping = aes(x = buoy.sst, y = SST.resid.SMB,
 # Relationship Between band_diff and temp_deficit
 
 ## SST as a Separator
-```{r band_diff_temp_deficit_context_SST}
+```{r band_diff_temp_deficit_context_SST, echo=TRUE}
+
+###### NOTE
+## ASK GUILLERMO HOW TO MAKE KEY FOR THE DIFFERENT LINES
+
 
 zz1 <- dplyr::tbl_df(orig) %>%
   dplyr::filter(qsst == 0)
@@ -176,38 +180,55 @@ ccc = RColorBrewer::brewer.pal(n = 8, 'YlOrRd')
 ccc <- ccc[3:8]
 
 temp_context <- cut(zz1$buoy.sst, c(-Inf, 10, 25, Inf))
-temp_deficit <- zz1$buoy.sst - zz1$x1
+temp_deficit <- zz1$buoy.sst - zz1$T_11
 
 uuu <- data.frame(temp_context = as.factor(temp_context), temp_deficit = temp_deficit, band.diff = zz1$band.diff)
 
 # Take a sample of uuu bc loess requires lots of memory - for testing purposes
-#set.seed(42)
-#index <- sample(1:nrow(uuu), 1000, replace = FALSE)
-#uuu <- uuu[index, ]
+set.seed(42)
+index <- sample(1:nrow(uuu), 50000, replace = FALSE)
+uuu <- uuu[index, ]
 
-ggplot2::ggplot(data = uuu, aes(x = band.diff, y = temp_deficit)) +
-  geom_bin2d(bins = 50) +
-  scale_fill_gradientn(colours = ccc) + 
-  geom_smooth(method = loess, se = FALSE, span = 0.5) +
+ggplot2::ggplot(data = uuu, mapping = aes(x = band.diff, y = temp_deficit)) +
+  geom_bin2d(bins = 20) +
+  scale_fill_gradientn(colours = ccc) +
+  geom_smooth(method = lm, se = FALSE, color = 'green', alpha = 0.1) +
+  geom_smooth(method = loess, se = FALSE, span = 0.4) +
   facet_wrap(~temp_context, nrow = 3, ncol = 1) +
   labs(x = 'T_11 - T_12', y = 'Temperature Deficit')
   #ggsave('band_diff_predictor_of_temp_deficit_different_in_situ_windows.pdf')
 
 # Correlation of each subset
 ## SST < 10
+cat('First pearson and then spearman non parametric correlation coefs for SST <= 10')
+cor(uuu[uuu$temp_context == '(-Inf,10]', "band.diff"], uuu[uuu$temp_context == '(-Inf,10]', "temp_deficit"])
+cor.test(uuu[uuu$temp_context == '(-Inf,10]', "band.diff"],
+         uuu[uuu$temp_context == '(-Inf,10]', "temp_deficit"],
+         method = 'spearman', continuity = FALSE, conf.level = 0.95)
 
 ## 10 < SST < 25
+cat('First pearson and then spearman non parametric correlation coefs for 10 < SST <= 25')
+cor(uuu[uuu$temp_context == '(10,25]', "band.diff"], uuu[uuu$temp_context == '(10,25]', "temp_deficit"])
+cor.test(uuu[uuu$temp_context == '(10,25]', "band.diff"],
+         uuu[uuu$temp_context == '(10,25]', "temp_deficit"],
+         method = 'spearman', continuity = FALSE, conf.level = 0.95)
 
 ## 25 < SST
+cat('First pearson and then spearman non parametric correlation coefs for SST > 25')
+cor(uuu[uuu$temp_context == '(25, Inf]', "band.diff"], uuu[uuu$temp_context == '(25, Inf]', "temp_deficit"])
+cor.test(uuu[uuu$temp_context == '(25, Inf]', "band.diff"],
+         uuu[uuu$temp_context == '(25, Inf]', "temp_deficit"],
+         method = 'spearman', continuity = FALSE, conf.level = 0.95)
+
 
 # Correlation of whole dataset
 cor(uuu$band.diff, uuu$temp_deficit)
-cor.test(uuu$band.diff, uuu$temp_deficit, method = 'spearman', continuity = FAlSE, conf.level = 0.95)
+cor.test(uuu$band.diff, uuu$temp_deficit, method = 'spearman', continuity = FALSE, conf.level = 0.95)
 
 ```
 
 ## Residual as a Separator
-```{r band_diff_temp_deficit_context_residual_qsst0_only}
+```{r band_diff_temp_deficit_context_residual_qsst0_only, echo=TRUE}
 
 zz1 <- dplyr::tbl_df(orig) %>%
   dplyr::filter(qsst == 0)
@@ -216,38 +237,55 @@ ccc = RColorBrewer::brewer.pal(n = 8, 'YlOrRd')
 ccc <- ccc[3:8]
 
 resid_context <- cut(zz1$SST.resid.SMB, c(-Inf, -.4, .4, Inf))
-temp_deficit <- zz1$buoy.sst - zz1$x1
+temp_deficit <- zz1$buoy.sst - zz1$T_11
 
-uuu <- data.frame(temp_context = as.factor(resid_context), temp_deficit = temp_deficit, band.diff = zz1$band.diff)
+uuu <- data.frame(resid_context = as.factor(resid_context), temp_deficit = temp_deficit, band.diff = zz1$band.diff)
 
 # Take a sample of uuu bc loess requires lots of memory - for testing purposes
-#set.seed(42)
-#index <- sample(1:nrow(uuu), 1000, replace = FALSE)
-#uuu <- uuu[index, ]
+set.seed(42)
+index <- sample(1:nrow(uuu), 50000, replace = FALSE)
+uuu <- uuu[index, ]
 
-ggplot2::ggplot(data = uuu, aes(x = band.diff, y = temp_deficit)) +
-  geom_bin2d(bins = 50) +
-  scale_fill_gradientn(colours = ccc) + 
-  geom_smooth(method = loess, se = FALSE, span = 0.5) +
+
+ggplot2::ggplot(data = uuu, mapping = aes(x = band.diff, y = temp_deficit)) +
+  geom_bin2d(bins = 20) +
+  scale_fill_gradientn(colours = ccc) +
+  geom_smooth(method = lm, se = FALSE, color = 'green', alpha = 0.1) +
+  geom_smooth(method = loess, se = FALSE, span = 0.4) +
   facet_wrap(~resid_context, nrow = 3, ncol = 1) +
   labs(x = 'T_11 - T_12', y = 'Temperature Deficit')
   #ggsave('band_diff_predictor_of_temp_deficit_different_in_situ_windows.pdf')
 
 # Correlation of each subset
-## resid < -.4
+## SST < 10
+cat('First pearson and then spearman non parametric correlation coefs for resid <= -0.4')
+cor(uuu[uuu$resid_context == '(-Inf,-0.4]', "band.diff"], uuu[uuu$resid_context == '(-Inf,-0.4]', "temp_deficit"])
+cor.test(uuu[uuu$resid_context == '(-Inf,-0.4]', "band.diff"],
+         uuu[uuu$resid_context == '(-Inf,-0.4]', "temp_deficit"],
+         method = 'spearman', continuity = FALSE, conf.level = 0.95)
 
-## -.4 < resid < .4
+## 10 < SST < 25
+cat('First pearson and then spearman non parametric correlation coefs for -0.4 < resid <= 0.4')
+cor(uuu[uuu$resid_context == '(-0.4,0.4]', "band.diff"], uuu[uuu$resid_context == '(-0.4,0.4]', "temp_deficit"])
+cor.test(uuu[uuu$resid_context == '(-0.4,0.4]', "band.diff"],
+         uuu[uuu$resid_context == '(-0.4,0.4]', "temp_deficit"],
+         method = 'spearman', continuity = FALSE, conf.level = 0.95)
 
-## .4 < resid
+## 25 < SST
+cat('First pearson and then spearman non parametric correlation coefs for resid > 0.4')
+cor(uuu[uuu$resid_context == '(0.4, Inf]', "band.diff"], uuu[uuu$resid_context == '(0.4, Inf]', "temp_deficit"])
+cor.test(uuu[uuu$resid_context == '(0.4, Inf]', "band.diff"],
+         uuu[uuu$resid_context == '(0.4, Inf]', "temp_deficit"],
+         method = 'spearman', continuity = FALSE, conf.level = 0.95)
+
 
 # Correlation of whole dataset
 cor(uuu$band.diff, uuu$temp_deficit)
 cor.test(uuu$band.diff, uuu$temp_deficit, method = 'spearman', continuity = FALSE, conf.level = 0.95)
-
 ```
 
 Same plot as above but qsst == 0, 1, or 2.
-```{r band_diff_temp_deficit_context_residual_all_qualities}
+```{r band_diff_temp_deficit_context_residual_all_qualities, echo=TRUE}
 
 zz1 <- dplyr::tbl_df(orig) %>%
   dplyr::filter(qsst != 3) %>%
@@ -257,29 +295,47 @@ ccc = RColorBrewer::brewer.pal(n = 8, 'YlOrRd')
 ccc <- ccc[3:8]
 
 resid_context <- cut(zz1$SST.resid.SMB, c(-Inf, -.4, .4, Inf))
-temp_deficit <- zz1$buoy.sst - zz1$x1
+temp_deficit <- zz1$buoy.sst - zz1$T_11
 
-uuu <- data.frame(temp_context = as.factor(resid_context), temp_deficit = temp_deficit, band.diff = zz1$band.diff)
+uuu <- data.frame(resid_context = as.factor(resid_context), temp_deficit = temp_deficit, band.diff = zz1$band.diff)
 
 # Take a sample of uuu bc loess requires lots of memory - for testing purposes
-#set.seed(42)
-#index <- sample(1:nrow(uuu), 1000, replace = FALSE)
-#uuu <- uuu[index, ]
+set.seed(42)
+index <- sample(1:nrow(uuu), 50000, replace = FALSE)
+uuu <- uuu[index, ]
 
-ggplot2::ggplot(data = uuu, aes(x = band.diff, y = temp_deficit)) +
-  geom_bin2d(bins = 50) +
-  scale_fill_gradientn(colours = ccc) + 
-  geom_smooth(method = loess, se = FALSE, span = 0.5) +
+
+ggplot2::ggplot(data = uuu, mapping = aes(x = band.diff, y = temp_deficit)) +
+  geom_bin2d(bins = 20) +
+  scale_fill_gradientn(colours = ccc) +
+  geom_smooth(method = lm, se = FALSE, color = 'green', alpha = 0.1) +
+  geom_smooth(method = loess, se = FALSE, span = 0.4) +
   facet_wrap(~resid_context, nrow = 3, ncol = 1) +
   labs(x = 'T_11 - T_12', y = 'Temperature Deficit')
   #ggsave('band_diff_predictor_of_temp_deficit_different_in_situ_windows.pdf')
 
 # Correlation of each subset
-## resid < -.4
+## SST < 10
+cat('First pearson and then spearman non parametric correlation coefs for resid <= -0.4')
+cor(uuu[uuu$resid_context == '(-Inf,-0.4]', "band.diff"], uuu[uuu$resid_context == '(-Inf,-0.4]', "temp_deficit"])
+cor.test(uuu[uuu$resid_context == '(-Inf,-0.4]', "band.diff"],
+         uuu[uuu$resid_context == '(-Inf,-0.4]', "temp_deficit"],
+         method = 'spearman', continuity = FALSE, conf.level = 0.95)
 
-## -.4 < resid < .4
+## 10 < SST < 25
+cat('First pearson and then spearman non parametric correlation coefs for -0.4 < resid <= 0.4')
+cor(uuu[uuu$resid_context == '(-0.4,0.4]', "band.diff"], uuu[uuu$resid_context == '(-0.4,0.4]', "temp_deficit"])
+cor.test(uuu[uuu$resid_context == '(-0.4,0.4]', "band.diff"],
+         uuu[uuu$resid_context == '(-0.4,0.4]', "temp_deficit"],
+         method = 'spearman', continuity = FALSE, conf.level = 0.95)
 
-## .4 < resid
+## 25 < SST
+cat('First pearson and then spearman non parametric correlation coefs for resid > 0.4')
+cor(uuu[uuu$resid_context == '(0.4, Inf]', "band.diff"], uuu[uuu$resid_context == '(0.4, Inf]', "temp_deficit"])
+cor.test(uuu[uuu$resid_context == '(0.4, Inf]', "band.diff"],
+         uuu[uuu$resid_context == '(0.4, Inf]', "temp_deficit"],
+         method = 'spearman', continuity = FALSE, conf.level = 0.95)
+
 
 # Correlation of whole dataset
 cor(uuu$band.diff, uuu$temp_deficit)
@@ -293,7 +349,8 @@ NLSST accounts for the loss in linear correlation between the band difference an
 multiplying the band difference by the reference SST. We now explore that correlation.
 
 ## SST as a Separator
-```{r band_diff_product_temp_deficit_context_sst}
+```{r band_diff_product_temp_deficit_context_sst, echo=TRUE}
+
 
 zz1 <- dplyr::tbl_df(orig) %>%
   dplyr::filter(qsst == 0)
@@ -302,38 +359,55 @@ ccc = RColorBrewer::brewer.pal(n = 8, 'YlOrRd')
 ccc <- ccc[3:8]
 
 temp_context <- cut(zz1$buoy.sst, c(-Inf, 10, 25, Inf))
-temp_deficit <- zz1$buoy.sst - zz1$x1
+temp_deficit <- zz1$buoy.sst - zz1$T_11
 
 uuu <- data.frame(temp_context = as.factor(temp_context), temp_deficit = temp_deficit, product = (zz1$band.diff * zz1$ref_SST))
 
 # Take a sample of uuu bc loess requires lots of memory - for testing purposes
-#set.seed(42)
-#index <- sample(1:nrow(uuu), 1000, replace = FALSE)
-#uuu <- uuu[index, ]
+set.seed(42)
+index <- sample(1:nrow(uuu), 50000, replace = FALSE)
+uuu <- uuu[index, ]
 
-ggplot2::ggplot(data = uuu, aes(x = product, y = temp_deficit)) +
-  geom_bin2d(bins = 50) +
-  scale_fill_gradientn(colours = ccc) + 
-  geom_smooth(method = loess, se = FALSE, span = 0.5) +
+ggplot2::ggplot(data = uuu, mapping = aes(x = product, y = temp_deficit)) +
+  geom_bin2d(bins = 20) +
+  scale_fill_gradientn(colours = ccc) +
+  geom_smooth(method = lm, se = FALSE, color = 'green', alpha = 0.1) +
+  geom_smooth(method = loess, se = FALSE, span = 0.4) +
   facet_wrap(~temp_context, nrow = 3, ncol = 1) +
-  labs(x = '(T_11 - T_12) * ref_SST', y = 'Temperature Deficit')
+  labs(x = '(T_11 - T_12) * reference_SST', y = 'Temperature Deficit')
   #ggsave('band_diff_predictor_of_temp_deficit_different_in_situ_windows.pdf')
 
 # Correlation of each subset
 ## SST < 10
+cat('First pearson and then spearman non parametric correlation coefs for SST <= 10')
+cor(uuu[uuu$temp_context == '(-Inf,10]', "product"], uuu[uuu$temp_context == '(-Inf,10]', "temp_deficit"])
+cor.test(uuu[uuu$temp_context == '(-Inf,10]', "product"],
+         uuu[uuu$temp_context == '(-Inf,10]', "temp_deficit"],
+         method = 'spearman', continuity = FALSE, conf.level = 0.95)
 
 ## 10 < SST < 25
+cat('First pearson and then spearman non parametric correlation coefs for 10 < SST <= 25')
+cor(uuu[uuu$temp_context == '(10,25]', "product"], uuu[uuu$temp_context == '(10,25]', "temp_deficit"])
+cor.test(uuu[uuu$temp_context == '(10,25]', "product"],
+         uuu[uuu$temp_context == '(10,25]', "temp_deficit"],
+         method = 'spearman', continuity = FALSE, conf.level = 0.95)
 
 ## 25 < SST
+cat('First pearson and then spearman non parametric correlation coefs for SST > 25')
+cor(uuu[uuu$temp_context == '(25, Inf]', "product"], uuu[uuu$temp_context == '(25, Inf]', "temp_deficit"])
+cor.test(uuu[uuu$temp_context == '(25, Inf]', "product"],
+         uuu[uuu$temp_context == '(25, Inf]', "temp_deficit"],
+         method = 'spearman', continuity = FALSE, conf.level = 0.95)
+
 
 # Correlation of whole dataset
 cor(uuu$product, uuu$temp_deficit)
-cor.test(uuu$product, uuu$temp_deficit, method = 'spearman', continuity = FAlSE, conf.level = 0.95)
+cor.test(uuu$product, uuu$temp_deficit, method = 'spearman', continuity = FALSE, conf.level = 0.95)
 
 ```
 
 ## Residual as a Separator
-```{r band_diff_product_temp_deficit_context_residual_qsst0_only}
+```{r band_diff_product_temp_deficit_context_residual_qsst0_only, echo=TRUE}
 
 zz1 <- dplyr::tbl_df(orig) %>%
   dplyr::filter(qsst == 0)
@@ -342,29 +416,47 @@ ccc = RColorBrewer::brewer.pal(n = 8, 'YlOrRd')
 ccc <- ccc[3:8]
 
 resid_context <- cut(zz1$SST.resid.SMB, c(-Inf, -.4, .4, Inf))
-temp_deficit <- zz1$buoy.sst - zz1$x1
+temp_deficit <- zz1$buoy.sst - zz1$T_11
 
-uuu <- data.frame(temp_context = as.factor(resid_context), temp_deficit = temp_deficit, product = (zz1$band.diff * zz1$ref_SST))
+uuu <- data.frame(resid_context = as.factor(resid_context), temp_deficit = temp_deficit, product = (zz1$band.diff * zz1$ref_SST))
 
 # Take a sample of uuu bc loess requires lots of memory - for testing purposes
-#set.seed(42)
-#index <- sample(1:nrow(uuu), 1000, replace = FALSE)
-#uuu <- uuu[index, ]
+set.seed(42)
+index <- sample(1:nrow(uuu), 50000, replace = FALSE)
+uuu <- uuu[index, ]
 
-ggplot2::ggplot(data = uuu, aes(x = product, y = temp_deficit)) +
-  geom_bin2d(bins = 50) +
-  scale_fill_gradientn(colours = ccc) + 
-  geom_smooth(method = loess, se = FALSE, span = 0.5) +
+
+ggplot2::ggplot(data = uuu, mapping = aes(x = product, y = temp_deficit)) +
+  geom_bin2d(bins = 20) +
+  scale_fill_gradientn(colours = ccc) +
+  geom_smooth(method = lm, se = FALSE, color = 'green', alpha = 0.1) +
+  geom_smooth(method = loess, se = FALSE, span = 0.4) +
   facet_wrap(~resid_context, nrow = 3, ncol = 1) +
-  labs(x = '(T_11 - T_12) * ref_SST', y = 'Temperature Deficit')
+  labs(x = 'T_11 - T_12', y = 'Temperature Deficit')
   #ggsave('band_diff_predictor_of_temp_deficit_different_in_situ_windows.pdf')
 
 # Correlation of each subset
-## resid < -.4
+## SST < 10
+cat('First pearson and then spearman non parametric correlation coefs for resid <= -0.4')
+cor(uuu[uuu$resid_context == '(-Inf,-0.4]', "product"], uuu[uuu$resid_context == '(-Inf,-0.4]', "temp_deficit"])
+cor.test(uuu[uuu$resid_context == '(-Inf,-0.4]', "product"],
+         uuu[uuu$resid_context == '(-Inf,-0.4]', "temp_deficit"],
+         method = 'spearman', continuity = FALSE, conf.level = 0.95)
 
-## -.4 < resid < .4
+## 10 < SST < 25
+cat('First pearson and then spearman non parametric correlation coefs for -0.4 < resid <= 0.4')
+cor(uuu[uuu$resid_context == '(-0.4,0.4]', "product"], uuu[uuu$resid_context == '(-0.4,0.4]', "temp_deficit"])
+cor.test(uuu[uuu$resid_context == '(-0.4,0.4]', "product"],
+         uuu[uuu$resid_context == '(-0.4,0.4]', "temp_deficit"],
+         method = 'spearman', continuity = FALSE, conf.level = 0.95)
 
-## .4 < resid
+## 25 < SST
+cat('First pearson and then spearman non parametric correlation coefs for resid > 0.4')
+cor(uuu[uuu$resid_context == '(0.4, Inf]', "product"], uuu[uuu$resid_context == '(0.4, Inf]', "temp_deficit"])
+cor.test(uuu[uuu$resid_context == '(0.4, Inf]', "product"],
+         uuu[uuu$resid_context == '(0.4, Inf]', "temp_deficit"],
+         method = 'spearman', continuity = FALSE, conf.level = 0.95)
+
 
 # Correlation of whole dataset
 cor(uuu$product, uuu$temp_deficit)
@@ -373,7 +465,7 @@ cor.test(uuu$product, uuu$temp_deficit, method = 'spearman', continuity = FALSE,
 ```
 
 Same plot as above but qsst == 0, 1, or 2.
-```{r band_diff_product_temp_deficit_context_residual_all_qualities}
+```{r band_diff_product_temp_deficit_context_residual_all_qualities, echo=TRUE}
 
 zz1 <- dplyr::tbl_df(orig) %>%
   dplyr::filter(qsst != 3) %>%
@@ -383,33 +475,254 @@ ccc = RColorBrewer::brewer.pal(n = 8, 'YlOrRd')
 ccc <- ccc[3:8]
 
 resid_context <- cut(zz1$SST.resid.SMB, c(-Inf, -.4, .4, Inf))
-temp_deficit <- zz1$buoy.sst - zz1$x1
+temp_deficit <- zz1$buoy.sst - zz1$T_11
 
-uuu <- data.frame(temp_context = as.factor(resid_context), temp_deficit = temp_deficit, product = (zz1$band.diff * zz1$ref_SST))
+uuu <- data.frame(resid_context = as.factor(resid_context), temp_deficit = temp_deficit, product = (zz1$band.diff * zz1$ref_SST))
 
 # Take a sample of uuu bc loess requires lots of memory - for testing purposes
-#set.seed(42)
-#index <- sample(1:nrow(uuu), 1000, replace = FALSE)
-#uuu <- uuu[index, ]
+set.seed(42)
+index <- sample(1:nrow(uuu), 50000, replace = FALSE)
+uuu <- uuu[index, ]
 
-ggplot2::ggplot(data = uuu, aes(x = product, y = temp_deficit)) +
-  geom_bin2d(bins = 50) +
-  scale_fill_gradientn(colours = ccc) + 
-  geom_smooth(method = loess, se = FALSE, span = 0.5) +
+
+ggplot2::ggplot(data = uuu, mapping = aes(x = product, y = temp_deficit)) +
+  geom_bin2d(bins = 20) +
+  scale_fill_gradientn(colours = ccc) +
+  geom_smooth(method = lm, se = FALSE, color = 'green', alpha = 0.1) +
+  geom_smooth(method = loess, se = FALSE, span = 0.4) +
   facet_wrap(~resid_context, nrow = 3, ncol = 1) +
-  labs(x = '(T_11 - T_12) * ref_SST', y = 'Temperature Deficit')
+  labs(x = 'T_11 - T_12', y = 'Temperature Deficit')
   #ggsave('band_diff_predictor_of_temp_deficit_different_in_situ_windows.pdf')
 
 # Correlation of each subset
-## resid < -.4
+## SST < 10
+cat('First pearson and then spearman non parametric correlation coefs for resid <= -0.4')
+cor(uuu[uuu$resid_context == '(-Inf,-0.4]', "product"], uuu[uuu$resid_context == '(-Inf,-0.4]', "temp_deficit"])
+cor.test(uuu[uuu$resid_context == '(-Inf,-0.4]', "product"],
+         uuu[uuu$resid_context == '(-Inf,-0.4]', "temp_deficit"],
+         method = 'spearman', continuity = FALSE, conf.level = 0.95)
 
-## -.4 < resid < .4
+## 10 < SST < 25
+cat('First pearson and then spearman non parametric correlation coefs for -0.4 < resid <= 0.4')
+cor(uuu[uuu$resid_context == '(-0.4,0.4]', "product"], uuu[uuu$resid_context == '(-0.4,0.4]', "temp_deficit"])
+cor.test(uuu[uuu$resid_context == '(-0.4,0.4]', "product"],
+         uuu[uuu$resid_context == '(-0.4,0.4]', "temp_deficit"],
+         method = 'spearman', continuity = FALSE, conf.level = 0.95)
 
-## .4 < resid
+## 25 < SST
+cat('First pearson and then spearman non parametric correlation coefs for resid > 0.4')
+cor(uuu[uuu$resid_context == '(0.4, Inf]', "product"], uuu[uuu$resid_context == '(0.4, Inf]', "temp_deficit"])
+cor.test(uuu[uuu$resid_context == '(0.4, Inf]', "product"],
+         uuu[uuu$resid_context == '(0.4, Inf]', "temp_deficit"],
+         method = 'spearman', continuity = FALSE, conf.level = 0.95)
+
 
 # Correlation of whole dataset
 cor(uuu$product, uuu$temp_deficit)
 cor.test(uuu$product, uuu$temp_deficit, method = 'spearman', continuity = FALSE, conf.level = 0.95)
 
 ```
+
+# No Separators
+
+## Temp Deficit with Varying Buoy SST
+```{r temp_deficit_buoy_SST_qsst0, echo=TRUE}
+
+zz1 <- dplyr::tbl_df(orig) %>%
+  dplyr::filter(qsst == 0)
+
+ccc = RColorBrewer::brewer.pal(n = 8, 'YlOrRd')
+ccc <- ccc[3:8]
+
+temp_deficit <- zz1$buoy.sst - zz1$T_11
+
+# Take a sample of zz1 bc loess requires lots of memory - for testing purposes
+set.seed(42)
+index <- sample(1:nrow(zz1), 50000, replace = FALSE)
+zz1 <- zz1[index, ]
+
+ggplot2::ggplot(mapping = aes(x = zz1$buoy.sst, y = temp_deficit[index])) +
+  geom_bin2d(bins = 20) +
+  scale_fill_gradientn(colours = ccc) +
+  geom_smooth(method = lm, se = FALSE, color = 'green', alpha = 0.1) +
+  geom_smooth(method = loess, se = FALSE, span = 0.4) +
+  labs(x = 'Buoy SST', y = 'Temperature Deficit')
+```
+
+
+```{r temp_deficit_buoy_SST_qsst_all, echo=TRUE}
+
+zz1 <- dplyr::tbl_df(orig) %>%
+  dplyr::filter(qsst != 3) %>%
+  dplyr::filter(qsst != 4)
+
+ccc = RColorBrewer::brewer.pal(n = 8, 'YlOrRd')
+ccc <- ccc[3:8]
+
+temp_deficit <- zz1$buoy.sst - zz1$T_11
+
+# Take a sample of zz1 bc loess requires lots of memory - for testing purposes
+set.seed(42)
+index <- sample(1:nrow(zz1), 50000, replace = FALSE)
+zz1 <- zz1[index, ]
+
+ggplot2::ggplot(mapping = aes(x = zz1$buoy.sst, y = temp_deficit[index])) +
+  geom_bin2d(bins = 20) +
+  scale_fill_gradientn(colours = ccc) +
+  geom_smooth(method = lm, se = FALSE, color = 'green', alpha = 0.1) +
+  geom_smooth(method = loess, se = FALSE, span = 0.4) +
+  labs(x = 'Buoy SST', y = 'Temperature Deficit')
+```
+
+## Band Diff with Varying Buoy SST
+```{r band_diff_buoy_SST_qsst0, echo=TRUE}
+
+zz1 <- dplyr::tbl_df(orig) %>%
+  dplyr::filter(qsst == 0)
+
+ccc = RColorBrewer::brewer.pal(n = 8, 'YlOrRd')
+ccc <- ccc[3:8]
+
+temp_deficit <- zz1$buoy.sst - zz1$T_11
+
+# Take a sample of zz1 bc loess requires lots of memory - for testing purposes
+set.seed(42)
+index <- sample(1:nrow(zz1), 50000, replace = FALSE)
+zz1 <- zz1[index, ]
+
+ggplot2::ggplot(mapping = aes(x = zz1$buoy.sst, y = zz1$band.diff)) +
+  geom_bin2d(bins = 20) +
+  scale_fill_gradientn(colours = ccc) +
+  geom_smooth(method = lm, se = FALSE, color = 'green', alpha = 0.1) +
+  geom_smooth(method = loess, se = FALSE, span = 0.4) +
+  labs(x = 'Buoy SST', y = 'T_11 - T_12')
+```
+
+
+```{r band_diff_buoy_SST_qsst_all, echo=TRUE}
+
+zz1 <- dplyr::tbl_df(orig) %>%
+  dplyr::filter(qsst != 3) %>%
+  dplyr::filter(qsst != 4)
+
+ccc = RColorBrewer::brewer.pal(n = 8, 'YlOrRd')
+ccc <- ccc[3:8]
+
+temp_deficit <- zz1$buoy.sst - zz1$T_11
+
+# Take a sample of zz1 bc loess requires lots of memory - for testing purposes
+set.seed(42)
+index <- sample(1:nrow(zz1), 50000, replace = FALSE)
+zz1 <- zz1[index, ]
+
+ggplot2::ggplot(mapping = aes(x = zz1$buoy.sst, y = zz1$band.diff)) +
+  geom_bin2d(bins = 20) +
+  scale_fill_gradientn(colours = ccc) +
+  geom_smooth(method = lm, se = FALSE, color = 'green', alpha = 0.1) +
+  geom_smooth(method = loess, se = FALSE, span = 0.4) +
+  labs(x = 'Buoy SST', y = 'T_11 - T_12')
+```
+
+## Temp Deficit with Band Diff
+
+```{r band_diff_temp_deficit_qsst0, echo=TRUE}
+
+zz1 <- dplyr::tbl_df(orig) %>%
+  dplyr::filter(qsst == 0)
+
+ccc = RColorBrewer::brewer.pal(n = 8, 'YlOrRd')
+ccc <- ccc[3:8]
+
+temp_deficit <- zz1$buoy.sst - zz1$T_11
+
+# Take a sample of zz1 bc loess requires lots of memory - for testing purposes
+set.seed(42)
+index <- sample(1:nrow(zz1), 50000, replace = FALSE)
+zz1 <- zz1[index, ]
+
+ggplot2::ggplot(mapping = aes(x = zz1$band.diff, y = temp_deficit[index])) +
+  geom_bin2d(bins = 20) +
+  scale_fill_gradientn(colours = ccc) +
+  geom_smooth(method = lm, se = FALSE, color = 'green', alpha = 0.1) +
+  geom_smooth(method = loess, se = FALSE, span = 0.4) +
+  labs(x = 'T_11 - T_12', y = 'Temperature Deficit')
+```
+
+
+```{r band_diff_temp_deficit_qsst_all, echo=TRUE}
+
+zz1 <- dplyr::tbl_df(orig) %>%
+  dplyr::filter(qsst != 3) %>%
+  dplyr::filter(qsst != 4)
+
+ccc = RColorBrewer::brewer.pal(n = 8, 'YlOrRd')
+ccc <- ccc[3:8]
+
+temp_deficit <- zz1$buoy.sst - zz1$T_11
+
+# Take a sample of zz1 bc loess requires lots of memory - for testing purposes
+set.seed(42)
+index <- sample(1:nrow(zz1), 50000, replace = FALSE)
+zz1 <- zz1[index, ]
+
+ggplot2::ggplot(mapping = aes(x = zz1$band.diff, y = temp_deficit[index])) +
+  geom_bin2d(bins = 20) +
+  scale_fill_gradientn(colours = ccc) +
+  geom_smooth(method = lm, se = FALSE, color = 'green', alpha = 0.1) +
+  geom_smooth(method = loess, se = FALSE, span = 0.4) +
+  labs(x = 'T_11 - T_12', y = 'Temperature Deficit')
+```
+
+
+## Temp Deficit with Product
+
+
+```{r band_diff_temp_deficit_qsst0, echo=TRUE}
+
+zz1 <- dplyr::tbl_df(orig) %>%
+  dplyr::filter(qsst == 0)
+
+ccc = RColorBrewer::brewer.pal(n = 8, 'YlOrRd')
+ccc <- ccc[3:8]
+
+temp_deficit <- zz1$buoy.sst - zz1$T_11
+
+# Take a sample of zz1 bc loess requires lots of memory - for testing purposes
+set.seed(42)
+index <- sample(1:nrow(zz1), 50000, replace = FALSE)
+zz1 <- zz1[index, ]
+
+ggplot2::ggplot(mapping = aes(x = (zz1$band.diff * zz1$ref_SST), y = temp_deficit[index])) +
+  geom_bin2d(bins = 20) +
+  scale_fill_gradientn(colours = ccc) +
+  geom_smooth(method = lm, se = FALSE, color = 'green', alpha = 0.1) +
+  geom_smooth(method = loess, se = FALSE, span = 0.4) +
+  labs(x = '(T_11 - T_12) * Reference SST', y = 'Temperature Deficit')
+```
+
+
+```{r band_diff_temp_deficit_qsst_all, echo=TRUE}
+
+zz1 <- dplyr::tbl_df(orig) %>%
+  dplyr::filter(qsst != 3) %>%
+  dplyr::filter(qsst != 4)
+
+ccc = RColorBrewer::brewer.pal(n = 8, 'YlOrRd')
+ccc <- ccc[3:8]
+
+temp_deficit <- zz1$buoy.sst - zz1$T_11
+
+# Take a sample of zz1 bc loess requires lots of memory - for testing purposes
+set.seed(42)
+index <- sample(1:nrow(zz1), 50000, replace = FALSE)
+zz1 <- zz1[index, ]
+
+ggplot2::ggplot(mapping = aes(x = (zz1$band.diff * zz1$ref_SST), y = temp_deficit[index])) +
+  geom_bin2d(bins = 20) +
+  scale_fill_gradientn(colours = ccc) +
+  geom_smooth(method = lm, se = FALSE, color = 'green', alpha = 0.1) +
+  geom_smooth(method = loess, se = FALSE, span = 0.4) +
+  labs(x = '(T_11 - T_12) * Reference SST', y = 'Temperature Deficit')
+```
+
 
