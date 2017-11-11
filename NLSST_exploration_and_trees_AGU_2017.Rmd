@@ -1,0 +1,281 @@
+---
+title: "NLSST Exploration for AGU"
+author: "Chirag Kumar and Guillermo Podesta"
+output:
+  html_notebook:
+    toc: True
+    theme: united
+---
+
+In this notebook, we explore the rationale behind the NLSST algorithm and where it fails. We investigate the
+correlation between the temperature deficit and band difference. Finally, we aim to use decision trees to
+estimate when a retrieval has a low or high residual magnitude based on the above exploration of when the
+atmospheric correction is no longer an accurate proxy for the temperature deficit.
+
+
+# Prep Workspace and Data
+We use MODIS matchups from 2002 - 2016 that have been read in through a previous script. Here we simply load
+the matchups, any required packages, and define necessary functions.
+
+```{r prep_workspace, include=FALSE}
+# Import necessary packages
+require(ggplot2)
+require(dplyr)
+require(RColorBrewer)
+require(circular)
+require(ggmap)
+require(raster)
+require(sfsmisc)
+require(rasterVis)
+require(rgdal)
+require(rpart)
+require(rpart.plot)
+require(caret)
+require(evtree)
+require(ctree)
+require(partykit)
+require(randomForest)
+require(RWeka)
+require(DMwR)
+require(wesanderson)
+
+ggplot <- function(...) {ggplot2::ggplot(...) + theme_bw()}
+
+# Define secant function
+secant.deg <- function(x) {1 / (cos(circular::rad(x)))}
+
+# Source own functions
+# Define direwctory where functions are for each operating system
+
+if (Sys.info()["sysname"] == 'Windows') {
+  fun.dir <- 'D:/matchups/r-projects/Matchup_R_Scripts/Functions/'
+} else if (Sys.info()["sysname"] == 'Linux') {
+  fun.dir <- '/home/ckk/Projects/Matchup_R_Scripts/Functions/'
+}
+
+fun.file <- paste0(fun.dir, 'common_functions.R')
+
+source(file = fun.file,
+  local = FALSE, echo = FALSE, verbose = FALSE)
+rm(fun.dir, fun.file)
+
+
+# Load data
+# For 787
+linux_dir <- '~/Projects/Matchup_R_Scripts/Results/objects/'
+# For Laptop
+#linux_dir <- '~/Projects/Matchup_R_Scripts/'
+linux_file <- 'MODIS_Aqua_GSFC_ALL_Class_6.4.1_ao_2017_04_12_with_ancillary.Rdata'
+AQUA_file <- paste0(linux_dir, linux_file)
+
+if (!file.exists(AQUA_file)) {
+    stop('Input file does not exist')
+  } else {
+    load(AQUA_file, verbose = TRUE)
+    AQUA <- MODIS_Aqua_GSFC_ALL_Class_6.4.1_ao_2017_04_12
+  }
+
+rm(linux_dir, linux_file, AQUA_file)
+rm(MODIS_Aqua_GSFC_ALL_Class_6.4.1_ao_2017_04_12)
+
+set.seed(42)
+```
+
+The matchup file read in at a previous step is not filtered and contains too many variables. For the purpose of 
+this analysis, we use only nighttime matchups with a quality of 0, 1, or 2 and only keep variables from the infrared
+channels we use.
+
+```{r prep_data, echo=TRUE}
+# Turn POSIXct objects to characters bc dplyr doesn't support POSIXct
+AQUA$sat.timedate <- as.character(AQUA$sat.timedate)
+AQUA$buoy.timedate <- as.character(AQUA$buoy.timedate)
+
+# Apply basic filtering
+AQUA <- dplyr::tbl_df(AQUA) %>%
+  dplyr::filter(solz >= 90) %>%
+  dplyr::filter(qsst == 0 | qsst == 1 | qsst == 2)
+
+# Now grab only variables that may be used to determine retrieval accuracy and make some new variables (i.e. x1, x2, x3)
+# Create df of features
+orig <- dplyr::tbl_df(AQUA) %>%
+  dplyr::mutate(T_11 = cen.11000,
+    T_12 = cen.12000,
+    band.diff = T_11 - T_12,
+    ref_SST = cen.ref.type.1.SST,
+    x2 = band.diff * ref_SST,
+    x3 = ((secant.deg(satz) - 1) * band.diff),
+    lat = buoy.lat,
+    lon = buoy.lon,
+    sd11 = sd.11000,
+    sd12 = sd.12000,
+    range11 = max.11000 - min.11000,
+    range12 = max.12000 - min.12000,
+    diff.med.min11 = med.11000 - min.11000,
+    diff.med.min12 = med.12000 - min.12000,
+    qsst = qsst,
+    buoy.sst = buoy.sst,
+    cell5deg = cell5deg,
+    buoy.timedate = buoy.timedate,
+    SST.resid.SMB = cen.sst - (buoy.sst - 0.17)) %>% # SMB = sat minus buoy - also debias buoy.sst by turning buoy.sst into a skin measurement
+  dplyr::select(T_11, T_12, band.diff, ref_SST, x2, x3, satz, lon, lat, sd11, sd12, range11, range12, diff.med.min11, diff.med.min12,
+    qsst, buoy.sst, cell5deg, buoy.timedate, SST.resid.SMB)
+
+```
+
+# SST and Residuals
+
+```{r residuals_vs_buoy_SST, echo = TRUE}
+
+ggplot2::ggplot(data = orig, mapping = aes(x = buoy.sst, y = SST.resid.SMB,
+  fill = cut(..count.., c(0, 10, 50, 100, 250, 500, 1000, 2500, 5000, Inf)))) +
+  geom_bin2d(bins = 75) +
+  scale_fill_hue('count') +
+  geom_abline(slope = 0, intercept = 0, col = 'black')
+
+```
+We see that as the SST increases, so does the spread of the residuals. There are also more retrievals at higher
+SSTs. We now explore the NLSST algorithm to find why there is an increase in residual spread at higher SSTs.
+
+## Residual Distribution
+
+```{r resid_distribution, echo=TRUE}
+resid_cats <- cut(orig$SST.resid.SMB, c(-Inf, -0.4, 0.4, Inf))
+table(resid_cats)
+```
+
+Because of the very few retrievals that have residuals > 0.4, we choose to discard these from our analysis.
+Furthermore, these residuals are only causes by extremely abnormal conditions and are hence easier to
+identify. For ease, we refer to retrievals less than -0.4 as bad and retrievals inbetween -0.4 and 0.4 as
+good.
+
+```{r resid_filtering, echo=TRUE}
+orig <- dplyr::tbl_df(orig) %>%
+  dplyr::filter(SST.resid.SMB <= 0.4)
+
+orig <- as.data.frame(orig)
+summary(orig$SST.resid.SMB)
+
+resid_cats <- cut(orig$SST.resid.SMB, c(-Inf, -0.4, 0.4, Inf))
+table(resid_cats)
+```
+
+After the series of filters that we have applied, we are left with `r nrow(orig)` matchups, ranging from
+`r min(orig$buoy.timedate)` to `r max(orig$buoy.timedate)`
+
+# NLSST Exploration
+
+```{r band_diff_temp_deficit_qsst_all, echo=TRUE}
+
+ccc = RColorBrewer::brewer.pal(n = 8, 'YlOrRd')
+ccc <- ccc[3:8]
+
+temp_deficit <- orig$buoy.sst - orig$T_11
+
+# Take a sample of orig bc loess requires lots of memory - for testing purposes
+index <- sample(1:nrow(orig), 50000, replace = FALSE)
+zz1 <- zz1[index, ]
+
+ggplot2::ggplot(mapping = aes(x = (orig$band.diff[index] * orig$ref_SST[index]), y = temp_deficit[index])) +
+  geom_bin2d(bins = 20) +
+  scale_fill_gradientn(colours = ccc) +
+  geom_smooth(method = lm, se = FALSE, color = 'green', alpha = 0.1) +
+  geom_smooth(method = loess, se = FALSE, span = 0.4) +
+  labs(x = '(T_11 - T_12) * Reference SST', y = 'Temperature Deficit')
+```
+
+At lower SSTs, there is a strong linear correlation between the product and the temperature deficit,
+indicating that at low SSTs, the NLSST atmospheric correction works very well.
+
+We also see that at higher SSTs, there is a breakdown of the linear correlation between the temperature
+deficit and product used in the NLSST algorithm (x_2). The temperature deficit increases more than
+the band difference does, which causes increase in retrievals with negative residuals at higher
+temperatures. However, the band difference alone is not enough for us to separate retrievals
+with good and bad residual ranges.
+
+```{r band_diff_temp_deficit_context_residual_qsst0_only, echo=TRUE}
+
+resid_context <- cut(orig$SST.resid.SMB, c(-Inf, -.4, .4, Inf))
+temp_deficit <- orig$buoy.sst - orig$T_11
+
+uuu <- data.frame(resid_context = as.factor(resid_context), temp_deficit = temp_deficit, product = (orig$band.diff * orig$ref_SST))
+
+# Take a sample of uuu bc loess requires lots of memory - for testing purposes
+set.seed(42)
+index <- sample(1:nrow(uuu), 50000, replace = FALSE)
+uuu <- uuu[index, ]
+
+
+ggplot2::ggplot(data = uuu, mapping = aes(x = product, y = temp_deficit, color = uuu$resid_context)) +
+  geom_density2d() +
+  labs(x = '(T_11 - T_12) * Reference SST', y = 'Temperature Deficit', color = 'Residual Range')
+  #ggsave('band_diff_predictor_of_temp_deficit_different_in_situ_windows.pdf')
+
+```
+
+
+
+```{r median_by_location_raster, echo=TRUE}
+# --- These numbers may help perform statistics for the matchups
+# --- (e.g., number of matchups per cell, etc.).
+
+
+resid_context <- cut(orig$SST.resid.SMB, c(-Inf, -.4, .4, Inf))
+temp_deficit <- orig$buoy.sst - orig$T_11
+
+uuu <- data.frame(resid_context = as.factor(resid_context), temp_deficit = temp_deficit, product = (orig$band.diff * orig$ref_SST),
+                  SST.resid.SMB = orig$SST.resid.SMB)
+
+# Take a sample of uuu bc loess requires lots of memory - for testing purposes
+set.seed(42)
+index <- sample(1:nrow(uuu), 50000, replace = FALSE)
+uuu <- uuu[index, ]
+
+# --- Create a raster object with 5-degree pixels
+
+grid5deg <- raster::raster(ncol = 20, nrow = 40,
+  xmn = min(uuu$product), xmx = max(uuu$product),
+  ymn = min(uuu$temp_deficit), ymx = max(uuu$temp_deficit))
+  #crs = crs.string)
+
+# --- Write cell numbers as value for the grids.
+# --- Cell 1 is the upper left corner and numbers go
+# --- across the top line through its end, then
+# --- start again in the second line, and so forth.
+
+raster::values(grid5deg) <- 1:raster::ncell(grid5deg) # Cell numbers for 5 deg grid
+
+raster::cellFromRowCol(object = grid5deg, rownr = 2, colnr = 20)
+
+raster::xyFromCell(object =  grid5deg, cell = 800, spatial=FALSE)
+
+pts <- uuu
+sp::coordinates(pts) <- ~product + temp_deficit
+  
+cell5deg <- raster::rasterize(pts, grid5deg, pts$SST.resid.SMB, fun = median)
+
+#qqq <- dplyr::tbl_df(uuu) %>%
+#  dplyr::group_by(cell5deg) %>%
+#  dplyr::summarise(N = n(), med = median(SST.resid.SMB), IQR = IQR(SST.resid.SMB)) %>%
+#  dplyr::filter(N >= 100)
+
+#qq1 <- rep(NA, (20*40))
+#qq1[qqq$cell5deg] <- qqq$med
+
+#raster::values(grid5deg) <- qq1
+
+blues_palette <- rev(RColorBrewer::brewer.pal(9, 'Blues'))
+more_blues <- colorRampPalette(blues_palette)(13)
+reds_palette <- RColorBrewer::brewer.pal(6, 'Reds')
+
+palette <- c(more_blues, '#f0f0f0', '#f0f0f0', reds_palette)
+
+rasterVis::levelplot(cell5deg, margin = FALSE,
+  at = c(-Inf, -.8, -.7, -.6, -.5, -.4, -.3, -.2, -.1, 0, 0.1, 0.2, 0.3, Inf),
+  col.regions = palette)
+```
+
+
+
+
+
+
