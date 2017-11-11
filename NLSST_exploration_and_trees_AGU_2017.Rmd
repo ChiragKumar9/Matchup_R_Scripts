@@ -250,8 +250,17 @@ raster::xyFromCell(object =  grid5deg, cell = 800, spatial=FALSE)
 
 pts <- uuu
 sp::coordinates(pts) <- ~product + temp_deficit
-  
-cell5deg <- raster::rasterize(pts, grid5deg, pts$SST.resid.SMB, fun = median)
+
+
+count <- function(residuals) {
+  resid_cats <- cut(residuals, c(-Inf, -0.4, 0.4))
+  N_resid_bad_low <- table(resid_cats)[1]
+  N_resid_good <- table(resid_cats)[2]
+  fraction_good <- N_resid_good / (N_resid_bad_low + N_resid_good)
+  return(fraction_good)
+}
+
+cell5deg <- raster::rasterize(pts, grid5deg, pts$SST.resid.SMB, fun = median) # fun can be median, IQR, or count
 
 #qqq <- dplyr::tbl_df(uuu) %>%
 #  dplyr::group_by(cell5deg) %>%
@@ -264,13 +273,13 @@ cell5deg <- raster::rasterize(pts, grid5deg, pts$SST.resid.SMB, fun = median)
 #raster::values(grid5deg) <- qq1
 
 blues_palette <- rev(RColorBrewer::brewer.pal(9, 'Blues'))
-more_blues <- colorRampPalette(blues_palette)(13)
-reds_palette <- RColorBrewer::brewer.pal(6, 'Reds')
+more_blues <- colorRampPalette(blues_palette)(7)
+reds_palette <- RColorBrewer::brewer.pal(10, 'Reds')
 
 palette <- c(more_blues, '#f0f0f0', '#f0f0f0', reds_palette)
 
 rasterVis::levelplot(cell5deg, margin = FALSE,
-  at = c(-Inf, -.8, -.7, -.6, -.5, -.4, -.3, -.2, -.1, 0, 0.1, 0.2, 0.3, Inf),
+  at = c(-Inf, -.8, -.7, -.6, -.5, -.4, -.3, -.2, -.1, 0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0, Inf),
   col.regions = palette)
 ```
 
