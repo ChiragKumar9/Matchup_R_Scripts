@@ -192,7 +192,7 @@ the band difference does, which causes increase in retrievals with negative resi
 temperatures. However, the band difference alone is not enough for us to separate retrievals
 with good and bad residual ranges.
 
-```{r band_diff_temp_deficit_context_residual_qsst0_only, echo=TRUE}
+```{r band_diff_temp_deficit_contours, echo=TRUE}
 
 resid_context <- cut(orig$SST.resid.SMB, c(-Inf, -.4, .4, Inf))
 temp_deficit <- orig$buoy.sst - orig$T_11
@@ -212,6 +212,45 @@ ggplot2::ggplot(data = uuu, mapping = aes(x = product, y = temp_deficit, color =
 
 ```
 
+
+
+```{r band_diff_temp_deficit_cumulative_contours, echo=TRUE}
+library(ggplot2)
+library(MASS)
+library(reshape2)
+
+# data:
+resid_context <- cut(orig$SST.resid.SMB, c(-Inf, -.4, .4, Inf))
+temp_deficit <- orig$buoy.sst - orig$T_11
+
+uuu <- data.frame(resid_context = as.factor(resid_context), temp_deficit = temp_deficit, product = (orig$band.diff * orig$ref_SST))
+
+# Take a sample of uuu bc loess requires lots of memory - for testing purposes
+set.seed(42)
+index <- sample(1:nrow(uuu), 50000, replace = FALSE)
+uuu <- uuu[index, ]
+
+
+# get the kde2d information: 
+uuu.kde <- kde2d(uuu[,1], uuu[,2], n = 400)
+dx <- diff(uuu.kde$x[1:2])  # lifted from emdbook::HPDregionplot()
+dy <- diff(uuu.kde$y[1:2])
+sz <- sort(uuu.kde$z)
+c1 <- cumsum(sz) * dx * dy
+
+# specify desired contour levels:
+prob <- c(0.95, 0.90, 0.5)
+
+# plot:
+dimnames(uuu.kde$z) <- list(uuu.kde$x, uuu.kde$y)
+dc <- melt(uuu.kde$z)
+dc$prob <- approx(sz, 1 - c1, dc$value)$y
+p <- ggplot(dc, aes(x = Var1, y = Var2)) +
+  geom_contour(aes(z = prob, color = resid_context), breaks = prob) +
+  #geom_point(aes(x = X1, y = X2, color = resid_context), data = uuu, alpha = 0.1, size = 1) +
+  labs(x = '(T_11 - T_12) * Reference SST', y = 'Temperature Deficit', color = 'Residual Range')
+print(p)
+```
 
 
 ```{r binning_retrievals_band_diff_temp_def_residual_a_la_raster, echo=TRUE}
