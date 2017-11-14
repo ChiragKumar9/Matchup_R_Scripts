@@ -230,26 +230,56 @@ set.seed(42)
 index <- sample(1:nrow(uuu), 50000, replace = FALSE)
 uuu <- uuu[index, ]
 
+# filter - create two dataframes, good vs bad residuals
 
-# get the kde2d information: 
-uuu.kde <- kde2d(uuu[,1], uuu[,2], n = 400)
-dx <- diff(uuu.kde$x[1:2])  # lifted from emdbook::HPDregionplot()
-dy <- diff(uuu.kde$y[1:2])
-sz <- sort(uuu.kde$z)
-c1 <- cumsum(sz) * dx * dy
+uuu_good <- dplyr::tbl_df(uuu) %>%
+  dplyr::filter(resid_context == '(-0.4,0.4]')
+
+uuu_bad <- dplyr::tbl_df(uuu) %>%
+  dplyr::filter(resid_context == '(-Inf,-0.4]')
+
+uuu_good <- as.data.frame(uuu_good)
+uuu_bad <- as.data.frame(uuu_bad)
+
+# get the kde2d information:
+# for good
+uuu_good.kde <- kde2d(uuu_good[,2], uuu_good[,3], n = 400)
+dx_good <- diff(uuu_good.kde$x[2:3])  # lifted from emdbook::HPDregionplot()
+dy_good <- diff(uuu_good.kde$y[2:3])
+sz_good <- sort(uuu_good.kde$z)
+c1_good <- cumsum(sz_good) * dx_good * dy_good
+
+# for bad
+uuu_bad.kde <- kde2d(uuu_bad[,2], uuu_bad[,3], n = 400)
+dx_bad <- diff(uuu_bad.kde$x[2:3])  # lifted from emdbook::HPDregionplot()
+dy_bad <- diff(uuu_bad.kde$y[2:3])
+sz_bad <- sort(uuu_bad.kde$z)
+c1_bad <- cumsum(sz_bad) * dx_bad * dy_bad
 
 # specify desired contour levels:
-prob <- c(0.95, 0.90, 0.5)
+prob <- c(0.15, 0.25, 0.5, 0.75, 0.90, 0.95)
 
-# plot:
-dimnames(uuu.kde$z) <- list(uuu.kde$x, uuu.kde$y)
-dc <- melt(uuu.kde$z)
-dc$prob <- approx(sz, 1 - c1, dc$value)$y
-p <- ggplot(dc, aes(x = Var1, y = Var2)) +
-  geom_contour(aes(z = prob, color = resid_context), breaks = prob) +
-  #geom_point(aes(x = X1, y = X2, color = resid_context), data = uuu, alpha = 0.1, size = 1) +
+# Configure plot
+# for good
+dimnames(uuu_good.kde$z) <- list(uuu_good.kde$x, uuu_good.kde$y)
+dc_good <- melt(uuu_good.kde$z)
+dc_good$prob <- approx(sz_good, 1 - c1_good, dc_good$value)$y
+
+# for bad
+dimnames(uuu_bad.kde$z) <- list(uuu_bad.kde$x, uuu_bad.kde$y)
+dc_bad <- melt(uuu_bad.kde$z)
+dc_bad$prob <- approx(sz_bad, 1 - c1_bad, dc_bad$value)$y
+
+# Actual plot
+p <- ggplot2::ggplot() +
+  geom_contour(data = dc_good, aes(x = Var1, y = Var2, z = prob), breaks = prob, color = 'blue') +
+  geom_contour(data = dc_bad, aes(x = Var1, y = Var2, z = prob), breaks = prob, color = 'tomato') +
   labs(x = '(T_11 - T_12) * Reference SST', y = 'Temperature Deficit', color = 'Residual Range')
 print(p)
+
+### TO DO: add key for what color represents which residual range, add labels for what p(x) the contours represent
+
+
 ```
 
 
