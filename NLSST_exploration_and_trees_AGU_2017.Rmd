@@ -175,6 +175,30 @@ temp_deficit <- orig$buoy.sst - orig$T_11
 index <- sample(1:nrow(orig), 50000, replace = FALSE)
 zz1 <- zz1[index, ]
 
+rrr <- ggplot2::ggplot(mapping = aes(x = orig$band.diff[index], y = temp_deficit[index])) +
+  geom_bin2d(bins = 20) +
+  scale_fill_gradientn(colours = ccc) +
+  geom_smooth(method = lm, se = FALSE, color = 'green', alpha = 0.1) +
+  geom_smooth(method = loess, se = FALSE, span = 0.4) +
+  labs(x = 'T_11 - T_12', y = 'Temperature Deficit')
+
+rrr
+```
+
+
+
+
+```{r product_temp_deficit_qsst_all, echo=TRUE}
+
+ccc = RColorBrewer::brewer.pal(n = 8, 'YlOrRd')
+ccc <- ccc[3:8]
+
+temp_deficit <- orig$buoy.sst - orig$T_11
+
+# Take a sample of orig bc loess requires lots of memory - for testing purposes
+index <- sample(1:nrow(orig), 50000, replace = FALSE)
+zz1 <- zz1[index, ]
+
 ggplot2::ggplot(mapping = aes(x = (orig$band.diff[index] * orig$ref_SST[index]), y = temp_deficit[index])) +
   geom_bin2d(bins = 20) +
   scale_fill_gradientn(colours = ccc) +
@@ -257,7 +281,7 @@ sz_bad <- sort(uuu_bad.kde$z)
 c1_bad <- cumsum(sz_bad) * dx_bad * dy_bad
 
 # specify desired contour levels:
-prob <- c(0.15, 0.25, 0.5, 0.75, 0.90, 0.95)
+prob <- c(0.25, 0.5, 0.75, 0.90)
 
 # Configure plot
 # for good
@@ -329,7 +353,7 @@ count_good_residuals <- function(residuals, ...) {
   return(fraction_good)
 }
 
-cell5deg <- raster::rasterize(pts, grid5deg, pts$SST.resid.SMB, fun = count_good_residuals) # fun can be median, IQR, or count
+cell5deg <- raster::rasterize(pts, grid5deg, pts$SST.resid.SMB, fun = count_good_residuals) # fun can be median, IQR, or count_good_residuals
 
 #qqq <- dplyr::tbl_df(uuu) %>%
 #  dplyr::group_by(cell5deg) %>%
