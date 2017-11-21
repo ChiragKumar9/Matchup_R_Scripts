@@ -378,12 +378,90 @@ reds_palette <- colorRampPalette(reds_palette)(10)
 palette <- c(blues_palette, '#f0f0f0', '#f0f0f0', reds_palette)
 palette <- rev(palette)
 
-rasterVis::levelplot(cell5deg, margin = FALSE,
-  at = c(-Inf, seq(from = 0, to = 1.0, by = 0.05), Inf),
-  col.regions = palette,
-  xlab = '(T_11 - T_12) * Reference SST',
-  ylab = 'Temperature Deficit')
+#rasterVis::levelplot(cell5deg, margin = FALSE,
+#  at = c(-Inf, seq(from = 0, to = 1.0, by = 0.05), Inf),
+#  col.regions = palette,
+#  xlab = '(T_11 - T_12) * Reference SST',
+#  ylab = 'Temperature Deficit')
+
+rasterVis::gplot(cell5deg) + 
+  ggplot2::geom_raster(aes(fill = (value))) + scale_fill_gradientn(colors = palette) +
+  labs(x = '(T_11 - T_12) * Reference SST', y = 'Temperature Deficit', fill = 'Fraction of Good Retrievals') +
+  ggplot2::theme_bw()
 ```
+
+As can be seen, there are very distinct regions of temperature deficit and product that have very high
+probabilities of good (bad) residuals. However, there is also a notable region where there are roughly
+equal portions of good and bad residuals. We build decision trees to segment those "in-between" retrievals.
+
+# Decision Trees
+
+## Prep Data for Decision Trees
+
+### Create Additional Variables
+
+Explored before is that lines can be drawn that are a function of the product and temperature deficit
+that segment good and bad retrievals. However, we can't give the temperature deficit (the answer) to
+the machine learning model. We create estimates of the temperature deficit using the reference SST
+minus T_11 (T_12).
+
+```{r create_additional_variables, echo=TRUE}
+# Temperature Deficit Estimate
+orig$ref_SST_minus_T_11 <- orig$ref_SST - orig$T_11
+
+# Class of the Residual
+orig$class_resid <- ifelse(orig$SST.resid.SMB <= -0.4, 'bad', 'good')
+```
+
+### Split into Train and Test Sets
+
+All our algorithms will be trained on 60% of our data and tested on the other 40%.
+We make that split here.
+
+```{r create_train_test_set, echo=TRUE}
+# Divide data into training and validation sets
+prop_train <- .6
+len_train <- floor(prop_train * nrow(orig))
+index <- sample(1:nrow(orig), len_train, replace = FALSE)
+
+orig_train <- orig[index, ]
+orig_test <- orig[-index, ]
+```
+
+### Rebalance Classes
+Most machine learning algorithms prefer to deal with balanced classes. As hinted at before, our classes
+are heavily inbalanced, even after cutting down to just two classes (i.e., removing retrievals with
+residuals greater than 0.4).
+
+```{r inbalanced_clases, echo=TRUE}
+table(cut(orig$SST.resid.SMB, c(-Inf, -0.4, 0.4)))
+
+prop.table(table(cut(orig$SST.resid.SMB, c(-Inf, -0.4, 0.4))))
+```
+
+As can be seen from the above tables, the good retrievals are almost twice as prevalent as the bad
+retrievals. Hence, we use rebalancing techniques, such as SMOTE and ROSE, to rebalance our dataset.
+Based on a previous exploration, we saw that using the balanced dataset didn't always increase the
+accuracy of the model when compared to not using the balanced data. However, using the balanced
+data always resulted in higher sensitivity and specificity and at least comprable accuracy. Therefore,
+we choose to stay with using the balanced dataset because the increased sensitivity and specificity
+make us more likely to trust that model's predictions, regardless of which class they are for.
+
+
+```{r rebalance classes, echo=TRUE}
+orig_train_smote <- DMwR::SMOTE(class_resid ~ ., as.data.frame(orig_train), perc.over = 100, perc.under = 200)
+
+```
+
+After rebalancing, our classes have almost equal prevalence.
+
+```{r balanced_classes, echo=TRUE}
+table(orig_train_smote$class_resid)
+
+prop.table(table(orig_train_smote$class_resid))
+```
+
+
 
 
 
