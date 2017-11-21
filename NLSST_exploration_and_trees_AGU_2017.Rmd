@@ -411,6 +411,10 @@ orig$ref_SST_minus_T_11 <- orig$ref_SST - orig$T_11
 
 # Class of the Residual
 orig$class_resid <- ifelse(orig$SST.resid.SMB <= -0.4, 'bad', 'good')
+
+# Remove buoy_timedate
+orig <- dplyr::tbl_df(orig) %>%
+  dplyr::select(-buoy.timedate)
 ```
 
 ### Split into Train and Test Sets
@@ -449,6 +453,7 @@ make us more likely to trust that model's predictions, regardless of which class
 
 
 ```{r rebalance classes, echo=TRUE}
+
 orig_train_smote <- DMwR::SMOTE(class_resid ~ ., as.data.frame(orig_train), perc.over = 100, perc.under = 200)
 
 ```
