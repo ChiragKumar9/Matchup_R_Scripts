@@ -163,6 +163,8 @@ After the series of filters that we have applied, we are left with `r nrow(orig)
 `r min(orig$buoy.timedate)` to `r max(orig$buoy.timedate)`
 
 # NLSST Exploration
+At higher SSTs, the correlation between temperature deficit and band difference (the proxy for temperature deficit)
+decreases, as the band difference begins to respond less. This can be seen in the following plot.
 
 ```{r band_diff_temp_deficit_qsst_all, echo=TRUE}
 
@@ -186,7 +188,10 @@ rrr
 ```
 
 
-
+The NLSST algorithm corrects for this loss in linearity by not using just the band difference
+to predict the temperature deficit but rather a product made up of the band difference times
+the reference SST. While better than the trend explored in the previous plot, there is still
+a distinct loss of linearity at high SSTs.
 
 ```{r product_temp_deficit_qsst_all, echo=TRUE}
 
@@ -230,7 +235,7 @@ uuu <- uuu[index, ]
 
 
 ggplot2::ggplot(data = uuu, mapping = aes(x = product, y = temp_deficit, color = uuu$resid_context)) +
-  geom_density2d() +
+  geom_density_2d() +
   labs(x = '(T_11 - T_12) * Reference SST', y = 'Temperature Deficit', color = 'Residual Range')
   #ggsave('band_diff_predictor_of_temp_deficit_different_in_situ_windows.pdf')
 
@@ -296,8 +301,8 @@ dc_bad$prob <- approx(sz_bad, 1 - c1_bad, dc_bad$value)$y
 
 # Actual plot
 p <- ggplot2::ggplot() +
-  geom_contour(data = dc_good, aes(x = Var1, y = Var2, z = prob), breaks = prob, color = 'blue') +
-  geom_contour(data = dc_bad, aes(x = Var1, y = Var2, z = prob), breaks = prob, color = 'tomato') +
+  geom_contour(data = dc_good, aes(x = Var2, y = Var1, z = prob), breaks = prob, color = '#00BFC4') +
+  geom_contour(data = dc_bad, aes(x = Var2, y = Var1, z = prob), breaks = prob, color = '#F8766D') +
   labs(x = '(T_11 - T_12) * Reference SST', y = 'Temperature Deficit', color = 'Residual Range')
 print(p)
 
@@ -341,9 +346,8 @@ raster::cellFromRowCol(object = grid5deg, rownr = 2, colnr = 20)
 
 raster::xyFromCell(object =  grid5deg, cell = 800, spatial = FALSE)
 
-pts <- uuu
-sp::coordinates(pts) <- ~product + temp_deficit
-
+pts <- data.frame(product = uuu$product, temp_deficit = uuu$temp_deficit)
+SST.resid.SMB <- uuu$SST.resid.SMB
 
 count_good_residuals <- function(residuals, ...) {
   resid_cats <- cut(residuals, c(-Inf, -0.4, 0.4))
@@ -353,7 +357,7 @@ count_good_residuals <- function(residuals, ...) {
   return(fraction_good)
 }
 
-cell5deg <- raster::rasterize(pts, grid5deg, pts$SST.resid.SMB, fun = count_good_residuals) # fun can be median, IQR, or count_good_residuals
+cell5deg <- raster::rasterize(pts, grid5deg, SST.resid.SMB, fun = count_good_residuals) # fun can be median, IQR, or count_good_residuals
 
 #qqq <- dplyr::tbl_df(uuu) %>%
 #  dplyr::group_by(cell5deg) %>%
@@ -372,10 +376,13 @@ reds_palette <- RColorBrewer::brewer.pal(9, 'Reds')
 reds_palette <- colorRampPalette(reds_palette)(10)
 
 palette <- c(blues_palette, '#f0f0f0', '#f0f0f0', reds_palette)
+palette <- rev(palette)
 
 rasterVis::levelplot(cell5deg, margin = FALSE,
-  at = c(-Inf, -1.0, -0.9, -.8, -.7, -.6, -.5, -.4, -.3, -.2, -.1, 0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0, Inf),
-  col.regions = palette)
+  at = c(-Inf, seq(from = 0, to = 1.0, by = 0.05), Inf),
+  col.regions = palette,
+  xlab = '(T_11 - T_12) * Reference SST',
+  ylab = 'Temperature Deficit')
 ```
 
 
