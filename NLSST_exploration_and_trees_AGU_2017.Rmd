@@ -38,6 +38,7 @@ require(randomForest)
 require(RWeka)
 require(DMwR)
 require(wesanderson)
+require(C50)
 
 ggplot <- function(...) {ggplot2::ggplot(...) + theme_bw()}
 
@@ -318,7 +319,8 @@ print(p)
 
 
 resid_context <- cut(orig$SST.resid.SMB, c(-Inf, -.4, .4, Inf))
-temp_deficit <- orig$buoy.sst - orig$T_11
+#temp_deficit <- orig$buoy.sst - orig$T_11
+temp_deficit <- td_fit$residuals
 
 uuu <- data.frame(resid_context = as.factor(resid_context), temp_deficit = temp_deficit, product = (orig$band.diff * orig$ref_SST),
                   SST.resid.SMB = orig$SST.resid.SMB)
@@ -330,7 +332,7 @@ uuu <- uuu[index, ]
 
 # --- Create a raster object with 5-degree pixels
 
-grid5deg <- raster::raster(ncol = 20, nrow = 40,
+grid5deg <- raster::raster(ncol = 20, nrow = 20,
   xmn = min(uuu$product) - 0.1, xmx = max(uuu$product) + 0.1,
   ymn = min(uuu$temp_deficit) - 0.1, ymx = max(uuu$temp_deficit) + 0.1)
   #crs = crs.string)
@@ -384,11 +386,23 @@ palette <- rev(palette)
 #  xlab = '(T_11 - T_12) * Reference SST',
 #  ylab = 'Temperature Deficit')
 
+
 rasterVis::gplot(cell5deg) + 
   ggplot2::geom_raster(aes(fill = (value))) + scale_fill_gradientn(colors = palette) +
-  labs(x = '(T_11 - T_12) * Reference SST', y = 'Temperature Deficit', fill = 'Fraction of Good Retrievals') +
+  labs(x = '(T_11 - T_12) * Reference SST', y = 'Temperature Deficit', fill = 'Fraction of\nGood Retrievals') +
   ggplot2::theme_bw()
 ```
+
+```{r temp_def_lm, echo=TRUE}
+
+td_fit <- lm(temp_def ~ orig$x2)
+
+```
+
+
+
+
+
 
 As can be seen, there are very distinct regions of temperature deficit and product that have very high
 probabilities of good (bad) residuals. However, there is also a notable region where there are roughly
@@ -416,6 +430,10 @@ orig$ref_SST_minus_T_11 <- orig$ref_SST - orig$T_11
 # Class of the Residual
 orig$class_resid <- ifelse(orig$SST.resid.SMB <= -0.4, 'bad', 'good')
 orig$class_resid <- factor(orig$class_resid, levels = c('bad', 'good'))
+
+# Remove buoy_timedate
+orig <- dplyr::tbl_df(orig) %>%
+  dplyr::select(-buoy.timedate)
 ```
 
 ### Split into Train and Test Sets
@@ -468,9 +486,191 @@ prop.table(table(orig_train_smote$class_resid))
 ```
 
 
+## Trees
+
+For all trees, we use the balanced dataset. We fit our model to the balanced train data and then
+test on the test set. We create confusion matrices for both the train and test set, just to see
+if the model is overfitting. We use three types of decision tree models: RPART, CTree, and Random
+Forests. All trees receive the same 4 splitting variables: x2, x3, temperature deficit estimate, 
+and sd_11.
+
+### RPART
+
+```{r rpart_4_variable_tree, echo=TRUE}
+
+# Build the tree
+rpart_4_var_tree <- rpart::rpart(formula = class_resid ~ ref_SST_minus_T_11 + x2 + x3 + sd11,
+                                 data = orig_train_smote,
+                                 minbucket = 20)
+# Plot the tree
+plot(partykit::as.party(rpart_4_var_tree))
+
+# Evaluate the tree
+## Use the tree to predict
+### Train set
+rpart_4_var_tree_train_predictions <- stats::predict(object = rpart_4_var_tree, newdata = orig_train_smote, type = 'class', na.action = na.pass)
+
+### Test set
+rpart_4_var_tree_test_predictions <- stats::predict(object = rpart_4_var_tree, newdata = orig_test, type = 'class', na.action = na.pass)
+
+## Build Confusion Matrices and print them
+### Train set
+rpart_4_var_tree_train_cm <- caret::confusionMatrix(data = rpart_4_var_tree_train_predictions, reference = orig_train_smote$class_resid)
+
+rpart_4_var_tree_train_cm
+### Test set
+rpart_4_var_tree_test_cm <- caret::confusionMatrix(data = rpart_4_var_tree_test_predictions, reference = orig_test$class_resid)
+
+rpart_4_var_tree_test_cm
+```
+
+
+### CTree
+```{r ctree_4_variable_tree, echo=TRUE}
+
+# Build the tree
+ctree_4_var_tree <- partykit::ctree(formula = class_resid ~ ref_SST_minus_T_11 + x2 + x3 + sd11,
+                                    data = orig_train_smote,
+                                    minbucket = 20,
+                                    mincrit = 0.95,
+                                    maxdepth = 5)
+# Plot the tree
+plot(ctree_4_var_tree)
+
+# Evaluate the tree
+## Use the tree to predict
+### Train set
+ctree_4_var_tree_train_predictions <- stats::predict(object = ctree_4_var_tree, newdata = orig_train_smote, type = 'response', na.action = na.pass)
+
+### Test set
+ctree_4_var_tree_test_predictions <- stats::predict(object = ctree_4_var_tree, newdata = orig_test, type = 'response', na.action = na.pass)
+
+## Build Confusion Matrices and print them
+### Train set
+ctree_4_var_tree_train_cm <- caret::confusionMatrix(data = ctree_4_var_tree_train_predictions, reference = orig_train_smote$class_resid)
+
+ctree_4_var_tree_train_cm
+### Test set
+ctree_4_var_tree_test_cm <- caret::confusionMatrix(data = ctree_4_var_tree_test_predictions, reference = orig_test$class_resid)
+
+ctree_4_var_tree_test_cm
+```
+
+
+```{r ctree_4_variable_tree_big, echo=TRUE}
+
+# Build the tree
+ctree_4_var_tree_big <- partykit::ctree(formula = class_resid ~ ref_SST_minus_T_11 + x2 + x3 + sd11,
+                                    data = orig_train_smote,
+                                    minbucket = 20,
+                                    mincrit = 0.95)
+# Plot the tree
+#plot(ctree_4_var_tree_big)
+
+# Evaluate the tree
+## Use the tree to predict
+### Train set
+ctree_4_var_tree_big_train_predictions <- stats::predict(object = ctree_4_var_tree_big, newdata = orig_train_smote, type = 'response', na.action = na.pass)
+
+### Test set
+ctree_4_var_tree_big_test_predictions <- stats::predict(object = ctree_4_var_tree_big, newdata = orig_test, type = 'response', na.action = na.pass)
+
+## Build Confusion Matrices and print them
+### Train set
+ctree_4_var_tree_big_train_cm <- caret::confusionMatrix(data = ctree_4_var_tree_big_train_predictions, reference = orig_train_smote$class_resid)
+
+ctree_4_var_tree_big_train_cm
+### Test set
+ctree_4_var_tree_big_test_cm <- caret::confusionMatrix(data = ctree_4_var_tree_big_test_predictions, reference = orig_test$class_resid)
+
+ctree_4_var_tree_big_test_cm
+```
 
 
 
+### Random Forest
 
+```{r random_forest_4_variable_tree, echo=TRUE}
+
+# Build the tree
+rand_for_4_var <- randomForest::randomForest(formula = class_resid ~ ref_SST_minus_T_11 + x2 + x3 + sd11,
+                                               data = orig_train_smote,
+                                               nodesize = 20,
+                                               ntree = 1000,
+                                               mtry = 3)
+# Plot the tree
+randomForest::varImpPlot(rand_for_4_var)
+
+# Evaluate the tree
+## Use the tree to predict
+### Train set
+rand_for_4_var_train_predictions <- stats::predict(object = rand_for_4_var, newdata = orig_train_smote, type = 'class', na.action = na.pass)
+
+### Test set
+rand_4_var_test_predictions <- stats::predict(object = rand_for_4_var, newdata = orig_test, type = 'class', na.action = na.pass)
+
+## Build Confusion Matrices and print them
+### Train set
+rand_for_4_var_train_cm <- caret::confusionMatrix(data = rand_for_4_var_train_predictions, reference = orig_train_smote$class_resid)
+
+rand_for_4_var_train_cm
+### Test set
+rand_for_4_var_test_cm <- caret::confusionMatrix(data = rand_4_var_test_predictions, reference = orig_test$class_resid)
+
+rand_for_4_var_test_cm
+```
+
+### C5.0
+```{r C50_4_var_tree_classification, echo=TRUE}
+# Build the tree
+C50_4_var_tree <- C50::C5.0(class_resid ~ ref_SST_minus_T_11 + x2 + x3 + sd11, data = orig_train_smote)
+
+# Plot the tree
+plot(C50_4_var_tree)
+
+plot(partykit::as.party(C50_4_var_tree))
+
+# Evaluate the tree
+## Use the tree to predict
+### Train set
+C50_4_var_tree_train_predictions <- stats::predict(object = C50_4_var_tree, newdata = orig_train_smote, na.action = na.pass)
+
+### Test set
+C50_4_var_tree_test_predictions <- stats::predict(object = C50_4_var_tree, newdata = orig_test, na.action = na.pass)
+
+## Build Confusion Matrices and print them
+### Train set
+C50_4_var_tree_train_cm <- caret::confusionMatrix(data = C50_4_var_tree_train_predictions, reference = orig_train_smote$class_resid)
+
+C50_4_var_tree_train_cm
+### Test set
+C50_4_var_tree_test_cm <- caret::confusionMatrix(data = C50_4_var_tree_test_predictions, reference = orig_test$class_resid)
+
+C50_4_var_tree_test_cm
+```
+
+
+
+### Regression ???
+
+```{r C50_4_var_tree_regression, echo=TRUE}
+# Build the tree
+C50_4_var_tree <- C50::C5.0(SST.resid.SMB ~ ref_SST_minus_T_11 + x2 + x3 + sd11, data = orig_train_smote)
+
+# Plot the tree
+plot(C50_4_var_tree)
+
+plot(partykit::as.party(C50_4_var_tree))
+
+# Evaluate the tree
+## Use the tree to predict
+### Train set
+C50_4_var_tree_train_predictions <- stats::predict(object = C50_4_var_tree, newdata = orig_train_smote, na.action = na.pass)
+
+### Test set
+C50_4_var_tree_test_predictions <- stats::predict(object = C50_4_var_tree, newdata = orig_test, na.action = na.pass)
+
+
+```
 
 
