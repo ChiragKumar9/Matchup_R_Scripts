@@ -411,6 +411,7 @@ orig$ref_SST_minus_T_11 <- orig$ref_SST - orig$T_11
 
 # Class of the Residual
 orig$class_resid <- ifelse(orig$SST.resid.SMB <= -0.4, 'bad', 'good')
+orig$class_resid <- factor(orig$class_resid, levels = c('bad', 'good'))
 
 # Remove buoy_timedate
 orig <- dplyr::tbl_df(orig) %>%
