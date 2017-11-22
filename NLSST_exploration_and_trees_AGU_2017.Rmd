@@ -406,16 +406,16 @@ the machine learning model. We create estimates of the temperature deficit using
 minus T_11 (T_12).
 
 ```{r create_additional_variables, echo=TRUE}
+# Remove buoy_timedate
+orig <- dplyr::tbl_df(orig) %>%
+  dplyr::select(-buoy.timedate)
+
 # Temperature Deficit Estimate
 orig$ref_SST_minus_T_11 <- orig$ref_SST - orig$T_11
 
 # Class of the Residual
 orig$class_resid <- ifelse(orig$SST.resid.SMB <= -0.4, 'bad', 'good')
 orig$class_resid <- factor(orig$class_resid, levels = c('bad', 'good'))
-
-# Remove buoy_timedate
-orig <- dplyr::tbl_df(orig) %>%
-  dplyr::select(-buoy.timedate)
 ```
 
 ### Split into Train and Test Sets
@@ -439,9 +439,9 @@ are heavily inbalanced, even after cutting down to just two classes (i.e., remov
 residuals greater than 0.4).
 
 ```{r inbalanced_clases, echo=TRUE}
-table(cut(orig$SST.resid.SMB, c(-Inf, -0.4, 0.4)))
+table(cut(orig_train$SST.resid.SMB, c(-Inf, -0.4, 0.4)))
 
-prop.table(table(cut(orig$SST.resid.SMB, c(-Inf, -0.4, 0.4))))
+prop.table(table(cut(orig_train$SST.resid.SMB, c(-Inf, -0.4, 0.4))))
 ```
 
 As can be seen from the above tables, the good retrievals are almost twice as prevalent as the bad
