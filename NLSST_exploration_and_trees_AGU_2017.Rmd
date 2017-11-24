@@ -127,10 +127,13 @@ orig <- dplyr::tbl_df(AQUA) %>%
 
 ```{r residuals_vs_buoy_SST, echo = TRUE}
 
+cols <- RColorBrewer::brewer.pal(n = 9, 'YlOrRd')
+cols <- cols[2:9]
+
 ggplot2::ggplot(data = orig, mapping = aes(x = buoy.sst, y = SST.resid.SMB,
-  fill = cut(..count.., c(0, 10, 50, 100, 250, 500, 1000, 2500, 5000, Inf)))) +
+  fill = cut(..count.., c(0, 50, 100, 250, 500, 1000, 2500, 5000, Inf)))) +
   geom_bin2d(bins = 75) +
-  scale_fill_hue('count') +
+  scale_fill_manual(values = cols, '# of retrievals') +
   geom_abline(slope = 0, intercept = 0, col = 'black')
 
 ```
@@ -169,7 +172,7 @@ decreases, as the band difference begins to respond less. This can be seen in th
 
 ```{r band_diff_temp_deficit_qsst_all, echo=TRUE}
 
-ccc = RColorBrewer::brewer.pal(n = 8, 'YlOrRd')
+ccc <- RColorBrewer::brewer.pal(n = 8, 'YlOrRd')
 ccc <- ccc[3:8]
 
 temp_deficit <- orig$buoy.sst - orig$T_11
@@ -194,23 +197,73 @@ to predict the temperature deficit but rather a product made up of the band diff
 the reference SST. While better than the trend explored in the previous plot, there is still
 a distinct loss of linearity at high SSTs.
 
-```{r product_temp_deficit_qsst_all, echo=TRUE}
+```{r product_temp_deficit, echo=TRUE}
+# --- These numbers may help perform statistics for the matchups
+# --- (e.g., number of matchups per cell, etc.).
 
-ccc = RColorBrewer::brewer.pal(n = 8, 'YlOrRd')
-ccc <- ccc[3:8]
-
+temp_deficit_est <- orig$ref_SST - orig$T_11
 temp_deficit <- orig$buoy.sst - orig$T_11
 
-# Take a sample of orig bc loess requires lots of memory - for testing purposes
-index <- sample(1:nrow(orig), 50000, replace = FALSE)
-zz1 <- zz1[index, ]
+uuu <- data.frame(resid_context = as.factor(resid_context), temp_deficit_est = temp_deficit_est, product = (orig$band.diff * orig$ref_SST),
+                  temp_deficit = temp_deficit,
+                  SST.resid.SMB = orig$SST.resid.SMB)
 
-ggplot2::ggplot(mapping = aes(x = (orig$band.diff[index] * orig$ref_SST[index]), y = temp_deficit[index])) +
-  geom_bin2d(bins = 20) +
-  scale_fill_gradientn(colours = ccc) +
-  geom_smooth(method = lm, se = FALSE, color = 'green', alpha = 0.1) +
-  geom_smooth(method = loess, se = FALSE, span = 0.4) +
-  labs(x = '(T_11 - T_12) * Reference SST', y = 'Temperature Deficit')
+# Take a sample of uuu bc loess requires lots of memory - for testing purposes
+set.seed(42)
+index <- sample(1:nrow(uuu), 50000, replace = FALSE)
+uuu <- uuu[index, ]
+
+# --- Create a raster object with 5-degree pixels
+
+grid5deg <- raster::raster(ncol = 20, nrow = 20,
+  xmn = min(uuu$product) - 0.1, xmx = max(uuu$product) + 0.1,
+  ymn = min(uuu$temp_deficit) - 0.1, ymx = max(uuu$temp_deficit) + 0.1)
+  #crs = crs.string)
+
+# --- Write cell numbers as value for the grids.
+# --- Cell 1 is the upper left corner and numbers go
+# --- across the top line through its end, then
+# --- start again in the second line, and so forth.
+
+raster::values(grid5deg) <- 1:raster::ncell(grid5deg) # Cell numbers for 5 deg grid
+
+raster::cellFromRowCol(object = grid5deg, rownr = 2, colnr = 20)
+
+raster::xyFromCell(object =  grid5deg, cell = 800, spatial = FALSE)
+
+pts <- data.frame(product = uuu$product, temp_deficit = uuu$temp_deficit)
+SST.resid.SMB <- uuu$SST.resid.SMB
+
+count_resids <- function(residuals, ...) {
+  return(length(residuals))
+}
+
+cell5deg <- raster::rasterize(pts, grid5deg, SST.resid.SMB, fun = count_resids)
+
+ccc <- RColorBrewer::brewer.pal(n = 9, 'YlOrRd')
+ccc <- ccc[3:9]
+
+breaks <- c(0, 50, 100, 250, 500, 1000, 2500, 5000, Inf)
+
+# Add loess and linear fits
+Xs <- data.frame(Xs = seq(from = 0, to = 140, by = .3505))
+
+td_lm <- lm(uuu$temp_deficit ~ uuu$product)
+lm_estimates <- td_lm$coefficients[1] + (td_lm$coefficients[2] * Xs)
+lm_estimates <- as.vector(lm_estimates$Xs)
+
+td_loess <- loess(temp_deficit ~ product, data = uuu, span = 0.4)
+loess_estimates <- predict(td_loess, newdata = Xs$Xs)
+
+rasterVis::gplot(cell5deg) + 
+  ggplot2::geom_raster(aes(fill = (cut(value, breaks)))) +
+  scale_fill_manual(values = ccc) +
+  geom_line(aes(x = Xs, y = lm_estimates), color = 'green') +
+  geom_line(aes(x = Xs, y = loess_estimates), color = 'blue') +
+  #scale_fill_gradientn(colours = palette) +
+  labs(x = '(T_11 - T_12) * Reference SST', y = 'TD', fill = '# of Retrievals') +
+  coord_fixed(ratio = 2.7) +
+  ggplot2::theme_bw()
 ```
 
 At lower SSTs, there is a strong linear correlation between the product and the temperature deficit,
@@ -317,14 +370,13 @@ print(p)
 # --- These numbers may help perform statistics for the matchups
 # --- (e.g., number of matchups per cell, etc.).
 
+temp_deficit_est <- orig$ref_SST - orig$T_11
+temp_deficit <- orig$buoy.sst - orig$T_11
 
-resid_context <- cut(orig$SST.resid.SMB, c(-Inf, -.4, .4, Inf))
-#temp_deficit <- orig$buoy.sst - orig$T_11
-
-
-temp_deficit <- 
-
-uuu <- data.frame(resid_context = as.factor(resid_context), temp_deficit = temp_deficit, product = (orig$band.diff * orig$ref_SST),
+uuu <- data.frame(resid_context = as.factor(resid_context), temp_deficit_est = temp_deficit_est, product = (orig$band.diff * orig$ref_SST),
+                  temp_deficit = temp_deficit,
+                  x3 = orig$x3,
+                  sec_satz = secant.deg(orig$satz),
                   SST.resid.SMB = orig$SST.resid.SMB)
 
 # Take a sample of uuu bc loess requires lots of memory - for testing purposes
@@ -332,11 +384,15 @@ set.seed(42)
 index <- sample(1:nrow(uuu), 50000, replace = FALSE)
 uuu <- uuu[index, ]
 
+# Linearize
+td_estimate_fit <- predict(td_loess, newdata = uuu$product)
+uuu$td_fit_error <- uuu$temp_deficit_est - td_estimate_fit
+
 # --- Create a raster object with 5-degree pixels
 
 grid5deg <- raster::raster(ncol = 20, nrow = 20,
   xmn = min(uuu$product) - 0.1, xmx = max(uuu$product) + 0.1,
-  ymn = min(uuu$temp_deficit) - 0.1, ymx = max(uuu$temp_deficit) + 0.1)
+  ymn = min(uuu$td_fit_error) - 0.1, ymx = max(uuu$td_fit_error) + 0.1)
   #crs = crs.string)
 
 # --- Write cell numbers as value for the grids.
@@ -350,10 +406,13 @@ raster::cellFromRowCol(object = grid5deg, rownr = 2, colnr = 20)
 
 raster::xyFromCell(object =  grid5deg, cell = 800, spatial = FALSE)
 
-pts <- data.frame(product = uuu$product, temp_deficit = uuu$temp_deficit)
+pts <- data.frame(product = uuu$product, temp_deficit = uuu$td_fit_error)
 SST.resid.SMB <- uuu$SST.resid.SMB
 
 count_good_residuals <- function(residuals, ...) {
+  #if (length(residuals) < 82) {
+  #  return(-Inf)
+  #}
   resid_cats <- cut(residuals, c(-Inf, -0.4, 0.4))
   N_resid_bad_low <- table(resid_cats)[1]
   N_resid_good <- table(resid_cats)[2]
@@ -374,13 +433,17 @@ cell5deg <- raster::rasterize(pts, grid5deg, SST.resid.SMB, fun = count_good_res
 #raster::values(grid5deg) <- qq1
 
 blues_palette <- rev(RColorBrewer::brewer.pal(9, 'Blues'))
-blues_palette <- colorRampPalette(blues_palette)(10)
+blues_palette <- colorRampPalette(blues_palette)(4)
 
 reds_palette <- RColorBrewer::brewer.pal(9, 'Reds')
-reds_palette <- colorRampPalette(reds_palette)(10)
+reds_palette <- colorRampPalette(reds_palette)(4)
 
 palette <- c(blues_palette, '#f0f0f0', '#f0f0f0', reds_palette)
 palette <- rev(palette)
+
+
+ccc <- RColorBrewer::brewer.pal(n = 9, 'YlOrRd')
+ccc <- ccc[3:9]
 
 #rasterVis::levelplot(cell5deg, margin = FALSE,
 #  at = c(-Inf, seq(from = 0, to = 1.0, by = 0.05), Inf),
@@ -388,17 +451,15 @@ palette <- rev(palette)
 #  xlab = '(T_11 - T_12) * Reference SST',
 #  ylab = 'Temperature Deficit')
 
+breaks <- seq(from = 0, to = 1, by = 0.1)
 
 rasterVis::gplot(cell5deg) + 
-  ggplot2::geom_raster(aes(fill = (value))) + scale_fill_gradientn(colors = palette) +
-  labs(x = '(T_11 - T_12) * Reference SST', y = 'Actual TD - Predicted TD', fill = 'Fraction of\nGood Retrievals') +
+  ggplot2::geom_raster(aes(fill = (cut(value, breaks)))) +
+  scale_fill_manual(values = palette) +
+  #scale_fill_gradientn(colours = palette) +
+  labs(x = '(T_11 - T_12) * Reference SST', y = 'TD Estimate - Predicted TD', fill = 'Fraction of\nGood Retrievals') +
   ggplot2::theme_bw()
 ```
-
-
-
-
-
 
 
 As can be seen, there are very distinct regions of temperature deficit and product that have very high
@@ -423,6 +484,15 @@ orig <- dplyr::tbl_df(orig) %>%
 
 # Temperature Deficit Estimate
 orig$ref_SST_minus_T_11 <- orig$ref_SST - orig$T_11
+
+# Linearized temperature deficit estimate as a function of NLSST product
+orig$td_resid <- orig$ref_SST_minus_T_11 - predict(td_loess, newdata = orig$x2)
+
+# Loess can only interpolate
+# Those values of x2 that are outside the domain get put in as NA
+# Remove those
+orig <- dplyr::tbl_df(orig) %>%
+  dplyr::filter(!is.na(td_resid))
 
 # Secant of the satz
 orig$sec_satz <- secant.deg(orig$satz)
@@ -499,9 +569,9 @@ and sd_11.
 ```{r rpart_4_variable_tree, echo=TRUE}
 
 # Build the tree
-rpart_4_var_tree <- rpart::rpart(formula = class_resid ~ ref_SST_minus_T_11 + x2 + sec_satz + sd11,
+rpart_4_var_tree <- rpart::rpart(formula = class_resid ~ td_resid + x2 + sec_satz + sd11,
                                  data = orig_train_smote,
-                                 control = rpart.control(minbucket = 82, maxdepth = 7, xval = 3, cp = 0.01))
+                                 control = rpart.control(minbucket = 82, xval = 3))
 # Plot the tree
 plot(partykit::as.party(rpart_4_var_tree))
 
@@ -524,12 +594,40 @@ rpart_4_var_tree_test_cm <- caret::confusionMatrix(data = rpart_4_var_tree_test_
 rpart_4_var_tree_test_cm
 ```
 
+```{r rpart_big_4_variable_tree, echo=TRUE}
+
+# Build the tree
+rpart_big_4_var_tree <- rpart::rpart(formula = class_resid ~ td_resid + x2 + sec_satz + sd11,
+                                 data = orig_train_smote,
+                                 control = rpart.control(minbucket = 82, maxdepth = 7, xval = 3, cp = 0.0))
+# Plot the tree
+plot(partykit::as.party(rpart_big_4_var_tree))
+
+# Evaluate the tree
+## Use the tree to predict
+### Train set
+rpart_big_4_var_tree_train_predictions <- stats::predict(object = rpart_big_4_var_tree, newdata = orig_train_smote, type = 'class', na.action = na.pass)
+
+### Test set
+rpart_big_4_var_tree_test_predictions <- stats::predict(object = rpart_big_4_var_tree, newdata = orig_test, type = 'class', na.action = na.pass)
+
+## Build Confusion Matrices and print them
+### Train set
+rpart_big_4_var_tree_train_cm <- caret::confusionMatrix(data = rpart_big_4_var_tree_train_predictions, reference = orig_train_smote$class_resid)
+
+rpart_big_4_var_tree_train_cm
+### Test set
+rpart_big_4_var_tree_test_cm <- caret::confusionMatrix(data = rpart_big_4_var_tree_test_predictions, reference = orig_test$class_resid)
+
+rpart_big_4_var_tree_test_cm
+```
+
 
 ### CTree
 ```{r ctree_4_variable_tree, echo=TRUE}
 
 # Build the tree
-ctree_4_var_tree <- partykit::ctree(formula = class_resid ~ ref_SST_minus_T_11 + x2 + sec_satz + sd11,
+ctree_4_var_tree <- partykit::ctree(formula = class_resid ~ td_resid + x2 + sec_satz + sd11,
                                     data = orig_train_smote,
                                     minbucket = 82,
                                     mincrit = 0.95,
@@ -560,7 +658,7 @@ ctree_4_var_tree_test_cm
 ```{r ctree_4_variable_tree_big, echo=TRUE}
 
 # Build the tree
-ctree_4_var_tree_big <- partykit::ctree(formula = class_resid ~ ref_SST_minus_T_11 + x2 + sec_satz + sd11,
+ctree_4_var_tree_big <- partykit::ctree(formula = class_resid ~ td_resid + x2 + sec_satz + sd11,
                                     data = orig_train_smote,
                                     minbucket = 82,
                                     mincrit = 0.95,
@@ -594,11 +692,11 @@ ctree_4_var_tree_big_test_cm
 ```{r random_forest_4_variable_tree, echo=TRUE}
 
 # Build the tree
-rand_for_4_var <- randomForest::randomForest(formula = class_resid ~ ref_SST_minus_T_11 + x2 + sec_satz + sd11,
-                                               data = orig_train_smote,
-                                               nodesize = 82,
-                                               ntree = 750,
-                                               mtry = 2)
+rand_for_4_var <- randomForest::randomForest(formula = class_resid ~ td_resid + x2 + sec_satz + sd11,
+                                             data = orig_train_smote,
+                                             nodesize = 82,
+                                             ntree = 750,
+                                             mtry = 2)
 # Plot the tree
 randomForest::varImpPlot(rand_for_4_var)
 
