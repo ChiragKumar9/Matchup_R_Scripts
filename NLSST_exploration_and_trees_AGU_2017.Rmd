@@ -270,7 +270,7 @@ At lower SSTs, there is a strong linear correlation between the product and the 
 indicating that at low SSTs, the NLSST atmospheric correction works very well.
 
 We also see that at higher SSTs, there is a breakdown of the linear correlation between the temperature
-deficit and product used in the NLSST algorithm (x_2). The temperature deficit increases more than
+deficit and product used in the NLSST algorithm (x2). The temperature deficit increases more than
 the band difference does, which causes increase in retrievals with negative residuals at higher
 temperatures. However, the band difference alone is not enough for us to separate retrievals
 with good and bad residual ranges.
