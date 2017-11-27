@@ -39,6 +39,7 @@ require(RWeka)
 require(DMwR)
 require(wesanderson)
 require(C50)
+require(gbm)
 
 ggplot <- function(...) {ggplot2::ggplot(...) + theme_bw()}
 
@@ -545,6 +546,11 @@ make us more likely to trust that model's predictions, regardless of which class
 
 orig_train_smote <- DMwR::SMOTE(class_resid ~ ., as.data.frame(orig_train), perc.over = 100, perc.under = 200)
 
+# numInstances = # of majority class - # of minority class
+# WHEN TESTING MWMOTE.... WE RAN OUT OF MEMORY
+#numInstances <- table(orig_train$class_resid)['good'] - table(orig_train$class_resid)['bad']
+#new_samples_mwmote <- imbalance::mwmote(as.data.frame(orig_train), numInstances = numInstances, classAttr = 'class_resid')
+
 ```
 
 After rebalancing, our classes have almost equal prevalence.
@@ -568,10 +574,12 @@ and sd_11.
 
 ```{r rpart_4_variable_tree, echo=TRUE}
 
+# FASCINATING: No difference in model when we add latitude!
+
 # Build the tree
 rpart_4_var_tree <- rpart::rpart(formula = class_resid ~ td_resid + x2 + sec_satz + sd11,
                                  data = orig_train_smote,
-                                 control = rpart.control(minbucket = 82, xval = 3))
+                                 control = rpart::rpart.control(minbucket = 82, xval = 3))
 # Plot the tree
 plot(partykit::as.party(rpart_4_var_tree))
 
@@ -596,10 +604,12 @@ rpart_4_var_tree_test_cm
 
 ```{r rpart_big_4_variable_tree, echo=TRUE}
 
+# SAME THING: No effect of lat!
+
 # Build the tree
 rpart_big_4_var_tree <- rpart::rpart(formula = class_resid ~ td_resid + x2 + sec_satz + sd11,
                                  data = orig_train_smote,
-                                 control = rpart.control(minbucket = 82, maxdepth = 7, xval = 3, cp = 0.0))
+                                 control = rpart::rpart.control(minbucket = 82, maxdepth = 7, xval = 3, cp = 0.0))
 # Plot the tree
 plot(partykit::as.party(rpart_big_4_var_tree))
 
@@ -623,8 +633,20 @@ rpart_big_4_var_tree_test_cm
 ```
 
 
+```{r analysis_of_disagreements, echo=TRUE}
+if_disagree <- rpart_big_4_var_tree_test_predictions != orig_test$class_resid
+
+disagreements <- orig_test[if_disagree, ]
+
+summary(disagreements$SST.resid.SMB)
+```
+
+
+
 ### CTree
 ```{r ctree_4_variable_tree, echo=TRUE}
+
+# Again, no effect of lat
 
 # Build the tree
 ctree_4_var_tree <- partykit::ctree(formula = class_resid ~ td_resid + x2 + sec_satz + sd11,
@@ -656,6 +678,8 @@ ctree_4_var_tree_test_cm
 
 
 ```{r ctree_4_variable_tree_big, echo=TRUE}
+
+# again, no change with lat
 
 # Build the tree
 ctree_4_var_tree_big <- partykit::ctree(formula = class_resid ~ td_resid + x2 + sec_satz + sd11,
@@ -691,6 +715,8 @@ ctree_4_var_tree_big_test_cm
 
 ```{r random_forest_4_variable_tree, echo=TRUE}
 
+# Lat has negligable effect - mean decrease gini very close to 0, change of accuracy is within CI
+
 # Build the tree
 rand_for_4_var <- randomForest::randomForest(formula = class_resid ~ td_resid + x2 + sec_satz + sd11,
                                              data = orig_train_smote,
@@ -719,6 +745,109 @@ rand_for_4_var_test_cm <- caret::confusionMatrix(data = rand_for_4_var_test_pred
 rand_for_4_var_test_cm
 ```
 
-### Regression ???
+
+```{r C50_4_var_tree, echo=TRUE}
+C50_4_var_tree <- C50::C5.0(formula = class_resid ~ td_resid + x2 + sec_satz + sd11,
+                            data = orig_train_smote,
+                            rules = FALSE,
+                            trials = 10,
+                            control = C50::C5.0Control(minCases = 82))
+
+#plot(C50_4_var_tree)
+C50::C5imp(C50_4_var_tree)
+
+# Evaluate the tree
+## Use the tree to predict
+### Train set
+C50_4_var_tree_train_predictions <- stats::predict(object = C50_4_var_tree, newdata = orig_train_smote, type = 'class', na.action = na.pass)
+
+### Test set
+C50_4_var_tree_test_predictions <- stats::predict(object = C50_4_var_tree, newdata = orig_test, type = 'class', na.action = na.pass)
+
+## Build Confusion Matrices and print them
+### Train set
+C50_4_var_tree_train_cm <- caret::confusionMatrix(data = C50_4_var_tree_train_predictions, reference = orig_train_smote$class_resid)
+
+C50_4_var_tree_train_cm
+### Test set
+C50_4_var_tree_test_cm <- caret::confusionMatrix(data = C50_4_var_tree_test_predictions, reference = orig_test$class_resid)
+
+C50_4_var_tree_test_cm
+```
+
+Few tests with C50 for boosting --> didn't really help and very hard to interpret.
 
 
+
+Testing and working on GBMs.....
+```{r gbm_4_var_tree, echo=TRUE}
+
+orig_train_smote_gbm <- orig_train_smote
+levels(orig_train_smote_gbm$class_resid) <- c(0, 1)
+orig_train_smote_gbm$class_resid <- as.numeric(orig_train_smote_gbm$class_resid) - 1
+
+numTrees <- 100
+
+gbm_4_var_tree <- gbm::gbm(formula = class_resid ~ td_resid + x2 + sec_satz + sd11,
+                            data = orig_train_smote_gbm,
+                            distribution = 'bernoulli',
+                            n.minobsinnode = 82,
+                            n.trees = numTrees) # 100 is default
+
+# Plot the tree
+
+# Evaluate the tree
+## Use the tree to predict
+### Train set
+gbm_4_var_tree_train_predictions <- stats::predict(object = gbm_4_var_tree,
+                                                   newdata = orig_train_smote,
+                                                   n.trees = numTrees,
+                                                   type = 'response',
+                                                   na.action = na.pass)
+
+### Test set
+gbm_4_var_tree_test_predictions <- stats::predict(object = gbm_4_var_tree,
+                                                  newdata = orig_test,
+                                                  n.trees = numTrees,
+                                                  type = 'response',
+                                                  na.action = na.pass)
+
+## Build Confusion Matrices and print them
+### Train set
+gbm_4_var_tree_train_cm <- caret::confusionMatrix(data = gbm_4_var_tree_train_predictions, reference = orig_train_smote$class_resid)
+
+gbm_4_var_tree_train_cm
+### Test set
+gbm_4_var_tree_test_cm <- caret::confusionMatrix(data = gbm_4_var_tree_test_predictions, reference = orig_test$class_resid)
+
+gbm_4_var_tree_test_cm
+```
+
+
+### Regression
+
+```{r rpart_big_4_variable_tree_regr, echo=TRUE}
+
+# Build the tree
+rpart_big_4_var_tree_regr <- rpart::rpart(formula = SST.resid.SMB ~ td_resid + x2 + sec_satz + sd11,
+                                 data = orig_train,
+                                 control = rpart::rpart.control(minbucket = 82, maxdepth = 7, xval = 3, cp = 0.00))
+# Plot the tree
+#plot(partykit::as.party(rpart_big_4_var_tree_regr))
+
+# Evaluate the tree
+## Use the tree to predict
+### Train set
+rpart_big_4_var_tree_train_vals <- stats::predict(object = rpart_big_4_var_tree_regr, newdata = orig_train, na.action = na.pass)
+
+### Test set
+rpart_big_4_var_tree_test_vals <- stats::predict(object = rpart_big_4_var_tree_regr, newdata = orig_test, na.action = na.pass)
+
+### Train set
+rmse_train <- caret::RMSE(rpart_big_4_var_tree_train_vals, orig_train$SST.resid.SMB)
+### Test set
+rmse_test <- caret::RMSE(rpart_big_4_var_tree_test_vals, orig_test$SST.resid.SMB)
+
+ggplot2::ggplot() +
+  geom_bin2d(aes(x = (round(rpart_big_4_var_tree_test_vals, 4)), orig_test$SST.resid.SMB))
+```
