@@ -826,28 +826,93 @@ gbm_4_var_tree_test_cm
 
 ### Regression
 
-```{r rpart_big_4_variable_tree_regr, echo=TRUE}
+```{r ctree_big_4_variable_tree_regr, echo=TRUE}
 
 # Build the tree
-rpart_big_4_var_tree_regr <- rpart::rpart(formula = SST.resid.SMB ~ td_resid + x2 + sec_satz + sd11,
+ctree_big_4_var_tree_regr <- partykit::ctree(formula = SST.resid.SMB ~ td_resid + x2 + sec_satz + sd11,
                                  data = orig_train,
-                                 control = rpart::rpart.control(minbucket = 82, maxdepth = 7, xval = 3, cp = 0.00))
+                                 minbucket = 82,
+                                 maxdepth = 7,
+                                 mincrit = 0.95)
 # Plot the tree
 #plot(partykit::as.party(rpart_big_4_var_tree_regr))
 
 # Evaluate the tree
 ## Use the tree to predict
 ### Train set
-rpart_big_4_var_tree_train_vals <- stats::predict(object = rpart_big_4_var_tree_regr, newdata = orig_train, na.action = na.pass)
+ctree_big_4_var_tree_train_vals <- stats::predict(object = ctree_big_4_var_tree_regr, newdata = orig_train, na.action = na.pass)
 
 ### Test set
-rpart_big_4_var_tree_test_vals <- stats::predict(object = rpart_big_4_var_tree_regr, newdata = orig_test, na.action = na.pass)
+ctree_big_4_var_tree_test_vals <- stats::predict(object = ctree_big_4_var_tree_regr, newdata = orig_test, na.action = na.pass)
 
 ### Train set
-rmse_train <- caret::RMSE(rpart_big_4_var_tree_train_vals, orig_train$SST.resid.SMB)
+rmse_train_ctree <- caret::RMSE(ctree_big_4_var_tree_train_vals, orig_train$SST.resid.SMB)
 ### Test set
-rmse_test <- caret::RMSE(rpart_big_4_var_tree_test_vals, orig_test$SST.resid.SMB)
+rmse_test_ctree <- caret::RMSE(ctree_big_4_var_tree_test_vals, orig_test$SST.resid.SMB)
 
 ggplot2::ggplot() +
-  geom_bin2d(aes(x = (round(rpart_big_4_var_tree_test_vals, 4)), orig_test$SST.resid.SMB))
+  geom_point(aes(x = ((ctree_big_4_var_tree_test_vals)), orig_test$SST.resid.SMB), pch = '.')
 ```
+
+```{r evaluate_regression_statistically, echo=TRUE}
+
+window <- .5
+
+dt_model_residuals_train <- ctree_big_4_var_tree_train_vals - orig_train$SST.resid.SMB
+
+table(abs(dt_model_residuals_train) < window)
+prop.table(table(abs(dt_model_residuals_train) < window))
+IQR(dt_model_residuals_train)
+
+
+dt_model_residuals_test <- ctree_big_4_var_tree_test_vals - orig_test$SST.resid.SMB
+
+table(abs(dt_model_residuals_test) < window)
+prop.table(table(abs(dt_model_residuals_test) < window))
+IQR(dt_model_residuals_test)
+
+
+```
+
+
+```{r explore_regression}
+ctree_big_4_var_tree_train_nodes <- stats::predict(object = ctree_big_4_var_tree_regr, newdata = orig_train, type = 'node', na.action = na.pass)
+
+medians <- tapply(orig_train$SST.resid.SMB, ctree_big_4_var_tree_train_nodes, median)
+IQRs <- tapply(orig_train$SST.resid.SMB, ctree_big_4_var_tree_train_nodes, IQR)
+lengths <- tapply(orig_train$SST.resid.SMB, ctree_big_4_var_tree_train_nodes, length)
+
+hhh <- data.frame(SST.resid.SMB = orig_train$SST.resid.SMB, node = ctree_big_4_var_tree_train_nodes)
+
+ggplot2::ggplot(data = hhh) +
+  geom_histogram(aes(SST.resid.SMB)) +
+  facet_wrap(~node)
+
+```
+
+
+## RWEKA M5P
+
+```{r M5P, echo=TRUE}
+M5P_tree <- RWeka::M5P(formula = SST.resid.SMB ~ td_resid + x2 + sec_satz + sd11,
+                       data = orig_train)
+
+
+# Evaluate the tree
+## Use the tree to predict
+### Train set
+M5P_tree_train_vals <- stats::predict(object = M5P_tree, newdata = orig_train, na.action = na.pass)
+
+### Test set
+M5Pr_tree_test_vals <- stats::predict(object = M5P_tree, newdata = orig_test, na.action = na.pass)
+
+### Train set
+rmse_train_M5P <- caret::RMSE(M5P_tree_train_vals, orig_train$SST.resid.SMB)
+### Test set
+rmse_test_M5P <- caret::RMSE(M5P_tree_test_vals, orig_test$SST.resid.SMB)
+
+```
+
+
+
+
