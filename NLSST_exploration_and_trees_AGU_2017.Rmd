@@ -32,7 +32,6 @@ require(rpart)
 require(rpart.plot)
 require(caret)
 require(evtree)
-require(ctree)
 require(partykit)
 require(randomForest)
 require(RWeka)
@@ -174,7 +173,7 @@ decreases, as the band difference begins to respond less. This can be seen in th
 ```{r band_diff_temp_deficit_qsst_all, echo=TRUE}
 
 ccc <- RColorBrewer::brewer.pal(n = 8, 'YlOrRd')
-ccc <- ccc[3:8]
+ccc <- ccc[3:8] 
 
 temp_deficit <- orig$buoy.sst - orig$T_11
 
@@ -262,9 +261,11 @@ rasterVis::gplot(cell5deg) +
   geom_line(aes(x = Xs, y = lm_estimates), color = 'green') +
   geom_line(aes(x = Xs, y = loess_estimates), color = 'blue') +
   #scale_fill_gradientn(colours = palette) +
-  labs(x = '(T_11 - T_12) * Reference SST', y = 'TD', fill = '# of Retrievals') +
-  coord_fixed(ratio = 2.7) +
-  ggplot2::theme_bw()
+  labs(x = '(T_11 - T_12) * Reference SST', y = 'Temperature Deficit', fill = '# of Retrievals') +
+  coord_fixed(ratio = 2.4) +
+  xlim(-2, 122) +
+  ylim(-.1, 22) + 
+  ggsave('x2_vs_TD_loess_and_linear.pdf', device = 'pdf', width = 8, height = 6, units = 'in')
 ```
 
 At lower SSTs, there is a strong linear correlation between the product and the temperature deficit,
@@ -299,9 +300,10 @@ ggplot2::ggplot(data = uuu, mapping = aes(x = product, y = temp_deficit, color =
 
 
 ```{r band_diff_temp_deficit_cumulative_contours, echo=TRUE}
-library(ggplot2)
-library(MASS)
-library(reshape2)
+require(ggplot2)
+require(MASS)
+require(reshape2)
+require(directlabels)
 
 # data:
 resid_context <- cut(orig$SST.resid.SMB, c(-Inf, -.4, .4, Inf))
@@ -311,8 +313,8 @@ uuu <- data.frame(resid_context = as.factor(resid_context), temp_deficit = temp_
 
 # Take a sample of uuu bc loess requires lots of memory - for testing purposes
 set.seed(42)
-index <- sample(1:nrow(uuu), 50000, replace = FALSE)
-uuu <- uuu[index, ]
+#index <- sample(1:nrow(uuu), 50000, replace = FALSE)
+#uuu <- uuu[index, ]
 
 # filter - create two dataframes, good vs bad residuals
 
@@ -341,7 +343,7 @@ sz_bad <- sort(uuu_bad.kde$z)
 c1_bad <- cumsum(sz_bad) * dx_bad * dy_bad
 
 # specify desired contour levels:
-prob <- c(0.25, 0.5, 0.75, 0.90)
+prob <- c(0.25, 0.5, 0.75, 0.90, 0.999)
 
 # Configure plot
 # for good
@@ -354,15 +356,24 @@ dimnames(uuu_bad.kde$z) <- list(uuu_bad.kde$x, uuu_bad.kde$y)
 dc_bad <- melt(uuu_bad.kde$z)
 dc_bad$prob <- approx(sz_bad, 1 - c1_bad, dc_bad$value)$y
 
+dc_good$residual <- '(-0.4,0.4]'
+dc_bad$residual <- '(-Inf,-0.4]'
+dc <- rbind(dc_good, dc_bad)
+
+class_colors <- c('(-0.4,0.4]' = '#00BFC4', '(-Inf,-0.4]' = '#F8766D')
+
 # Actual plot
 p <- ggplot2::ggplot() +
-  geom_contour(data = dc_good, aes(x = Var2, y = Var1, z = prob), breaks = prob, color = '#00BFC4') +
-  geom_contour(data = dc_bad, aes(x = Var2, y = Var1, z = prob), breaks = prob, color = '#F8766D') +
-  labs(x = '(T_11 - T_12) * Reference SST', y = 'Temperature Deficit', color = 'Residual Range')
+  geom_contour(data = dc, aes(x = Var2, y = Var1, z = prob, color = residual), breaks = prob) +
+  #geom_contour(data = dc_bad, aes(x = Var2, y = Var1, z = prob), breaks = prob, color = '#F8766D') + , color = '#00BFC4'
+  labs(x = '(T_11 - T_12) * Reference SST', y = 'Temperature Deficit', color = 'Residual Range') +
+  coord_fixed(ratio = 2.4) +
+  xlim(-2, 122) +
+  ylim(-.1, 22) + 
+  scale_color_manual(values = class_colors) +
+  ggsave('x2_vs_TD_cumulative_contours.pdf', device = 'pdf', width = 8, height = 6, units = 'in')
+
 print(p)
-
-### TO DO: add key for what color represents which residual range, add labels for what p(x) the contours represent
-
 
 ```
 
@@ -382,10 +393,10 @@ uuu <- data.frame(resid_context = as.factor(resid_context), temp_deficit_est = t
 
 # Take a sample of uuu bc loess requires lots of memory - for testing purposes
 set.seed(42)
-index <- sample(1:nrow(uuu), 50000, replace = FALSE)
-uuu <- uuu[index, ]
+#index <- sample(1:nrow(uuu), 50000, replace = FALSE)
+#uuu <- uuu[index, ]
 
-# Linearize
+# Horizontalize
 td_estimate_fit <- predict(td_loess, newdata = uuu$product)
 uuu$td_fit_error <- uuu$temp_deficit_est - td_estimate_fit
 
@@ -393,7 +404,7 @@ uuu$td_fit_error <- uuu$temp_deficit_est - td_estimate_fit
 
 grid5deg <- raster::raster(ncol = 20, nrow = 20,
   xmn = min(uuu$product) - 0.1, xmx = max(uuu$product) + 0.1,
-  ymn = min(uuu$td_fit_error) - 0.1, ymx = max(uuu$td_fit_error) + 0.1)
+  ymn = min(uuu$temp_deficit) - 0.1, ymx = max(uuu$temp_deficit) + 0.1)
   #crs = crs.string)
 
 # --- Write cell numbers as value for the grids.
@@ -407,7 +418,7 @@ raster::cellFromRowCol(object = grid5deg, rownr = 2, colnr = 20)
 
 raster::xyFromCell(object =  grid5deg, cell = 800, spatial = FALSE)
 
-pts <- data.frame(product = uuu$product, temp_deficit = uuu$td_fit_error)
+pts <- data.frame(product = uuu$product, temp_deficit = uuu$temp_deficit)
 SST.resid.SMB <- uuu$SST.resid.SMB
 
 count_good_residuals <- function(residuals, ...) {
@@ -458,8 +469,11 @@ rasterVis::gplot(cell5deg) +
   ggplot2::geom_raster(aes(fill = (cut(value, breaks)))) +
   scale_fill_manual(values = palette) +
   #scale_fill_gradientn(colours = palette) +
-  labs(x = '(T_11 - T_12) * Reference SST', y = 'TD Estimate - Predicted TD', fill = 'Fraction of\nGood Retrievals') +
-  ggplot2::theme_bw()
+  labs(x = '(T_11 - T_12) * Reference SST', y = 'Temperature Deficit', fill = 'Fraction of\nGood Retrievals') +
+  coord_fixed(ratio = 2.4) +
+  xlim(-2, 122) +
+  ylim(-.1, 22) + 
+  ggsave('x2_vs_TD_raster.pdf', device = 'pdf', width = 8, height = 6, units = 'in')
 ```
 
 
@@ -847,16 +861,21 @@ ctree_big_4_var_tree_test_vals <- stats::predict(object = ctree_big_4_var_tree_r
 
 ### Train set
 rmse_train_ctree <- caret::RMSE(ctree_big_4_var_tree_train_vals, orig_train$SST.resid.SMB)
+rmse_train_ctree
+cor(ctree_big_4_var_tree_train_vals, orig_train$SST.resid.SMB)
+
 ### Test set
 rmse_test_ctree <- caret::RMSE(ctree_big_4_var_tree_test_vals, orig_test$SST.resid.SMB)
+rmse_test_ctree
+cor(ctree_big_4_var_tree_test_vals, orig_test$SST.resid.SMB)
 
 ggplot2::ggplot() +
   geom_point(aes(x = ((ctree_big_4_var_tree_test_vals)), orig_test$SST.resid.SMB), pch = '.')
 ```
 
-```{r evaluate_regression_statistically, echo=TRUE}
+```{r evaluate_ctree_regression_statistically, echo=TRUE}
 
-window <- .5
+window <- .1
 
 dt_model_residuals_train <- ctree_big_4_var_tree_train_vals - orig_train$SST.resid.SMB
 
@@ -875,16 +894,16 @@ IQR(dt_model_residuals_test)
 ```
 
 
-```{r explore_regression}
+```{r explore_regression_ctree}
 ctree_big_4_var_tree_train_nodes <- stats::predict(object = ctree_big_4_var_tree_regr, newdata = orig_train, type = 'node', na.action = na.pass)
 
-medians <- tapply(orig_train$SST.resid.SMB, ctree_big_4_var_tree_train_nodes, median)
-IQRs <- tapply(orig_train$SST.resid.SMB, ctree_big_4_var_tree_train_nodes, IQR)
-lengths <- tapply(orig_train$SST.resid.SMB, ctree_big_4_var_tree_train_nodes, length)
+medians_ctree <- tapply(orig_train$SST.resid.SMB, ctree_big_4_var_tree_train_nodes, median)
+IQRs_ctree <- tapply(orig_train$SST.resid.SMB, ctree_big_4_var_tree_train_nodes, IQR)
+lengths_ctree <- tapply(orig_train$SST.resid.SMB, ctree_big_4_var_tree_train_nodes, length)
 
-hhh <- data.frame(SST.resid.SMB = orig_train$SST.resid.SMB, node = ctree_big_4_var_tree_train_nodes)
+node_predictions_ctree <- data.frame(SST.resid.SMB = orig_train$SST.resid.SMB, node = ctree_big_4_var_tree_train_nodes)
 
-ggplot2::ggplot(data = hhh) +
+ggplot2::ggplot(data = node_predictions_ctree) +
   geom_histogram(aes(SST.resid.SMB)) +
   facet_wrap(~node)
 
@@ -894,25 +913,53 @@ ggplot2::ggplot(data = hhh) +
 ## RWEKA M5P
 
 ```{r M5P, echo=TRUE}
-M5P_tree <- RWeka::M5P(formula = SST.resid.SMB ~ td_resid + x2 + sec_satz + sd11,
-                       data = orig_train)
+M5P_tree <- Cubist::cubist(x = orig_train[, c('td_resid', 'x2', 'sec_satz', 'sd11')], y = orig_train$SST.resid.SMB,
+                           committees = 1)
 
+dotplot(M5P_tree)
 
 # Evaluate the tree
 ## Use the tree to predict
 ### Train set
-M5P_tree_train_vals <- stats::predict(object = M5P_tree, newdata = orig_train, na.action = na.pass)
+N_correction_neighbors <- 0 # Must be between 0 and 9
+
+M5P_tree_train_vals <- stats::predict(object = M5P_tree, newdata = orig_train, na.action = na.pass, neighbors = N_correction_neighbors)
 
 ### Test set
-M5Pr_tree_test_vals <- stats::predict(object = M5P_tree, newdata = orig_test, na.action = na.pass)
+M5P_tree_test_vals <- stats::predict(object = M5P_tree, newdata = orig_test, na.action = na.pass, neighbors = N_correction_neighbors)
 
 ### Train set
 rmse_train_M5P <- caret::RMSE(M5P_tree_train_vals, orig_train$SST.resid.SMB)
+rmse_train_M5P
+cor(M5P_tree_train_vals, orig_train$SST.resid.SMB)
+
 ### Test set
 rmse_test_M5P <- caret::RMSE(M5P_tree_test_vals, orig_test$SST.resid.SMB)
+rmse_test_M5P
+cor(M5P_tree_test_vals, orig_test$SST.resid.SMB)
 
+ggplot2::ggplot() +
+  geom_point(aes(x = M5P_tree_test_vals, orig_test$SST.resid.SMB), pch = '.')
 ```
 
+```{r evaluate_M5P_regression_statistically, echo=TRUE}
+
+window <- .2
+
+M5P_model_residuals_train <- M5P_tree_train_vals - orig_train$SST.resid.SMB
+
+table(abs(M5P_model_residuals_train) < window)
+prop.table(table(abs(M5P_model_residuals_train) < window))
+IQR(M5P_model_residuals_train)
+
+
+M5P_model_residuals_test <- M5Pr_tree_test_vals - orig_test$SST.resid.SMB
+
+table(abs(M5P_model_residuals_test) < window)
+prop.table(table(abs(M5P_model_residuals_test) < window))
+IQR(M5P_model_residuals_test)
+
+```
 
 
 
