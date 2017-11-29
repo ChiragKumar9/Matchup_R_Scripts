@@ -1,0 +1,98 @@
+---
+title: "Estimates of Single Sensor Error Statistics for the MODIS Matchup Database Using Machine Learning"
+author: "Chirag Kumar and Guillermo Podesta"
+output:
+  html_notebook:
+    toc: True
+    theme: united
+---
+
+
+```{r prep_workspace, echo=FALSE}
+# See NLSST_exploration_and_trees_AGU_2017
+```
+
+# Introduction
+
+* NASA: SST = single most important indicator of Climate Change
+* Buoys = accurate
+  + Not global or repeated
+* Sensors aboard satellites
+  + Global and repeated
+  + Measures Top of Atmosphere Brightness Temperatures
+  + Matchups + Atmospheric Correction: TOA BTs --> SST estimate
+
+# Motivation
+
+* High SSTs, measures of atmospheric absorption stop responding proportionally to actual atmospheric absorption
+
+
+```{r product_temp_deficit, echo=TRUE}
+# --- These numbers may help perform statistics for the matchups
+# --- (e.g., number of matchups per cell, etc.).
+
+temp_deficit_est <- orig$ref_SST - orig$T_11
+temp_deficit <- orig$buoy.sst - orig$T_11
+
+uuu <- data.frame(resid_context = as.factor(resid_context), temp_deficit_est = temp_deficit_est, product = (orig$band.diff * orig$ref_SST),
+                  temp_deficit = temp_deficit,
+                  SST.resid.SMB = orig$SST.resid.SMB)
+
+# Take a sample of uuu bc loess requires lots of memory - for testing purposes
+set.seed(42)
+index <- sample(1:nrow(uuu), 50000, replace = FALSE)
+uuu <- uuu[index, ]
+
+# --- Create a raster object with 5-degree pixels
+
+grid5deg <- raster::raster(ncol = 20, nrow = 20,
+  xmn = min(uuu$product) - 0.1, xmx = max(uuu$product) + 0.1,
+  ymn = min(uuu$temp_deficit) - 0.1, ymx = max(uuu$temp_deficit) + 0.1)
+  #crs = crs.string)
+
+# --- Write cell numbers as value for the grids.
+# --- Cell 1 is the upper left corner and numbers go
+# --- across the top line through its end, then
+# --- start again in the second line, and so forth.
+
+raster::values(grid5deg) <- 1:raster::ncell(grid5deg) # Cell numbers for 5 deg grid
+
+raster::cellFromRowCol(object = grid5deg, rownr = 2, colnr = 20)
+
+raster::xyFromCell(object =  grid5deg, cell = 800, spatial = FALSE)
+
+pts <- data.frame(product = uuu$product, temp_deficit = uuu$temp_deficit)
+SST.resid.SMB <- uuu$SST.resid.SMB
+
+count_resids <- function(residuals, ...) {
+  return(length(residuals))
+}
+
+cell5deg <- raster::rasterize(pts, grid5deg, SST.resid.SMB, fun = count_resids)
+
+ccc <- RColorBrewer::brewer.pal(n = 9, 'YlOrRd')
+ccc <- ccc[3:9]
+
+breaks <- c(0, 50, 100, 250, 500, 1000, 2500, 5000, Inf)
+
+# Add loess and linear fits
+Xs <- data.frame(Xs = seq(from = 0, to = 140, by = .3505))
+
+td_lm <- lm(uuu$temp_deficit ~ uuu$product)
+lm_estimates <- td_lm$coefficients[1] + (td_lm$coefficients[2] * Xs)
+lm_estimates <- as.vector(lm_estimates$Xs)
+
+td_loess <- loess(temp_deficit ~ product, data = uuu, span = 0.4)
+loess_estimates <- predict(td_loess, newdata = Xs$Xs)
+
+rasterVis::gplot(cell5deg) + 
+  ggplot2::geom_raster(aes(fill = (cut(value, breaks)))) +
+  scale_fill_manual(values = ccc) +
+  geom_line(aes(x = Xs, y = lm_estimates), color = 'green') +
+  geom_line(aes(x = Xs, y = loess_estimates), color = 'blue') +
+  #scale_fill_gradientn(colours = palette) +
+  labs(x = '(T_11 - T_12) * Reference SST', y = 'Temperature Deficit', fill = '# of Retrievals') +
+  coord_fixed(ratio = 2.4) +
+  xlim(-2, 122) +
+  ylim(-.1, 22)
+```
