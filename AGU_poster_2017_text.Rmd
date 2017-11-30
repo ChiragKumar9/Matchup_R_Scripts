@@ -372,7 +372,7 @@ Caption: Figure 3: (???CAPTION???)
         + Average abs(error): 0.256188
         + Correlation between predicted residual and actual residual: 0.831561
     + Can now numerically quantify residual
-    + To quantify the certainty of residual estimate, empirical table of test set accuracy windows
+    + To quantify the certainty of residual estimate, empirical table of test set accuracy windows (MAKE INTO GRAPH!)
         + 14.0% of actual residuals fall within $\pm$ .05 deg C of predicted residual
         + 27.5% of actual residuals fall within $\pm$ .1 deg C of predicted residual
         + 40.2% of actual residuals fall within $\pm$ .15 deg C of predicted residual

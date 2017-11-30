@@ -722,6 +722,7 @@ if_disagree <- ctree_4_var_tree_big_test_predictions != orig_test$class_resid
 
 disagreements <- orig_test[if_disagree, ]
 
+
 summary(disagreements$SST.resid.SMB)
 
 summary(orig_test$SST.resid.SMB)
@@ -946,7 +947,8 @@ cor(M5P_tree_test_vals, orig_test$SST.resid.SMB)
 ggplot2::ggplot() +
   geom_point(aes(x = M5P_tree_test_vals, orig_test$SST.resid.SMB), pch = '.') +
   geom_abline(slope = 1, intercept = 0, color = 'tomato') +
-  labs(x = 'Predicted Residual from the Cubist Decision Tree Regression Algorithm', y = 'Actual Residual')
+  labs(x = 'Predicted Residual from the Cubist Decision Tree Regression Algorithm', y = 'Actual Residual') +
+  ggsave('M5P_predictions_vs_actual_residual.pdf', device = 'pdf', width = 8, height = 6, units = 'in')
 ```
 
 ```{r evaluate_M5P_regression_statistically, echo=TRUE}
