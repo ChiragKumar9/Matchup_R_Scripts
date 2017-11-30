@@ -346,7 +346,7 @@ Caption: Figure 3: (???CAPTION???)
 
 * Analyzed retrievals for which the tree was mispredicting the residual range
     + Mean residual = -0.3346
-    + T-test: Disagreements form different population than residuals as a whole (p < 0.05)
+    + T-test: Disagreements form different population than residuals as a whole (p < 0.001)
     + Mean residual of disagreements = very close to artificial cutoff value of -0.4
     + Mispredictions because residual (continuous) is being discretized into good/bad categories
     
