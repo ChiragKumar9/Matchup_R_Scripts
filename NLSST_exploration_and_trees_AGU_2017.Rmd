@@ -39,6 +39,9 @@ require(DMwR)
 require(wesanderson)
 require(C50)
 require(gbm)
+require(MASS)
+require(reshape2)
+require(directlabels)
 
 ggplot <- function(...) {ggplot2::ggplot(...) + theme_bw()}
 
@@ -210,8 +213,8 @@ uuu <- data.frame(resid_context = as.factor(resid_context), temp_deficit_est = t
 
 # Take a sample of uuu bc loess requires lots of memory - for testing purposes
 set.seed(42)
-index <- sample(1:nrow(uuu), 50000, replace = FALSE)
-uuu <- uuu[index, ]
+#index <- sample(1:nrow(uuu), 50000, replace = FALSE)
+#uuu <- uuu[index, ]
 
 # --- Create a raster object with 5-degree pixels
 
@@ -244,6 +247,7 @@ ccc <- RColorBrewer::brewer.pal(n = 9, 'YlOrRd')
 ccc <- ccc[3:9]
 
 breaks <- c(0, 50, 100, 250, 500, 1000, 2500, 5000, Inf)
+breaks <- breaks * dim(orig)[1] / 50000
 
 # Add loess and linear fits
 Xs <- data.frame(Xs = seq(from = 0, to = 140, by = .3505))
@@ -647,16 +651,6 @@ rpart_big_4_var_tree_test_cm
 ```
 
 
-```{r analysis_of_disagreements, echo=TRUE}
-if_disagree <- rpart_big_4_var_tree_test_predictions != orig_test$class_resid
-
-disagreements <- orig_test[if_disagree, ]
-
-summary(disagreements$SST.resid.SMB)
-```
-
-
-
 ### CTree
 ```{r ctree_4_variable_tree, echo=TRUE}
 
@@ -723,7 +717,17 @@ ctree_4_var_tree_big_test_cm <- caret::confusionMatrix(data = ctree_4_var_tree_b
 ctree_4_var_tree_big_test_cm
 ```
 
+```{r analysis_of_disagreements, echo=TRUE}
+if_disagree <- ctree_4_var_tree_big_test_predictions != orig_test$class_resid
 
+disagreements <- orig_test[if_disagree, ]
+
+summary(disagreements$SST.resid.SMB)
+
+summary(orig_test$SST.resid.SMB)
+
+t.test(disagreements$SST.resid.SMB, orig_test$SST.resid.SMB)
+```
 
 ### Random Forest
 
@@ -914,7 +918,8 @@ ggplot2::ggplot(data = node_predictions_ctree) +
 
 ```{r M5P, echo=TRUE}
 M5P_tree <- Cubist::cubist(x = orig_train[, c('td_resid', 'x2', 'sec_satz', 'sd11')], y = orig_train$SST.resid.SMB,
-                           committees = 1)
+                           committees = 1,
+                           control = Cubist::cubistControl(rules = 100))
 
 dotplot(M5P_tree)
 
@@ -939,12 +944,14 @@ rmse_test_M5P
 cor(M5P_tree_test_vals, orig_test$SST.resid.SMB)
 
 ggplot2::ggplot() +
-  geom_point(aes(x = M5P_tree_test_vals, orig_test$SST.resid.SMB), pch = '.')
+  geom_point(aes(x = M5P_tree_test_vals, orig_test$SST.resid.SMB), pch = '.') +
+  geom_abline(slope = 1, intercept = 0, color = 'tomato') +
+  labs(x = 'Predicted Residual from the Cubist Decision Tree Regression Algorithm', y = 'Actual Residual')
 ```
 
 ```{r evaluate_M5P_regression_statistically, echo=TRUE}
 
-window <- .2
+window <- .6
 
 M5P_model_residuals_train <- M5P_tree_train_vals - orig_train$SST.resid.SMB
 
