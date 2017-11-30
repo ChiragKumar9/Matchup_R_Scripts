@@ -951,7 +951,7 @@ ggplot2::ggplot() +
 
 ```{r evaluate_M5P_regression_statistically, echo=TRUE}
 
-window <- .6
+window <- .7
 
 M5P_model_residuals_train <- M5P_tree_train_vals - orig_train$SST.resid.SMB
 
