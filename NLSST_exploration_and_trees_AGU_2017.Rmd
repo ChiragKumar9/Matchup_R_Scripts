@@ -953,7 +953,7 @@ ggplot2::ggplot() +
 
 ```{r evaluate_M5P_regression_statistically, echo=TRUE}
 
-window <- .7
+window <- .2
 
 M5P_model_residuals_train <- M5P_tree_train_vals - orig_train$SST.resid.SMB
 
@@ -970,5 +970,28 @@ IQR(M5P_model_residuals_test)
 
 ```
 
+```{r evaluate_M5P_regression_statistically_plot, echo=TRUE}
+windows <- seq(from = 0, to = 1.0, by = .05)
 
+prob_in_window <- windows
+
+for (i in seq(1, length(windows))) {
+  M5P_model_residuals_test <- M5Pr_tree_test_vals - orig_test$SST.resid.SMB
+
+  window <- windows[i]
+  ooo <- prop.table(table(abs(M5P_model_residuals_test) < window))
+  prob_in_window[i] <- ooo[2]
+}
+
+prob_in_window <- prob_in_window * 100
+
+ggplot2::ggplot() +
+  geom_point(aes(x = windows, y = prob_in_window)) +
+  xlim(0, 1.0) +
+  ylim(0, 100) +
+  labs(x = 'Plus/Minus Interval', y = '% Retrievals with abs(Predicted - Actual Residual) < Interval') +
+  ggsave('M5P_predictions_within_interval.pdf', device = 'pdf', width = 8, height = 6, units = 'in')
+
+```
+ 
 
