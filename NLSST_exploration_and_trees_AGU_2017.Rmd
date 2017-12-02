@@ -269,7 +269,7 @@ rasterVis::gplot(cell5deg) +
   coord_fixed(ratio = 2.4) +
   xlim(-2, 122) +
   ylim(-.1, 22) + 
-  ggsave('x2_vs_TD_loess_and_linear.pdf', device = 'pdf', width = 8, height = 6, units = 'in')
+  ggsave('x2_vs_TD_loess_and_linear.svg', device = 'svg', width = 8, height = 6, units = 'in')
 ```
 
 At lower SSTs, there is a strong linear correlation between the product and the temperature deficit,
@@ -375,7 +375,7 @@ p <- ggplot2::ggplot() +
   xlim(-2, 122) +
   ylim(-.1, 22) + 
   scale_color_manual(values = class_colors) +
-  ggsave('x2_vs_TD_cumulative_contours.pdf', device = 'pdf', width = 8, height = 6, units = 'in')
+  ggsave('x2_vs_TD_cumulative_contours.svg', device = 'svg', width = 8, height = 6, units = 'in')
 
 print(p)
 
@@ -477,7 +477,7 @@ rasterVis::gplot(cell5deg) +
   coord_fixed(ratio = 2.4) +
   xlim(-2, 122) +
   ylim(-.1, 22) + 
-  ggsave('x2_vs_TD_raster.pdf', device = 'pdf', width = 8, height = 6, units = 'in')
+  ggsave('x2_vs_TD_raster.svg', device = 'svg', width = 8, height = 6, units = 'in')
 ```
 
 
@@ -948,7 +948,7 @@ ggplot2::ggplot() +
   geom_point(aes(x = M5P_tree_test_vals, orig_test$SST.resid.SMB), pch = '.') +
   geom_abline(slope = 1, intercept = 0, color = 'tomato') +
   labs(x = 'Predicted Residual from the Cubist Decision Tree Regression Algorithm', y = 'Actual Residual') +
-  ggsave('M5P_predictions_vs_actual_residual.pdf', device = 'pdf', width = 8, height = 6, units = 'in')
+  ggsave('M5P_predictions_vs_actual_residual.svg', device = 'svg', width = 8, height = 6, units = 'in')
 ```
 
 ```{r evaluate_M5P_regression_statistically, echo=TRUE}
@@ -990,7 +990,7 @@ ggplot2::ggplot() +
   xlim(0, 1.0) +
   ylim(0, 100) +
   labs(x = 'Plus/Minus Interval', y = '% Retrievals with abs(Predicted - Actual Residual) < Interval') +
-  ggsave('M5P_predictions_within_interval.pdf', device = 'pdf', width = 8, height = 6, units = 'in')
+  ggsave('M5P_predictions_within_interval.svg', device = 'svg', width = 8, height = 6, units = 'in')
 
 ```
  
