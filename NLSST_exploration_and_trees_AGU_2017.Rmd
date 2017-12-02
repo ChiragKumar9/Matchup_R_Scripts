@@ -915,7 +915,7 @@ ggplot2::ggplot(data = node_predictions_ctree) +
 ```
 
 
-## RWEKA M5P
+## Cubist
 
 ```{r M5P, echo=TRUE}
 M5P_tree <- Cubist::cubist(x = orig_train[, c('td_resid', 'x2', 'sec_satz', 'sd11')], y = orig_train$SST.resid.SMB,
@@ -962,7 +962,7 @@ prop.table(table(abs(M5P_model_residuals_train) < window))
 IQR(M5P_model_residuals_train)
 
 
-M5P_model_residuals_test <- M5Pr_tree_test_vals - orig_test$SST.resid.SMB
+M5P_model_residuals_test <- M5P_tree_test_vals - orig_test$SST.resid.SMB
 
 table(abs(M5P_model_residuals_test) < window)
 prop.table(table(abs(M5P_model_residuals_test) < window))
@@ -976,7 +976,7 @@ windows <- seq(from = 0, to = 1.0, by = .05)
 prob_in_window <- windows
 
 for (i in seq(1, length(windows))) {
-  M5P_model_residuals_test <- M5Pr_tree_test_vals - orig_test$SST.resid.SMB
+  M5P_model_residuals_test <- M5P_tree_test_vals - orig_test$SST.resid.SMB
 
   window <- windows[i]
   ooo <- prop.table(table(abs(M5P_model_residuals_test) < window))
