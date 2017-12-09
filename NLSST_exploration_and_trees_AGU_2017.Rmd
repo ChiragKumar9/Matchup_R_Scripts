@@ -247,7 +247,7 @@ ccc <- RColorBrewer::brewer.pal(n = 9, 'YlOrRd')
 ccc <- ccc[3:9]
 
 breaks <- c(0, 50, 100, 250, 500, 1000, 2500, 5000, Inf)
-breaks <- breaks * dim(orig)[1] / 50000
+breaks <- breaks * 20
 
 # Add loess and linear fits
 Xs <- data.frame(Xs = seq(from = 0, to = 140, by = .3505))
@@ -458,8 +458,6 @@ palette <- c(blues_palette, '#f0f0f0', '#f0f0f0', reds_palette)
 palette <- rev(palette)
 
 
-ccc <- RColorBrewer::brewer.pal(n = 9, 'YlOrRd')
-ccc <- ccc[3:9]
 
 #rasterVis::levelplot(cell5deg, margin = FALSE,
 #  at = c(-Inf, seq(from = 0, to = 1.0, by = 0.05), Inf),
@@ -656,32 +654,36 @@ rpart_big_4_var_tree_test_cm
 
 # Again, no effect of lat
 
+qqq <- orig_train_smote[, c('class_resid', 'td_resid', 'x2', 'sec_satz', 'sd11')]
+
+names(qqq) <- c('class_resid', 'residual_temp_def_est', 'scaled_channel_diff', 'sec_satz', 'SD_11')
+
 # Build the tree
-ctree_4_var_tree <- partykit::ctree(formula = class_resid ~ td_resid + x2 + sec_satz + sd11,
-                                    data = orig_train_smote,
+ctree_4_var_tree <- partykit::ctree(formula = class_resid ~ .,
+                                    data = qqq,
                                     minbucket = 82,
                                     mincrit = 0.95,
-                                    maxdepth = 5)
+                                    maxdepth = 4)
 # Plot the tree
-plot(ctree_4_var_tree)
+plot(ctree_4_var_tree, type = 'simple')
 
 # Evaluate the tree
 ## Use the tree to predict
 ### Train set
-ctree_4_var_tree_train_predictions <- stats::predict(object = ctree_4_var_tree, newdata = orig_train_smote, type = 'response', na.action = na.pass)
+#ctree_4_var_tree_train_predictions <- stats::predict(object = ctree_4_var_tree, newdata = orig_train_smote, type = 'response', na.action = na.pass)
 
 ### Test set
-ctree_4_var_tree_test_predictions <- stats::predict(object = ctree_4_var_tree, newdata = orig_test, type = 'response', na.action = na.pass)
+#ctree_4_var_tree_test_predictions <- stats::predict(object = ctree_4_var_tree, newdata = orig_test, type = 'response', na.action = na.pass)
 
 ## Build Confusion Matrices and print them
 ### Train set
-ctree_4_var_tree_train_cm <- caret::confusionMatrix(data = ctree_4_var_tree_train_predictions, reference = orig_train_smote$class_resid)
+#ctree_4_var_tree_train_cm <- caret::confusionMatrix(data = ctree_4_var_tree_train_predictions, reference = orig_train_smote$class_resid)
 
-ctree_4_var_tree_train_cm
+#ctree_4_var_tree_train_cm
 ### Test set
-ctree_4_var_tree_test_cm <- caret::confusionMatrix(data = ctree_4_var_tree_test_predictions, reference = orig_test$class_resid)
+#ctree_4_var_tree_test_cm <- caret::confusionMatrix(data = ctree_4_var_tree_test_predictions, reference = orig_test$class_resid)
 
-ctree_4_var_tree_test_cm
+#ctree_4_var_tree_test_cm
 ```
 
 
@@ -717,6 +719,61 @@ ctree_4_var_tree_big_test_cm <- caret::confusionMatrix(data = ctree_4_var_tree_b
 ctree_4_var_tree_big_test_cm
 ```
 
+
+```{r ctree_variable_importance, echo=TRUE}
+
+variable_names_long <- c('Except\nResidual Temperature Deficit Estimate',
+                        'Except\nScaled Channel Difference',
+                        'Except\nsecant(satellite zenith angle)',
+                        'Except\nSD of T_11')
+
+variable_names_abbrev <- c('td_resid',
+                           'x2',
+                           'sec_satz',
+                           'sd11')
+
+empty <- c(0, 0, 0, 0)
+accuracy_without <- data.frame(variable_names_long = variable_names_long, variable_names_abbrev = variable_names_abbrev, accuracy = empty)
+
+for (variable_num in 1:nrow(accuracy_without)) {
+  iii <- c(1, 2, 3, 4)
+  iii <- iii[!iii %in% variable_num]
+  variables_temp <- variable_names_abbrev[iii]
+  ppp <- orig_train_smote[, c(variables_temp, 'class_resid')]
+  
+  ctree_accuracy_test <- partykit::ctree(formula = class_resid ~ .,
+                                    data = ppp,
+                                    minbucket = 82,
+                                    mincrit = 0.95,
+                                    maxdepth = 7)
+  
+  ctree_accuracy_test_predictions <- stats::predict(object = ctree_accuracy_test, newdata = orig_test, type = 'response', na.action = na.pass)
+
+  ctree_accuracy_test_cm <- caret::confusionMatrix(data = ctree_accuracy_test_predictions, reference = orig_test$class_resid)
+
+  # Now compute balanced accuracy
+  sensitivity <- ctree_accuracy_test_cm$table[1] / (ctree_accuracy_test_cm$table[1] + ctree_accuracy_test_cm$table[3])
+  specificity <- ctree_accuracy_test_cm$table[4] / (ctree_accuracy_test_cm$table[2] + ctree_accuracy_test_cm$table[4])
+  
+  balanced_accuracy <- (sensitivity + specificity) / 2
+  
+  accuracy_without[variable_num, 'accuracy'] <- balanced_accuracy
+
+}
+
+# 0.7812 is the balanced accuracy on the test set with ALL variables (from above)
+accuracy_without$accuracy_decr <- 0.7812 - accuracy_without$accuracy
+
+accuracy_without$variable_names_long <- reorder(accuracy_without$variable_names_long, -accuracy_without$accuracy)
+
+ggplot2::ggplot(data = accuracy_without, aes(x = variable_names_long, y = accuracy_decr)) +
+  geom_bar(stat = 'identity') +
+  theme(axis.text.x = element_text(angle = 45, hjust = 0.5, vjust = 0.5)) +
+  labs(x = 'Feature', y = 'Decrease in Balanced Accuracy') +
+  ggsave('variable_importance_accuracy_ctree.pdf', device = 'pdf', width = 8, height = 6, units = 'in')
+```
+
+
 ```{r analysis_of_disagreements, echo=TRUE}
 if_disagree <- ctree_4_var_tree_big_test_predictions != orig_test$class_resid
 
@@ -724,10 +781,21 @@ disagreements <- orig_test[if_disagree, ]
 
 
 summary(disagreements$SST.resid.SMB)
+sd(disagreements$SST.resid.SMB)
 
 summary(orig_test$SST.resid.SMB)
+sd(orig_test$SST.resid.SMB)
 
 t.test(disagreements$SST.resid.SMB, orig_test$SST.resid.SMB)
+
+
+summary(disagreements$SST.resid.SMB)
+sd(disagreements$SST.resid.SMB)
+
+summary(orig_train_smote$SST.resid.SMB)
+sd(orig_train_smote$SST.resid.SMB)
+
+t.test(disagreements$SST.resid.SMB, orig_train_smote$SST.resid.SMB)
 ```
 
 ### Random Forest
@@ -918,11 +986,19 @@ ggplot2::ggplot(data = node_predictions_ctree) +
 ## Cubist
 
 ```{r M5P, echo=TRUE}
+orig_train <- dplyr::tbl_df(orig_train) %>%
+  dplyr::filter(!is.na(td_resid))
+
+orig_train <- as.data.frame(orig_train)
+
 M5P_tree <- Cubist::cubist(x = orig_train[, c('td_resid', 'x2', 'sec_satz', 'sd11')], y = orig_train$SST.resid.SMB,
                            committees = 1,
-                           control = Cubist::cubistControl(rules = 100))
+                           control = Cubist::cubistControl(rules = 46))
 
-dotplot(M5P_tree)
+capture.output(summary(M5P_tree), file = 'M5P_tree_rules_and_stats_rules=46.txt')
+
+dotplot(M5P_tree, what = 'splits')
+dotplot(M5P_tree, what = 'coefs')
 
 # Evaluate the tree
 ## Use the tree to predict
@@ -947,8 +1023,26 @@ cor(M5P_tree_test_vals, orig_test$SST.resid.SMB)
 ggplot2::ggplot() +
   geom_point(aes(x = M5P_tree_test_vals, orig_test$SST.resid.SMB), pch = '.') +
   geom_abline(slope = 1, intercept = 0, color = 'tomato') +
+  labs(x = 'Predicted Residual from the Cubist Decision Tree Regression Algorithm', y = 'Actual Residual')
+  #ggsave('M5P_predictions_vs_actual_residual.svg', device = 'svg', width = 8, height = 6, units = 'in')
+
+
+
+ccc <- RColorBrewer::brewer.pal(n = 9, 'YlOrRd')
+ccc <- ccc[3:9]
+breaks <- c(0, 10, 25, 50, 100, 500, 1000, 2500, 5000, 10000, Inf)
+
+yyy <- data.frame(X = M5P_tree_test_vals, Y = orig_test$SST.resid.SMB)
+
+ccc <- colorRampPalette(ccc)(length(breaks) - 1)
+
+ggplot2::ggplot(data = yyy, aes(x = X, Y, fill = cut(..count.., c(0, 10, 25, 50, 100, 500, 1000, 2500, 5000, 10000, Inf)))) +
+  geom_bin2d(bins = 75) +
+  scale_fill_manual(values = ccc, '# of Retrievals') +
+  geom_abline(slope = 1, intercept = 0, color = 'black') +
   labs(x = 'Predicted Residual from the Cubist Decision Tree Regression Algorithm', y = 'Actual Residual') +
-  ggsave('M5P_predictions_vs_actual_residual.svg', device = 'svg', width = 8, height = 6, units = 'in')
+  ggsave('Cubist_predictions_vs_actual_residual_2d_histogram.pdf', device = 'pdf', width = 8, height = 6, units = 'in')
+
 ```
 
 ```{r evaluate_M5P_regression_statistically, echo=TRUE}
