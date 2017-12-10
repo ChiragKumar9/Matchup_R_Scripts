@@ -1032,15 +1032,15 @@ ccc <- RColorBrewer::brewer.pal(n = 9, 'YlOrRd')
 ccc <- ccc[3:9]
 breaks <- c(0, 10, 25, 50, 100, 500, 1000, 2500, 5000, 10000, Inf)
 
-yyy <- data.frame(X = M5P_tree_test_vals, Y = orig_test$SST.resid.SMB)
+yyy <- data.frame(Y = M5P_tree_test_vals, X = orig_test$SST.resid.SMB)
 
 ccc <- colorRampPalette(ccc)(length(breaks) - 1)
 
-ggplot2::ggplot(data = yyy, aes(x = X, Y, fill = cut(..count.., c(0, 10, 25, 50, 100, 500, 1000, 2500, 5000, 10000, Inf)))) +
+ggplot2::ggplot(data = yyy, aes(X, Y, fill = cut(..count.., c(0, 10, 25, 50, 100, 500, 1000, 2500, 5000, 10000, Inf)))) +
   geom_bin2d(bins = 75) +
   scale_fill_manual(values = ccc, '# of Retrievals') +
   geom_abline(slope = 1, intercept = 0, color = 'black') +
-  labs(x = 'Predicted Residual from the Cubist Decision Tree Regression Algorithm', y = 'Actual Residual') +
+  labs(x = 'Actual Residual', y = 'Predicted Residual from the Cubist Decision Tree Regression Algorithm') +
   ggsave('Cubist_predictions_vs_actual_residual_2d_histogram.pdf', device = 'pdf', width = 8, height = 6, units = 'in')
 
 ```
@@ -1087,5 +1087,37 @@ ggplot2::ggplot() +
   ggsave('M5P_predictions_within_interval.svg', device = 'svg', width = 8, height = 6, units = 'in')
 
 ```
- 
+
+
+```{r rule_distribution_ctree, echo=TRUE}
+# Rule 1:
+rule1 <- dplyr::tbl_df(orig_train) %>%
+  dplyr::filter(td_resid > 1.013252) %>%
+  dplyr::filter(x2 <= 21.7106) %>%
+  dplyr::filter(sec_satz <= 1.536021) %>%
+  dplyr::filter(sd11 <= 0.1656)
+
+ggplot2::ggplot() +
+  geom_histogram(data = rule1, aes(SST.resid.SMB), bins = 20) +
+  xlim(-7, 0.5) +
+  labs(x = 'SST Residual', y = 'N of Retrievals') +
+  ggsave('Cubist_residual_distribution_rule_1.pdf', device = 'pdf', width = 8, height = 6, units = 'in')
+
+
+
+rule2 <- dplyr::tbl_df(orig_train) %>%
+  dplyr::filter(td_resid > 0.4383563) %>%
+  dplyr::filter(x2 > 21.7106) %>%
+  dplyr::filter(x2 <= 53.802) %>%
+  dplyr::filter(sec_satz <= 1.536021) %>%
+  dplyr::filter(sd11 > 0.1108)
+
+ggplot2::ggplot() +
+  geom_histogram(data = rule2, aes(SST.resid.SMB), bins = 20) +
+  xlim(-7, 0.5) +
+  labs(x = 'SST Residual', y = 'N of Retrievals') +
+  ggsave('Cubist_residual_distribution_rule_2.pdf', device = 'pdf', width = 8, height = 6, units = 'in')
+
+```
+
 
