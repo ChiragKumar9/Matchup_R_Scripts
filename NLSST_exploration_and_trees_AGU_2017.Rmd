@@ -495,7 +495,9 @@ the machine learning model. We create estimates of the temperature deficit using
 minus T_11 (T_12).
 
 ```{r create_additional_variables, echo=TRUE}
+
 # Remove buoy_timedate
+orig_timedate <- orig$buoy.timedate
 orig <- dplyr::tbl_df(orig) %>%
   dplyr::select(-buoy.timedate)
 
@@ -518,9 +520,6 @@ orig$sec_satz <- secant.deg(orig$satz)
 orig$class_resid <- ifelse(orig$SST.resid.SMB <= -0.4, 'bad', 'good')
 orig$class_resid <- factor(orig$class_resid, levels = c('bad', 'good'))
 
-# Remove buoy_timedate
-orig <- dplyr::tbl_df(orig) %>%
-  dplyr::select(-buoy.timedate)
 ```
 
 ### Split into Train and Test Sets
@@ -912,11 +911,17 @@ orig_train <- dplyr::tbl_df(orig_train) %>%
 
 orig_train <- as.data.frame(orig_train)
 
-M5P_tree <- Cubist::cubist(x = orig_train[, c('td_resid', 'x2', 'sec_satz', 'sd11')], y = orig_train$SST.resid.SMB,
-                           committees = 1,
-                           control = Cubist::cubistControl(rules = 46))
+orig_train$buoy.timedate <- orig_timedate[index]
+orig_test$buoy.timedate <- orig_timedate[-index]
 
-capture.output(summary(M5P_tree), file = 'M5P_tree_rules_and_stats_rules=46.txt')
+orig_train$month <- lubridate::month(as.POSIXct(orig_train$buoy.timedate))
+orig_test$month <- lubridate::month(as.POSIXct(orig_test$buoy.timedate))
+
+M5P_tree <- Cubist::cubist(x = orig_train[, c('td_resid', 'x2', 'sec_satz', 'sd11', 'lat', 'month')], y = orig_train$SST.resid.SMB,
+                           committees = 1,
+                           control = Cubist::cubistControl(rules = 120)) # 46 rules without latitude and month to not exceed minsplit rules used above
+
+capture.output(summary(M5P_tree), file = 'M5P_tree_rules_and_stats_rules=120_with_lat_and_month.txt')
 
 dotplot(M5P_tree, what = 'splits')
 dotplot(M5P_tree, what = 'coefs')
@@ -961,8 +966,8 @@ ggplot2::ggplot(data = yyy, aes(X, Y, fill = cut(..count.., c(0, 10, 25, 50, 100
   geom_bin2d(bins = 75) +
   scale_fill_manual(values = ccc, '# of Retrievals') +
   geom_abline(slope = 1, intercept = 0, color = 'black') +
-  labs(x = 'Actual Residual', y = 'Predicted Residual from the Cubist Decision Tree Regression Algorithm') +
-  ggsave('Cubist_predictions_vs_actual_residual_2d_histogram.pdf', device = 'pdf', width = 8, height = 6, units = 'in')
+  labs(x = 'Actual Residual', y = 'Predicted Residual from the Cubist Decision Tree Regression Algorithm')
+  #ggsave('Cubist_predictions_vs_actual_residual_2d_histogram.pdf', device = 'pdf', width = 8, height = 6, units = 'in')
 
 ```
 
