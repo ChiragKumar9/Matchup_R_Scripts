@@ -905,7 +905,7 @@ ggplot2::ggplot(data = node_predictions_ctree) +
 
 ## Cubist
 
-```{r M5P, echo=TRUE}
+```{r Cubist, echo=TRUE}
 orig_train <- dplyr::tbl_df(orig_train) %>%
   dplyr::filter(!is.na(td_resid))
 
@@ -917,37 +917,37 @@ orig_test$buoy.timedate <- orig_timedate[-index]
 orig_train$month <- lubridate::month(as.POSIXct(orig_train$buoy.timedate))
 orig_test$month <- lubridate::month(as.POSIXct(orig_test$buoy.timedate))
 
-M5P_tree <- Cubist::cubist(x = orig_train[, c('td_resid', 'x2', 'sec_satz', 'sd11', 'lat', 'month')], y = orig_train$SST.resid.SMB,
+Cubist_rules <- Cubist::cubist(x = orig_train[, c('td_resid', 'x2', 'sec_satz', 'sd11', 'lat', 'month')], y = orig_train$SST.resid.SMB,
                            committees = 1,
-                           control = Cubist::cubistControl(rules = 120)) # 46 rules without latitude and month to not exceed minsplit rules used above
+                           control = Cubist::cubistControl(rules = 200)) # 46 rules without latitude and month to not exceed minsplit rules used above
 
-capture.output(summary(M5P_tree), file = 'M5P_tree_rules_and_stats_rules=120_with_lat_and_month.txt')
+capture.output(summary(Cubist_rules), file = 'M5P_tree_rules_and_stats_rules=200_with_lat_and_month.txt')
 
-dotplot(M5P_tree, what = 'splits')
-dotplot(M5P_tree, what = 'coefs')
+dotplot(Cubist_rules, what = 'splits')
+dotplot(Cubist_rules, what = 'coefs')
 
 # Evaluate the tree
 ## Use the tree to predict
 ### Train set
 N_correction_neighbors <- 0 # Must be between 0 and 9
 
-M5P_tree_train_vals <- stats::predict(object = M5P_tree, newdata = orig_train, na.action = na.pass, neighbors = N_correction_neighbors)
+Cubist_rules_train_vals <- stats::predict(object = Cubist_rules, newdata = orig_train, na.action = na.pass, neighbors = N_correction_neighbors)
 
 ### Test set
-M5P_tree_test_vals <- stats::predict(object = M5P_tree, newdata = orig_test, na.action = na.pass, neighbors = N_correction_neighbors)
+Cubist_rules_test_vals <- stats::predict(object = Cubist_rules, newdata = orig_test, na.action = na.pass, neighbors = N_correction_neighbors)
 
 ### Train set
-rmse_train_M5P <- caret::RMSE(M5P_tree_train_vals, orig_train$SST.resid.SMB)
-rmse_train_M5P
-cor(M5P_tree_train_vals, orig_train$SST.resid.SMB)
+rmse_train_cubist <- caret::RMSE(Cubist_rules_train_vals, orig_train$SST.resid.SMB)
+rmse_train_cubist
+cor(Cubist_rules_train_vals, orig_train$SST.resid.SMB)
 
 ### Test set
-rmse_test_M5P <- caret::RMSE(M5P_tree_test_vals, orig_test$SST.resid.SMB)
-rmse_test_M5P
-cor(M5P_tree_test_vals, orig_test$SST.resid.SMB)
+rmse_test_cubist <- caret::RMSE(Cubist_rules_test_vals, orig_test$SST.resid.SMB)
+rmse_test_cubist
+cor(Cubist_rules_test_vals, orig_test$SST.resid.SMB)
 
 ggplot2::ggplot() +
-  geom_point(aes(x = M5P_tree_test_vals, orig_test$SST.resid.SMB), pch = '.') +
+  geom_point(aes(x = Cubist_rules_test_vals, orig_test$SST.resid.SMB), pch = '.') +
   geom_abline(slope = 1, intercept = 0, color = 'tomato') +
   labs(x = 'Predicted Residual from the Cubist Decision Tree Regression Algorithm', y = 'Actual Residual')
   #ggsave('M5P_predictions_vs_actual_residual.svg', device = 'svg', width = 8, height = 6, units = 'in')
@@ -958,7 +958,7 @@ ccc <- RColorBrewer::brewer.pal(n = 9, 'YlOrRd')
 ccc <- ccc[3:9]
 breaks <- c(0, 10, 25, 50, 100, 500, 1000, 2500, 5000, 10000, Inf)
 
-yyy <- data.frame(Y = M5P_tree_test_vals, X = orig_test$SST.resid.SMB)
+yyy <- data.frame(Y = Cubist_rules_test_vals, X = orig_test$SST.resid.SMB)
 
 ccc <- colorRampPalette(ccc)(length(breaks) - 1)
 
@@ -975,18 +975,18 @@ ggplot2::ggplot(data = yyy, aes(X, Y, fill = cut(..count.., c(0, 10, 25, 50, 100
 
 window <- .2
 
-M5P_model_residuals_train <- M5P_tree_train_vals - orig_train$SST.resid.SMB
+Cubist_rules_residuals_train <- Cubist_rules_train_vals - orig_train$SST.resid.SMB
 
-table(abs(M5P_model_residuals_train) < window)
-prop.table(table(abs(M5P_model_residuals_train) < window))
+table(abs(Cubist_rules_residuals_train) < window)
+prop.table(table(abs(Cubist_rules_residuals_train) < window))
 IQR(M5P_model_residuals_train)
 
 
-M5P_model_residuals_test <- M5P_tree_test_vals - orig_test$SST.resid.SMB
+Cubist_rules_residuals_test <- Cubist_rules_test_vals - orig_test$SST.resid.SMB
 
-table(abs(M5P_model_residuals_test) < window)
-prop.table(table(abs(M5P_model_residuals_test) < window))
-IQR(M5P_model_residuals_test)
+table(abs(Cubist_rules_residuals_test) < window)
+prop.table(table(abs(Cubist_rules_residuals_test) < window))
+IQR(Cubist_rules_residuals_test)
 
 ```
 
@@ -996,10 +996,10 @@ windows <- seq(from = 0, to = 1.0, by = .05)
 prob_in_window <- windows
 
 for (i in seq(1, length(windows))) {
-  M5P_model_residuals_test <- M5P_tree_test_vals - orig_test$SST.resid.SMB
+  Cubist_rules_residuals_test <- Cubist_rules_test_vals - orig_test$SST.resid.SMB
 
   window <- windows[i]
-  ooo <- prop.table(table(abs(M5P_model_residuals_test) < window))
+  ooo <- prop.table(table(abs(Cubist_rules_residuals_test) < window))
   prob_in_window[i] <- ooo[2]
 }
 
@@ -1015,7 +1015,9 @@ ggplot2::ggplot() +
 ```
 
 
-```{r rule_distribution_ctree, echo=TRUE}
+```{r rule_distribution_Cubist, echo=TRUE}
+
+# Rules for tree without latitude and seasonality
 # Rule 1:
 rule1 <- dplyr::tbl_df(orig_train) %>%
   dplyr::filter(td_resid > 1.013252) %>%
@@ -1046,4 +1048,9 @@ ggplot2::ggplot() +
 
 ```
 
+## MOB
+
+```{r fit_MOB_tree, echo=TRUE}
+
+```
 
