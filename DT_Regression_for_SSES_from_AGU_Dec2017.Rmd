@@ -1,5 +1,5 @@
 ---
-title: "NLSST Exploration for AGU"
+title: "Model-Based Regression from AGU 2017"
 author: "Chirag Kumar and Guillermo Podesta"
 output:
   html_notebook:
@@ -143,29 +143,6 @@ ggplot2::ggplot(data = orig, mapping = aes(x = buoy.sst, y = SST.resid.SMB,
 We see that as the SST increases, so does the spread of the residuals. There are also more retrievals at higher
 SSTs. We now explore the NLSST algorithm to find why there is an increase in residual spread at higher SSTs.
 
-## Residual Distribution
-
-```{r resid_distribution, echo=TRUE}
-resid_cats <- cut(orig$SST.resid.SMB, c(-Inf, -0.4, 0.4, Inf))
-table(resid_cats)
-```
-
-Because of the very few retrievals that have residuals > 0.4, we choose to discard these from our analysis.
-Furthermore, these residuals are only causes by extremely abnormal conditions and are hence easier to
-identify. For ease, we refer to retrievals less than -0.4 as bad and retrievals inbetween -0.4 and 0.4 as
-good.
-
-```{r resid_filtering, echo=TRUE}
-orig <- dplyr::tbl_df(orig) %>%
-  dplyr::filter(SST.resid.SMB <= 0.4)
-
-orig <- as.data.frame(orig)
-summary(orig$SST.resid.SMB)
-
-resid_cats <- cut(orig$SST.resid.SMB, c(-Inf, -0.4, 0.4, Inf))
-table(resid_cats)
-```
-
 After the series of filters that we have applied, we are left with `r nrow(orig)` matchups, ranging from
 `r min(orig$buoy.timedate)` to `r max(orig$buoy.timedate)`
 
@@ -281,108 +258,95 @@ the band difference does, which causes increase in retrievals with negative resi
 temperatures. However, the band difference alone is not enough for us to separate retrievals
 with good and bad residual ranges.
 
-```{r band_diff_temp_deficit_contours, echo=TRUE}
 
-resid_context <- cut(orig$SST.resid.SMB, c(-Inf, -.4, .4, Inf))
+```{r binning_retrievals_band_diff_temp_def_residual_a_la_raster_median, echo=TRUE}
+# --- These numbers may help perform statistics for the matchups
+# --- (e.g., number of matchups per cell, etc.).
+
+temp_deficit_est <- orig$ref_SST - orig$T_11
 temp_deficit <- orig$buoy.sst - orig$T_11
 
-uuu <- data.frame(resid_context = as.factor(resid_context), temp_deficit = temp_deficit, product = (orig$band.diff * orig$ref_SST))
-
-# Take a sample of uuu bc loess requires lots of memory - for testing purposes
-set.seed(42)
-index <- sample(1:nrow(uuu), 50000, replace = FALSE)
-uuu <- uuu[index, ]
-
-
-ggplot2::ggplot(data = uuu, mapping = aes(x = product, y = temp_deficit, color = uuu$resid_context)) +
-  geom_density_2d() +
-  labs(x = '(T_11 - T_12) * Reference SST', y = 'Temperature Deficit', color = 'Residual Range')
-  #ggsave('band_diff_predictor_of_temp_deficit_different_in_situ_windows.pdf')
-
-```
-
-
-
-```{r band_diff_temp_deficit_cumulative_contours, echo=TRUE}
-require(ggplot2)
-require(MASS)
-require(reshape2)
-require(directlabels)
-
-# data:
-resid_context <- cut(orig$SST.resid.SMB, c(-Inf, -.4, .4, Inf))
-temp_deficit <- orig$buoy.sst - orig$T_11
-
-uuu <- data.frame(resid_context = as.factor(resid_context), temp_deficit = temp_deficit, product = (orig$band.diff * orig$ref_SST))
+uuu <- data.frame(resid_context = as.factor(resid_context), temp_deficit_est = temp_deficit_est, product = (orig$band.diff * orig$ref_SST),
+                  temp_deficit = temp_deficit,
+                  x3 = orig$x3,
+                  sec_satz = secant.deg(orig$satz),
+                  SST.resid.SMB = orig$SST.resid.SMB)
 
 # Take a sample of uuu bc loess requires lots of memory - for testing purposes
 set.seed(42)
 #index <- sample(1:nrow(uuu), 50000, replace = FALSE)
 #uuu <- uuu[index, ]
 
-# filter - create two dataframes, good vs bad residuals
+# Horizontalize
+td_estimate_fit <- predict(td_loess, newdata = uuu$product)
+uuu$td_fit_error <- uuu$temp_deficit_est - td_estimate_fit
 
-uuu_good <- dplyr::tbl_df(uuu) %>%
-  dplyr::filter(resid_context == '(-0.4,0.4]')
+# --- Create a raster object with 5-degree pixels
 
-uuu_bad <- dplyr::tbl_df(uuu) %>%
-  dplyr::filter(resid_context == '(-Inf,-0.4]')
+grid5deg <- raster::raster(ncol = 20, nrow = 20,
+  xmn = min(uuu$product) - 0.1, xmx = max(uuu$product) + 0.1,
+  ymn = min(uuu$temp_deficit) - 0.1, ymx = max(uuu$temp_deficit) + 0.1)
+  #crs = crs.string)
 
-uuu_good <- as.data.frame(uuu_good)
-uuu_bad <- as.data.frame(uuu_bad)
+# --- Write cell numbers as value for the grids.
+# --- Cell 1 is the upper left corner and numbers go
+# --- across the top line through its end, then
+# --- start again in the second line, and so forth.
 
-# get the kde2d information:
-# for good
-uuu_good.kde <- kde2d(uuu_good[,2], uuu_good[,3], n = 400)
-dx_good <- diff(uuu_good.kde$x[2:3])  # lifted from emdbook::HPDregionplot()
-dy_good <- diff(uuu_good.kde$y[2:3])
-sz_good <- sort(uuu_good.kde$z)
-c1_good <- cumsum(sz_good) * dx_good * dy_good
+raster::values(grid5deg) <- 1:raster::ncell(grid5deg) # Cell numbers for 5 deg grid
 
-# for bad
-uuu_bad.kde <- kde2d(uuu_bad[,2], uuu_bad[,3], n = 400)
-dx_bad <- diff(uuu_bad.kde$x[2:3])  # lifted from emdbook::HPDregionplot()
-dy_bad <- diff(uuu_bad.kde$y[2:3])
-sz_bad <- sort(uuu_bad.kde$z)
-c1_bad <- cumsum(sz_bad) * dx_bad * dy_bad
+raster::cellFromRowCol(object = grid5deg, rownr = 2, colnr = 20)
 
-# specify desired contour levels:
-prob <- c(0.25, 0.5, 0.75, 0.90, 0.999)
+raster::xyFromCell(object =  grid5deg, cell = 800, spatial = FALSE)
 
-# Configure plot
-# for good
-dimnames(uuu_good.kde$z) <- list(uuu_good.kde$x, uuu_good.kde$y)
-dc_good <- melt(uuu_good.kde$z)
-dc_good$prob <- approx(sz_good, 1 - c1_good, dc_good$value)$y
+pts <- data.frame(product = uuu$product, temp_deficit = uuu$temp_deficit)
+SST.resid.SMB <- uuu$SST.resid.SMB
 
-# for bad
-dimnames(uuu_bad.kde$z) <- list(uuu_bad.kde$x, uuu_bad.kde$y)
-dc_bad <- melt(uuu_bad.kde$z)
-dc_bad$prob <- approx(sz_bad, 1 - c1_bad, dc_bad$value)$y
+count_good_residuals <- function(residuals, ...) {
+  #if (length(residuals) < 82) {
+  #  return(-Inf)
+  #}
+  resid_cats <- cut(residuals, c(-Inf, -0.4, 0.4))
+  N_resid_bad_low <- table(resid_cats)[1]
+  N_resid_good <- table(resid_cats)[2]
+  fraction_good <- N_resid_good / (N_resid_bad_low + N_resid_good)
+  return(fraction_good)
+}
 
-dc_good$residual <- '(-0.4,0.4]'
-dc_bad$residual <- '(-Inf,-0.4]'
-dc <- rbind(dc_good, dc_bad)
+cell5deg <- raster::rasterize(pts, grid5deg, SST.resid.SMB, fun = median) # fun can be median, IQR, or count_good_residuals
 
-class_colors <- c('(-0.4,0.4]' = '#00BFC4', '(-Inf,-0.4]' = '#F8766D')
+breaks_count_good <- seq(from = 0, to = 1, by = 0.1)
 
-# Actual plot
-p <- ggplot2::ggplot() +
-  geom_contour(data = dc, aes(x = Var2, y = Var1, z = prob, color = residual), breaks = prob) +
-  #geom_contour(data = dc_bad, aes(x = Var2, y = Var1, z = prob), breaks = prob, color = '#F8766D') + , color = '#00BFC4'
-  labs(x = '(T_11 - T_12) * Reference SST', y = 'Temperature Deficit', color = 'Residual Range') +
+blues_palette <- rev(RColorBrewer::brewer.pal(9, 'Blues'))
+blues_palette <- colorRampPalette(blues_palette)(4)
+
+reds_palette <- RColorBrewer::brewer.pal(9, 'Reds')
+reds_palette <- colorRampPalette(reds_palette)(4)
+
+palette_count_good <- c(blues_palette, '#f0f0f0', '#f0f0f0', reds_palette)
+palette_count_good <- rev(palette_count_good)
+
+
+breaks_med <- c(-Inf, -6, -5.5, -5, -4.5, -4, -3.5, -3, -2.5, -2, -1.5, -1, -0.5, 0, 0.4)
+
+palette_med <- RColorBrewer::brewer.pal(n = 9, 'YlOrRd')
+palette_med <- palette_med[3:9]
+palette_med <- colorRampPalette(palette_med)(length(breaks_med) - 1)
+palette_med <- rev(palette_med)
+
+rasterVis::gplot(cell5deg) + 
+  ggplot2::geom_raster(aes(fill = (cut(value, breaks_med)))) +
+  scale_fill_manual(values = palette_med) +
+  #scale_fill_gradientn(colours = palette) +
+  labs(x = '(T_11 - T_12) * Reference SST', y = 'Temperature Deficit', fill = 'Median Residuals') +
   coord_fixed(ratio = 2.4) +
   xlim(-2, 122) +
-  ylim(-.1, 22) + 
-  scale_color_manual(values = class_colors) +
-  ggsave('x2_vs_TD_cumulative_contours.svg', device = 'svg', width = 8, height = 6, units = 'in')
-
-print(p)
-
+  ylim(-.1, 22) +
+  ggsave('x2_vs_TD_raster_median.svg', device = 'svg', width = 8, height = 6, units = 'in')
 ```
 
 
-```{r binning_retrievals_band_diff_temp_def_residual_a_la_raster, echo=TRUE}
+```{r binning_retrievals_band_diff_temp_def_residual_a_la_raster_IQR, echo=TRUE}
 # --- These numbers may help perform statistics for the matchups
 # --- (e.g., number of matchups per cell, etc.).
 
@@ -438,26 +402,6 @@ count_good_residuals <- function(residuals, ...) {
 
 cell5deg <- raster::rasterize(pts, grid5deg, SST.resid.SMB, fun = IQR) # fun can be median, IQR, or count_good_residuals
 
-breaks_count_good <- seq(from = 0, to = 1, by = 0.1)
-
-blues_palette <- rev(RColorBrewer::brewer.pal(9, 'Blues'))
-blues_palette <- colorRampPalette(blues_palette)(4)
-
-reds_palette <- RColorBrewer::brewer.pal(9, 'Reds')
-reds_palette <- colorRampPalette(reds_palette)(4)
-
-palette_count_good <- c(blues_palette, '#f0f0f0', '#f0f0f0', reds_palette)
-palette_count_good <- rev(palette_count_good)
-
-
-breaks_med <- c(-Inf, -6, -5.5, -5, -4.5, -4, -3.5, -3, -2.5, -2, -1.5, -1, -0.5, 0, 0.4)
-
-palette_med <- RColorBrewer::brewer.pal(n = 9, 'YlOrRd')
-palette_med <- palette_med[3:9]
-palette_med <- colorRampPalette(palette_med)(length(breaks_med) - 1)
-palette_med <- rev(palette_med)
-
-
 breaks_IQR <- c(seq(from = 0, to = 1.5, by = 0.1), Inf)
 
 palette_IQR <- RColorBrewer::brewer.pal(n = 9, 'YlOrRd')
@@ -477,9 +421,7 @@ rasterVis::gplot(cell5deg) +
 ```
 
 
-As can be seen, there are very distinct regions of temperature deficit and product that have very high
-probabilities of good (bad) residuals. However, there is also a notable region where there are roughly
-equal portions of good and bad residuals. We build decision trees to segment those "in-between" retrievals.
+[TEXT TO INSERT]
 
 # Decision Trees
 
@@ -493,11 +435,7 @@ the machine learning model. We create estimates of the temperature deficit using
 minus T_11 (T_12).
 
 ```{r create_additional_variables, echo=TRUE}
-
-# Remove buoy_timedate
-orig_timedate <- orig$buoy.timedate
-orig <- dplyr::tbl_df(orig) %>%
-  dplyr::select(-buoy.timedate)
+orig$month <- lubridate::month(as.POSIXct(orig_train$buoy.timedate))
 
 # Temperature Deficit Estimate
 orig$ref_SST_minus_T_11 <- orig$ref_SST - orig$T_11
@@ -514,9 +452,7 @@ orig <- dplyr::tbl_df(orig) %>%
 # Secant of the satz
 orig$sec_satz <- secant.deg(orig$satz)
 
-# Class of the Residual
-orig$class_resid <- ifelse(orig$SST.resid.SMB <= -0.4, 'bad', 'good')
-orig$class_resid <- factor(orig$class_resid, levels = c('bad', 'good'))
+orig <- as.data.frame(orig)
 
 ```
 
@@ -535,306 +471,13 @@ orig_train <- orig[index, ]
 orig_test <- orig[-index, ]
 ```
 
-### Rebalance Classes
-Most machine learning algorithms prefer to deal with balanced classes. As hinted at before, our classes
-are heavily inbalanced, even after cutting down to just two classes (i.e., removing retrievals with
-residuals greater than 0.4).
-
-```{r inbalanced_clases, echo=TRUE}
-table(cut(orig_train$SST.resid.SMB, c(-Inf, -0.4, 0.4)))
-
-prop.table(table(cut(orig_train$SST.resid.SMB, c(-Inf, -0.4, 0.4))))
-```
-
-As can be seen from the above tables, the good retrievals are almost twice as prevalent as the bad
-retrievals. Hence, we use rebalancing techniques, such as SMOTE and ROSE, to rebalance our dataset.
-Based on a previous exploration, we saw that using the balanced dataset didn't always increase the
-accuracy of the model when compared to not using the balanced data. However, using the balanced
-data always resulted in higher sensitivity and specificity and at least comprable accuracy. Therefore,
-we choose to stay with using the balanced dataset because the increased sensitivity and specificity
-make us more likely to trust that model's predictions, regardless of which class they are for.
-
-
-```{r rebalance classes, echo=TRUE}
-
-orig_train_smote <- DMwR::SMOTE(class_resid ~ ., as.data.frame(orig_train), perc.over = 100, perc.under = 200)
-
-# numInstances = # of majority class - # of minority class
-# WHEN TESTING MWMOTE.... WE RAN OUT OF MEMORY
-#numInstances <- table(orig_train$class_resid)['good'] - table(orig_train$class_resid)['bad']
-#new_samples_mwmote <- imbalance::mwmote(as.data.frame(orig_train), numInstances = numInstances, classAttr = 'class_resid')
-
-```
-
-After rebalancing, our classes have almost equal prevalence.
-
-```{r balanced_classes, echo=TRUE}
-table(orig_train_smote$class_resid)
-
-prop.table(table(orig_train_smote$class_resid))
-```
-
-
-## Trees
-
-For all trees, we use the balanced dataset. We fit our model to the balanced train data and then
-test on the test set. We create confusion matrices for both the train and test set, just to see
-if the model is overfitting. We use three types of decision tree models: RPART, CTree, and Random
-Forests. All trees receive the same 4 splitting variables: x2, sec(satz), temperature deficit estimate, 
-and sd_11.
-
-### RPART
-
-```{r rpart_4_variable_tree, echo=TRUE}
-
-# FASCINATING: No difference in model when we add latitude!
-
-# Build the tree
-rpart_4_var_tree <- rpart::rpart(formula = class_resid ~ td_resid + x2 + sec_satz + sd11,
-                                 data = orig_train_smote,
-                                 control = rpart::rpart.control(minbucket = 82, xval = 3))
-# Plot the tree
-plot(partykit::as.party(rpart_4_var_tree))
-
-# Evaluate the tree
-## Use the tree to predict
-### Train set
-rpart_4_var_tree_train_predictions <- stats::predict(object = rpart_4_var_tree, newdata = orig_train_smote, type = 'class', na.action = na.pass)
-
-### Test set
-rpart_4_var_tree_test_predictions <- stats::predict(object = rpart_4_var_tree, newdata = orig_test, type = 'class', na.action = na.pass)
-
-## Build Confusion Matrices and print them
-### Train set
-rpart_4_var_tree_train_cm <- caret::confusionMatrix(data = rpart_4_var_tree_train_predictions, reference = orig_train_smote$class_resid)
-
-rpart_4_var_tree_train_cm
-### Test set
-rpart_4_var_tree_test_cm <- caret::confusionMatrix(data = rpart_4_var_tree_test_predictions, reference = orig_test$class_resid)
-
-rpart_4_var_tree_test_cm
-```
-
-```{r rpart_big_4_variable_tree, echo=TRUE}
-
-# SAME THING: No effect of lat!
-
-# Build the tree
-rpart_big_4_var_tree <- rpart::rpart(formula = class_resid ~ td_resid + x2 + sec_satz + sd11,
-                                 data = orig_train_smote,
-                                 control = rpart::rpart.control(minbucket = 82, maxdepth = 7, xval = 3, cp = 0.0))
-# Plot the tree
-plot(partykit::as.party(rpart_big_4_var_tree))
-
-# Evaluate the tree
-## Use the tree to predict
-### Train set
-rpart_big_4_var_tree_train_predictions <- stats::predict(object = rpart_big_4_var_tree, newdata = orig_train_smote, type = 'class', na.action = na.pass)
-
-### Test set
-rpart_big_4_var_tree_test_predictions <- stats::predict(object = rpart_big_4_var_tree, newdata = orig_test, type = 'class', na.action = na.pass)
-
-## Build Confusion Matrices and print them
-### Train set
-rpart_big_4_var_tree_train_cm <- caret::confusionMatrix(data = rpart_big_4_var_tree_train_predictions, reference = orig_train_smote$class_resid)
-
-rpart_big_4_var_tree_train_cm
-### Test set
-rpart_big_4_var_tree_test_cm <- caret::confusionMatrix(data = rpart_big_4_var_tree_test_predictions, reference = orig_test$class_resid)
-
-rpart_big_4_var_tree_test_cm
-```
-
-
-### CTree
-```{r ctree_4_variable_tree, echo=TRUE}
-
-# Again, no effect of lat
-
-qqq <- orig_train_smote[, c('class_resid', 'td_resid', 'x2', 'sec_satz', 'sd11')]
-
-names(qqq) <- c('class_resid', 'residual_temp_def_est', 'scaled_channel_diff', 'sec_satz', 'SD_11')
-
-# Build the tree
-ctree_4_var_tree <- partykit::ctree(formula = class_resid ~ .,
-                                    data = qqq,
-                                    minbucket = 82,
-                                    mincrit = 0.95,
-                                    maxdepth = 4)
-# Plot the tree
-plot(ctree_4_var_tree, type = 'simple')
-
-# Evaluate the tree
-## Use the tree to predict
-### Train set
-#ctree_4_var_tree_train_predictions <- stats::predict(object = ctree_4_var_tree, newdata = orig_train_smote, type = 'response', na.action = na.pass)
-
-### Test set
-#ctree_4_var_tree_test_predictions <- stats::predict(object = ctree_4_var_tree, newdata = orig_test, type = 'response', na.action = na.pass)
-
-## Build Confusion Matrices and print them
-### Train set
-#ctree_4_var_tree_train_cm <- caret::confusionMatrix(data = ctree_4_var_tree_train_predictions, reference = orig_train_smote$class_resid)
-
-#ctree_4_var_tree_train_cm
-### Test set
-#ctree_4_var_tree_test_cm <- caret::confusionMatrix(data = ctree_4_var_tree_test_predictions, reference = orig_test$class_resid)
-
-#ctree_4_var_tree_test_cm
-```
-
-
-```{r ctree_4_variable_tree_big, echo=TRUE}
-
-# again, no change with lat
-
-# Build the tree
-ctree_4_var_tree_big <- partykit::ctree(formula = class_resid ~ td_resid + x2 + sec_satz + sd11,
-                                    data = orig_train_smote,
-                                    minbucket = 82,
-                                    mincrit = 0.95,
-                                    maxdepth = 7)
-# Plot the tree
-#plot(ctree_4_var_tree_big)
-
-# Evaluate the tree
-## Use the tree to predict
-### Train set
-ctree_4_var_tree_big_train_predictions <- stats::predict(object = ctree_4_var_tree_big, newdata = orig_train_smote, type = 'response', na.action = na.pass)
-
-### Test set
-ctree_4_var_tree_big_test_predictions <- stats::predict(object = ctree_4_var_tree_big, newdata = orig_test, type = 'response', na.action = na.pass)
-
-## Build Confusion Matrices and print them
-### Train set
-ctree_4_var_tree_big_train_cm <- caret::confusionMatrix(data = ctree_4_var_tree_big_train_predictions, reference = orig_train_smote$class_resid)
-
-ctree_4_var_tree_big_train_cm
-### Test set
-ctree_4_var_tree_big_test_cm <- caret::confusionMatrix(data = ctree_4_var_tree_big_test_predictions, reference = orig_test$class_resid)
-
-ctree_4_var_tree_big_test_cm
-```
-
-
-```{r ctree_variable_importance, echo=TRUE}
-
-variable_names_long <- c('Except\nResidual Temperature Deficit Estimate',
-                        'Except\nScaled Channel Difference',
-                        'Except\nsecant(satellite zenith angle)',
-                        'Except\nSD of T_11')
-
-variable_names_abbrev <- c('td_resid',
-                           'x2',
-                           'sec_satz',
-                           'sd11')
-
-empty <- c(0, 0, 0, 0)
-accuracy_without <- data.frame(variable_names_long = variable_names_long, variable_names_abbrev = variable_names_abbrev, accuracy = empty)
-
-for (variable_num in 1:nrow(accuracy_without)) {
-  iii <- c(1, 2, 3, 4)
-  iii <- iii[!iii %in% variable_num]
-  variables_temp <- variable_names_abbrev[iii]
-  ppp <- orig_train_smote[, c(variables_temp, 'class_resid')]
-  
-  ctree_accuracy_test <- partykit::ctree(formula = class_resid ~ .,
-                                    data = ppp,
-                                    minbucket = 82,
-                                    mincrit = 0.95,
-                                    maxdepth = 7)
-  
-  ctree_accuracy_test_predictions <- stats::predict(object = ctree_accuracy_test, newdata = orig_test, type = 'response', na.action = na.pass)
-
-  ctree_accuracy_test_cm <- caret::confusionMatrix(data = ctree_accuracy_test_predictions, reference = orig_test$class_resid)
-
-  # Now compute balanced accuracy
-  sensitivity <- ctree_accuracy_test_cm$table[1] / (ctree_accuracy_test_cm$table[1] + ctree_accuracy_test_cm$table[3])
-  specificity <- ctree_accuracy_test_cm$table[4] / (ctree_accuracy_test_cm$table[2] + ctree_accuracy_test_cm$table[4])
-  
-  balanced_accuracy <- (sensitivity + specificity) / 2
-  
-  accuracy_without[variable_num, 'accuracy'] <- balanced_accuracy
-
-}
-
-# 0.7812 is the balanced accuracy on the test set with ALL variables (from above)
-accuracy_without$accuracy_decr <- 0.7812 - accuracy_without$accuracy
-
-accuracy_without$variable_names_long <- reorder(accuracy_without$variable_names_long, -accuracy_without$accuracy)
-
-ggplot2::ggplot(data = accuracy_without, aes(x = variable_names_long, y = accuracy_decr)) +
-  geom_bar(stat = 'identity') +
-  theme(axis.text.x = element_text(angle = 45, hjust = 0.5, vjust = 0.5)) +
-  labs(x = 'Feature', y = 'Decrease in Balanced Accuracy') +
-  ggsave('variable_importance_accuracy_ctree.pdf', device = 'pdf', width = 8, height = 6, units = 'in')
-```
-
-
-```{r analysis_of_disagreements, echo=TRUE}
-if_disagree <- ctree_4_var_tree_big_test_predictions != orig_test$class_resid
-
-disagreements <- orig_test[if_disagree, ]
-
-
-summary(disagreements$SST.resid.SMB)
-sd(disagreements$SST.resid.SMB)
-
-summary(orig_test$SST.resid.SMB)
-sd(orig_test$SST.resid.SMB)
-
-t.test(disagreements$SST.resid.SMB, orig_test$SST.resid.SMB)
-
-
-summary(disagreements$SST.resid.SMB)
-sd(disagreements$SST.resid.SMB)
-
-summary(orig_train_smote$SST.resid.SMB)
-sd(orig_train_smote$SST.resid.SMB)
-
-t.test(disagreements$SST.resid.SMB, orig_train_smote$SST.resid.SMB)
-```
-
-### Random Forest
-
-```{r random_forest_4_variable_tree, echo=TRUE}
-
-# Lat has negligable effect - mean decrease gini very close to 0, change of accuracy is within CI
-
-# Build the tree
-rand_for_4_var <- randomForest::randomForest(formula = class_resid ~ td_resid + x2 + sec_satz + sd11,
-                                             data = orig_train_smote,
-                                             nodesize = 82,
-                                             ntree = 750,
-                                             mtry = 2)
-# Plot the tree
-randomForest::varImpPlot(rand_for_4_var)
-
-# Evaluate the tree
-## Use the tree to predict
-### Train set
-rand_for_4_var_train_predictions <- stats::predict(object = rand_for_4_var, newdata = orig_train_smote, type = 'class', na.action = na.pass)
-
-### Test set
-rand_for_4_var_test_predictions <- stats::predict(object = rand_for_4_var, newdata = orig_test, type = 'class', na.action = na.pass)
-
-## Build Confusion Matrices and print them
-### Train set
-rand_for_4_var_train_cm <- caret::confusionMatrix(data = rand_for_4_var_train_predictions, reference = orig_train_smote$class_resid)
-
-rand_for_4_var_train_cm
-### Test set
-rand_for_4_var_test_cm <- caret::confusionMatrix(data = rand_for_4_var_test_predictions, reference = orig_test$class_resid)
-
-rand_for_4_var_test_cm
-```
 
 ### Regression
 
 ```{r ctree_big_4_variable_tree_regr, echo=TRUE}
 
 # Build the tree
-ctree_big_4_var_tree_regr <- partykit::ctree(formula = SST.resid.SMB ~ td_resid + x2 + sec_satz + sd11,
+ctree_big_4_var_tree_regr <- partykit::ctree(formula = SST.resid.SMB ~ td_resid + x2 + sec_satz + sd11 + lat + month,
                                  data = orig_train,
                                  minbucket = 82,
                                  maxdepth = 7,
@@ -904,16 +547,6 @@ ggplot2::ggplot(data = node_predictions_ctree) +
 ## Cubist
 
 ```{r Cubist, echo=TRUE}
-orig_train <- dplyr::tbl_df(orig_train) %>%
-  dplyr::filter(!is.na(td_resid))
-
-orig_train <- as.data.frame(orig_train)
-
-orig_train$buoy.timedate <- orig_timedate[index]
-orig_test$buoy.timedate <- orig_timedate[-index]
-
-orig_train$month <- lubridate::month(as.POSIXct(orig_train$buoy.timedate))
-orig_test$month <- lubridate::month(as.POSIXct(orig_test$buoy.timedate))
 
 Cubist_rules <- Cubist::cubist(x = orig_train[, c('td_resid', 'x2', 'sec_satz', 'sd11', 'lat', 'month')], y = orig_train$SST.resid.SMB,
                            committees = 1,
@@ -969,7 +602,7 @@ ggplot2::ggplot(data = yyy, aes(X, Y, fill = cut(..count.., c(0, 10, 25, 50, 100
 
 ```
 
-```{r evaluate_M5P_regression_statistically, echo=TRUE}
+```{r evaluate_Cubist_regression_statistically, echo=TRUE}
 
 window <- .2
 
@@ -988,7 +621,7 @@ IQR(Cubist_rules_residuals_test)
 
 ```
 
-```{r evaluate_M5P_regression_statistically_plot, echo=TRUE}
+```{r evaluate_Cubist_regression_statistically_plot, echo=TRUE}
 windows <- seq(from = 0, to = 1.0, by = .05)
 
 prob_in_window <- windows
