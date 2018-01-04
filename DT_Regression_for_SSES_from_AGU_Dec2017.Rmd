@@ -25,23 +25,10 @@ require(RColorBrewer)
 require(circular)
 require(ggmap)
 require(raster)
-require(sfsmisc)
 require(rasterVis)
-require(rgdal)
-require(rpart)
-require(rpart.plot)
 require(caret)
-require(evtree)
 require(partykit)
 require(randomForest)
-require(RWeka)
-require(DMwR)
-require(wesanderson)
-require(C50)
-require(gbm)
-require(MASS)
-require(reshape2)
-require(directlabels)
 
 ggplot <- function(...) {ggplot2::ggplot(...) + theme_bw()}
 
@@ -83,6 +70,7 @@ rm(linux_dir, linux_file, AQUA_file)
 rm(MODIS_Aqua_GSFC_ALL_Class_6.4.1_ao_2017_04_12)
 
 set.seed(42)
+filtered <- FALSE
 ```
 
 The matchup file read in at a previous step is not filtered and contains too many variables. For the purpose of 
@@ -125,6 +113,39 @@ orig <- dplyr::tbl_df(AQUA) %>%
     qsst, buoy.sst, cell5deg, buoy.timedate, SST.resid.SMB)
 
 ```
+
+
+```{r}
+cutoff <- Inf
+
+orig_out <- dplyr::tbl_df(orig) %>%
+  dplyr::filter(SST.resid.SMB > cutoff)
+    
+orig <- dplyr::tbl_df(orig) %>%
+  dplyr::filter(SST.resid.SMB <= cutoff)
+
+orig <- as.data.frame(orig)
+cutoff_filtered <- cutoff
+
+```
+
+```{r}
+cutoff <- Inf
+
+if (cutoff_filtered != cutoff) {
+  orig_whole <- rbind(orig, orig_out)
+  
+  orig_out <- dplyr::tbl_df(orig) %>%
+    dplyr::filter(SST.resid.SMB > cutoff)
+  
+  orig <- dplyr::tbl_df(orig_whole) %>%
+    dplyr::filter(SST.resid.SMB <= cutoff)
+  
+  cutoff_filtered <- cutoff
+}
+
+```
+
 
 # SST and Residuals
 
@@ -184,14 +205,14 @@ a distinct loss of linearity at high SSTs.
 temp_deficit_est <- orig$ref_SST - orig$T_11
 temp_deficit <- orig$buoy.sst - orig$T_11
 
-uuu <- data.frame(resid_context = as.factor(resid_context), temp_deficit_est = temp_deficit_est, product = (orig$band.diff * orig$ref_SST),
+uuu <- data.frame(temp_deficit_est = temp_deficit_est, product = (orig$band.diff * orig$ref_SST),
                   temp_deficit = temp_deficit,
                   SST.resid.SMB = orig$SST.resid.SMB)
 
 # Take a sample of uuu bc loess requires lots of memory - for testing purposes
 set.seed(42)
-#index <- sample(1:nrow(uuu), 50000, replace = FALSE)
-#uuu <- uuu[index, ]
+index <- sample(1:nrow(uuu), 50000, replace = FALSE)
+uuu <- uuu[index, ]
 
 # --- Create a raster object with 5-degree pixels
 
@@ -222,6 +243,7 @@ cell5deg <- raster::rasterize(pts, grid5deg, SST.resid.SMB, fun = count_resids)
 
 ccc <- RColorBrewer::brewer.pal(n = 9, 'YlOrRd')
 ccc <- ccc[3:9]
+ccc <- colorRampPalette(ccc)(8)
 
 breaks <- c(0, 50, 100, 250, 500, 1000, 2500, 5000, Inf)
 breaks <- breaks * 20
@@ -245,8 +267,8 @@ rasterVis::gplot(cell5deg) +
   labs(x = '(T_11 - T_12) * Reference SST', y = 'Temperature Deficit', fill = '# of Retrievals') +
   coord_fixed(ratio = 2.4) +
   xlim(-2, 122) +
-  ylim(-.1, 22) + 
-  ggsave('x2_vs_TD_loess_and_linear.svg', device = 'svg', width = 8, height = 6, units = 'in')
+  ylim(-.1, 22)
+  #ggsave('x2_vs_TD_loess_and_linear.svg', device = 'svg', width = 8, height = 6, units = 'in')
 ```
 
 At lower SSTs, there is a strong linear correlation between the product and the temperature deficit,
@@ -266,7 +288,7 @@ with good and bad residual ranges.
 temp_deficit_est <- orig$ref_SST - orig$T_11
 temp_deficit <- orig$buoy.sst - orig$T_11
 
-uuu <- data.frame(resid_context = as.factor(resid_context), temp_deficit_est = temp_deficit_est, product = (orig$band.diff * orig$ref_SST),
+uuu <- data.frame(temp_deficit_est = temp_deficit_est, product = (orig$band.diff * orig$ref_SST),
                   temp_deficit = temp_deficit,
                   x3 = orig$x3,
                   sec_satz = secant.deg(orig$satz),
@@ -327,7 +349,7 @@ palette_count_good <- c(blues_palette, '#f0f0f0', '#f0f0f0', reds_palette)
 palette_count_good <- rev(palette_count_good)
 
 
-breaks_med <- c(-Inf, -6, -5.5, -5, -4.5, -4, -3.5, -3, -2.5, -2, -1.5, -1, -0.5, 0, 0.4)
+breaks_med <- c(-Inf, -6, -5.5, -5, -4.5, -4, -3.5, -3, -2.5, -2, -1.5, -1, -0.5, 0, 0.5, 1, 1.5, Inf)
 
 palette_med <- RColorBrewer::brewer.pal(n = 9, 'YlOrRd')
 palette_med <- palette_med[3:9]
@@ -341,8 +363,8 @@ rasterVis::gplot(cell5deg) +
   labs(x = '(T_11 - T_12) * Reference SST', y = 'Temperature Deficit', fill = 'Median Residuals') +
   coord_fixed(ratio = 2.4) +
   xlim(-2, 122) +
-  ylim(-.1, 22) +
-  ggsave('x2_vs_TD_raster_median.svg', device = 'svg', width = 8, height = 6, units = 'in')
+  ylim(-.1, 22)
+  #ggsave('x2_vs_TD_raster_median.svg', device = 'svg', width = 8, height = 6, units = 'in')
 ```
 
 
@@ -353,7 +375,7 @@ rasterVis::gplot(cell5deg) +
 temp_deficit_est <- orig$ref_SST - orig$T_11
 temp_deficit <- orig$buoy.sst - orig$T_11
 
-uuu <- data.frame(resid_context = as.factor(resid_context), temp_deficit_est = temp_deficit_est, product = (orig$band.diff * orig$ref_SST),
+uuu <- data.frame(temp_deficit_est = temp_deficit_est, product = (orig$band.diff * orig$ref_SST),
                   temp_deficit = temp_deficit,
                   x3 = orig$x3,
                   sec_satz = secant.deg(orig$satz),
@@ -389,17 +411,6 @@ raster::xyFromCell(object =  grid5deg, cell = 800, spatial = FALSE)
 pts <- data.frame(product = uuu$product, temp_deficit = uuu$temp_deficit)
 SST.resid.SMB <- uuu$SST.resid.SMB
 
-count_good_residuals <- function(residuals, ...) {
-  #if (length(residuals) < 82) {
-  #  return(-Inf)
-  #}
-  resid_cats <- cut(residuals, c(-Inf, -0.4, 0.4))
-  N_resid_bad_low <- table(resid_cats)[1]
-  N_resid_good <- table(resid_cats)[2]
-  fraction_good <- N_resid_good / (N_resid_bad_low + N_resid_good)
-  return(fraction_good)
-}
-
 cell5deg <- raster::rasterize(pts, grid5deg, SST.resid.SMB, fun = IQR) # fun can be median, IQR, or count_good_residuals
 
 breaks_IQR <- c(seq(from = 0, to = 1.5, by = 0.1), Inf)
@@ -407,7 +418,6 @@ breaks_IQR <- c(seq(from = 0, to = 1.5, by = 0.1), Inf)
 palette_IQR <- RColorBrewer::brewer.pal(n = 9, 'YlOrRd')
 palette_IQR <- palette_IQR[3:9]
 palette_IQR <- colorRampPalette(palette_IQR)(length(breaks_IQR) - 1)
-palette_IQR <- rev(palette_IQR)
 
 rasterVis::gplot(cell5deg) + 
   ggplot2::geom_raster(aes(fill = (cut(value, breaks_IQR)))) +
@@ -416,8 +426,8 @@ rasterVis::gplot(cell5deg) +
   labs(x = '(T_11 - T_12) * Reference SST', y = 'Temperature Deficit', fill = 'Median Residuals') +
   coord_fixed(ratio = 2.4) +
   xlim(-2, 122) +
-  ylim(-.1, 22) +
-  ggsave('x2_vs_TD_raster_IQR.svg', device = 'svg', width = 8, height = 6, units = 'in')
+  ylim(-.1, 22)
+  #ggsave('x2_vs_TD_raster_IQR.svg', device = 'svg', width = 8, height = 6, units = 'in')
 ```
 
 
@@ -435,7 +445,11 @@ the machine learning model. We create estimates of the temperature deficit using
 minus T_11 (T_12).
 
 ```{r create_additional_variables, echo=TRUE}
-orig$month <- lubridate::month(as.POSIXct(orig_train$buoy.timedate))
+# Month
+orig$month <- lubridate::month(as.POSIXct(orig$buoy.timedate))
+
+# Secant of the satz
+orig$sec_satz <- secant.deg(orig$satz)
 
 # Temperature Deficit Estimate
 orig$ref_SST_minus_T_11 <- orig$ref_SST - orig$T_11
@@ -449,8 +463,6 @@ orig$td_resid <- orig$ref_SST_minus_T_11 - predict(td_loess, newdata = orig$x2)
 orig <- dplyr::tbl_df(orig) %>%
   dplyr::filter(!is.na(td_resid))
 
-# Secant of the satz
-orig$sec_satz <- secant.deg(orig$satz)
 
 orig <- as.data.frame(orig)
 
@@ -550,9 +562,9 @@ ggplot2::ggplot(data = node_predictions_ctree) +
 
 Cubist_rules <- Cubist::cubist(x = orig_train[, c('td_resid', 'x2', 'sec_satz', 'sd11', 'lat', 'month')], y = orig_train$SST.resid.SMB,
                            committees = 1,
-                           control = Cubist::cubistControl(rules = 170)) # 46 rules without latitude and month to not exceed minsplit rules used above
+                           control = Cubist::cubistControl(rules = 130)) # 46 rules without latitude and month to not exceed minsplit rules used above
 
-capture.output(summary(Cubist_rules), file = 'M5P_tree_rules_and_stats_rules=170_with_lat_and_month.txt')
+capture.output(summary(Cubist_rules), file = 'Cubist_rules_and_stats_rules=130_with_lat_and_month.txt')
 
 dotplot(Cubist_rules, what = 'splits')
 dotplot(Cubist_rules, what = 'coefs')
@@ -599,6 +611,8 @@ ggplot2::ggplot(data = yyy, aes(X, Y, fill = cut(..count.., c(0, 10, 25, 50, 100
   geom_abline(slope = 1, intercept = 0, color = 'black') +
   labs(x = 'Actual Residual', y = 'Predicted Residual from the Cubist Decision Tree Regression Algorithm')
   #ggsave('Cubist_predictions_vs_actual_residual_2d_histogram.pdf', device = 'pdf', width = 8, height = 6, units = 'in')
+
+residual_fit <- lm(Y ~ X, data = yyy)
 
 ```
 
@@ -679,59 +693,4 @@ ggplot2::ggplot() +
 
 ```
 
-## MOB
-
-```{r fit_MOB_tree, echo=TRUE}
-
-regression_fcn <- function()
-
-
-MOB_tree <- partykit::lmtree(formula = SST.resid.SMB ~ td_resid + x2 + sec_satz + lat + month | td_resid + x2 + sec_satz + lat + month,
-                          data = orig_train, maxdepth = 2)
-
-plot(MOB_tree)
-
-# Evaluate the tree
-## Use the tree to predict
-### Train set
-
-MOB_tree_train_vals <- stats::predict(object = MOB_tree, newdata = orig_train, na.action = na.pass)
-
-### Test set
-MOB_tree_test_vals <- stats::predict(object = MOB_tree, newdata = orig_test, na.action = na.pass)
-
-### Train set
-rmse_train_MOB <- caret::RMSE(MOB_tree_train_vals, orig_train$SST.resid.SMB)
-rmse_train_MOB
-cor(MOB_tree_train_vals, orig_train$SST.resid.SMB)
-
-### Test set
-rmse_test_MOB <- caret::RMSE(MOB_tree_test_vals, orig_test$SST.resid.SMB)
-rmse_test_MOB
-cor(MOB_tree_test_vals, orig_test$SST.resid.SMB)
-
-ggplot2::ggplot() +
-  geom_point(aes(x = MOB_tree_test_vals, orig_test$SST.resid.SMB), pch = '.') +
-  geom_abline(slope = 1, intercept = 0, color = 'tomato') +
-  labs(x = 'Predicted Residual from the MOB Decision Tree Regression Algorithm', y = 'Actual Residual')
-  #ggsave('M5P_predictions_vs_actual_residual.svg', device = 'svg', width = 8, height = 6, units = 'in')
-
-
-
-ccc <- RColorBrewer::brewer.pal(n = 9, 'YlOrRd')
-ccc <- ccc[3:9]
-breaks <- c(0, 10, 25, 50, 100, 500, 1000, 2500, 5000, 10000, Inf)
-
-yyy <- data.frame(Y = MOB_tree_test_vals, X = orig_test$SST.resid.SMB)
-
-ccc <- colorRampPalette(ccc)(length(breaks) - 1)
-
-ggplot2::ggplot(data = yyy, aes(X, Y, fill = cut(..count.., c(0, 10, 25, 50, 100, 500, 1000, 2500, 5000, 10000, Inf)))) +
-  geom_bin2d(bins = 75) +
-  scale_fill_manual(values = ccc, '# of Retrievals') +
-  geom_abline(slope = 1, intercept = 0, color = 'black') +
-  labs(x = 'Actual Residual', y = 'Predicted Residual from the MOB Decision Tree Regression Algorithm')
-  #ggsave('Cubist_predictions_vs_actual_residual_2d_histogram.pdf', device = 'pdf', width = 8, height = 6, units = 'in')
-
-```
 
