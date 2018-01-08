@@ -687,11 +687,11 @@ for (N in 1:nrow(ctrl_params_performance)) {
     N_correction_neighbors <- 9 # Must be between 0 and 9
     
     uuu <- orig_train
-    index <- sample(1:nrow(uuu), 100000, replace = FALSE)
+    index <- sample(1:nrow(uuu), 50000, replace = FALSE)
     uuu <- uuu[index, ]
     
     zzz <- orig_test
-    index <- sample(1:nrow(zzz), 100000, replace = FALSE)
+    index <- sample(1:nrow(zzz), 50000, replace = FALSE)
     zzz <- zzz[index, ]
     
     ### Train set
