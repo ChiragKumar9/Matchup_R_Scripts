@@ -638,10 +638,10 @@ residual_fit_cubist
 
 ```{r grid_search_for_committees_and_rules, echo = TRUE}
 set.seed(108)
-
-committees <- seq(from = 1, to = 100)
-rules <- seq(from = 1, to = 500)
-ctrl_params_performance <- expand.grid(committees = committees, rules = rules)
+too_small <- FALSE
+committees <- seq(from = 1, to = 25)
+rules <- seq(from = 1, to = 100)
+ctrl_params_performance <- expand.grid(rules = rules, committees = committees)
 ctrl_params_performance$RMSE_train <- rep(NA, nrow(ctrl_params_performance))
 ctrl_params_performance$RMSE_test <- rep(NA, nrow(ctrl_params_performance))
 
@@ -649,7 +649,13 @@ for (N in 1:nrow(ctrl_params_performance)) {
   committees_specific <- ctrl_params_performance[N, 'committees']
   rules_specific <- ctrl_params_performance[N, 'rules']
   
-  Cubist_rules <- Cubist::cubist(x = orig_train[, c('lat', 'month', 'sd11', 'td_resid', 'x2', 'sec_satz')], y = orig_train$SST.resid.SMB,
+  if (rules_specific == 1) {
+    too_small <- FALSE
+  }
+  
+  if (!too_small) {
+   
+    Cubist_rules <- Cubist::cubist(x = orig_train[, c('lat', 'month', 'sd11', 'td_resid', 'x2', 'sec_satz')], y = orig_train$SST.resid.SMB,
                            committees = committees_specific, 
                            control = Cubist::cubistControl(rules = rules_specific,
                                                            unbiased = FALSE,
@@ -657,59 +663,68 @@ for (N in 1:nrow(ctrl_params_performance)) {
                                                            label = 'SST Residual',
                                                            seed = 108))
   
-  file <- paste0('Cubist_Rule_Sets/Cubist_rules=', rules_specific, '_committees=', committees_specific, '_with_lat_and_month.txt')
-  capture.output(summary(Cubist_rules), file = file)
+    file <- paste0('Cubist_Rule_Sets/Cubist_rules=', rules_specific, '_committees=', committees_specific, '_with_lat_and_month.txt')
+    capture.output(summary(Cubist_rules), file = file)
   
-  rule_summary <- summary(Cubist_rules)
+    rule_summary <- summary(Cubist_rules)
   
-  node_sizes <- rep(NA, rules_specific)
-  node_sizes <- as.data.frame(node_sizes)
-  mmm <- strsplit(paste(rule_summary), '\n')
-  mmm <- as.vector(unlist(mmm))
-  counter <- 0
-  for (K in 1:length(mmm)) {
-    line_specific <- mmm[K]
+    node_sizes <- rep(NA, rules_specific)
+    node_sizes <- as.data.frame(node_sizes)
+    mmm <- strsplit(paste(rule_summary), '\n')
+    mmm <- as.vector(unlist(mmm))
+    counter <- 0
+    for (K in 1:length(mmm)) {
+      line_specific <- mmm[K]
     
-    if (substring(line_specific, 1, 7) == "  Rule ") {
-      cases_in_node <- stringr::str_extract(line_specific, '[0-9]+ cases')
-      cases_in_node <- substring(cases_in_node, 1, stringi::stri_length(cases_in_node) - 6)
-      cases_in_node <- as.numeric(cases_in_node)
+      if (substring(line_specific, 1, 7) == "  Rule ") {
+        cases_in_node <- stringr::str_extract(line_specific, '[0-9]+ cases')
+        cases_in_node <- substring(cases_in_node, 1, stringi::stri_length(cases_in_node) - 6)
+        cases_in_node <- as.numeric(cases_in_node)
       
-      node_sizes[counter + 1] <- cases_in_node
-      counter <- counter + 1
+        node_sizes[counter + 1] <- cases_in_node
+        counter <- counter + 1
+      }
+    
     }
+  
+    if (min(node_sizes) >= 100) {
+      # Compute the RMSE on a random sample of data 
+    
+      N_correction_neighbors <- 9 # Must be between 0 and 9
+    
+      uuu <- orig_train
+      index <- sample(1:nrow(uuu), 50000, replace = FALSE)
+      uuu <- uuu[index, ]
+    
+      zzz <- orig_test
+      index <- sample(1:nrow(zzz), 50000, replace = FALSE)
+      zzz <- zzz[index, ]
+    
+      ### Train set
+      Cubist_rules_train_vals <- stats::predict(object = Cubist_rules, newdata = uuu, na.action = na.pass, neighbors = N_correction_neighbors)
+
+      ### Test set
+      Cubist_rules_test_vals <- stats::predict(object = Cubist_rules, newdata = zzz, na.action = na.pass, neighbors = N_correction_neighbors)
+
+      ### Train set
+      RMSE_train_cubist <- caret::RMSE(Cubist_rules_train_vals, uuu$SST.resid.SMB)
+      ctrl_params_performance[N, 'RMSE_train'] <- RMSE_train_cubist
+
+      ### Test set
+      RMSE_test_cubist <- caret::RMSE(Cubist_rules_test_vals, zzz$SST.resid.SMB)
+      ctrl_params_performance[N, 'RMSE_test'] <- RMSE_test_cubist
+    
+      too_small <- FALSE
+    
+      cat('Committees:', committees_specific, 'out of 25; Rules:', rules_specific, 'out of 100; RMSE Test:', RMSE_test_cubist, '\n')
+      
+    } else{
+    
+      too_small <- TRUE
+    } 
     
   }
   
-  if (min(node_sizes) >= 100) {
-    # Compute the RMSE on a random sample of data 
-    
-    N_correction_neighbors <- 9 # Must be between 0 and 9
-    
-    uuu <- orig_train
-    index <- sample(1:nrow(uuu), 50000, replace = FALSE)
-    uuu <- uuu[index, ]
-    
-    zzz <- orig_test
-    index <- sample(1:nrow(zzz), 50000, replace = FALSE)
-    zzz <- zzz[index, ]
-    
-    ### Train set
-    Cubist_rules_train_vals <- stats::predict(object = Cubist_rules, newdata = uuu, na.action = na.pass, neighbors = N_correction_neighbors)
-
-    ### Test set
-    Cubist_rules_test_vals <- stats::predict(object = Cubist_rules, newdata = zzz, na.action = na.pass, neighbors = N_correction_neighbors)
-
-    ### Train set
-    RMSE_train_cubist <- caret::RMSE(Cubist_rules_train_vals, uuu$SST.resid.SMB)
-    ctrl_params_performance[N, 'RMSE_train'] <- RMSE_train_cubist
-
-    ### Test set
-    RMSE_test_cubist <- caret::RMSE(Cubist_rules_test_vals, zzz$SST.resid.SMB)
-    ctrl_params_performance[N, 'RMSE_test'] <- RMSE_test_cubist
-  }
-  
-  cat('Committees:', committees_specific, 'out of 100; Rules:', rules_specific, 'out of 500; RMSE Test:', RMSE_test_cubist, '\n')
 }
 
 ```
