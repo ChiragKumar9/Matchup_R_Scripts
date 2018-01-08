@@ -646,8 +646,8 @@ ctrl_params_performance$RMSE_train <- rep(NA, nrow(ctrl_params_performance))
 ctrl_params_performance$RMSE_test <- rep(NA, nrow(ctrl_params_performance))
 
 for (N in 1:nrow(ctrl_params_performance)) {
-  committees_specific <- committees[N]
-  rules_specific <- rules[N]
+  committees_specific <- ctrl_params_performance[N, 'committees']
+  rules_specific <- ctrl_params_performance[N, 'rules']
   
   Cubist_rules <- Cubist::cubist(x = orig_train[, c('lat', 'month', 'sd11', 'td_resid', 'x2', 'sec_satz')], y = orig_train$SST.resid.SMB,
                            committees = committees_specific, 
