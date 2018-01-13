@@ -31,6 +31,10 @@ require(partykit)
 require(randomForest)
 require(stringr)
 require(stringi)
+require(raster)
+require(sp)
+require(rgdal)
+require(rasterVis)
 
 ggplot <- function(...) {ggplot2::ggplot(...) + theme_bw()}
 
@@ -87,7 +91,7 @@ AQUA$buoy.timedate <- as.character(AQUA$buoy.timedate)
 # Apply basic filtering
 AQUA <- dplyr::tbl_df(AQUA) %>%
   dplyr::filter(solz >= 90) %>%
-  dplyr::filter(qsst == 0 | qsst == 1 | qsst == 2)
+  dplyr::filter(qsst == 0 | qsst == 1 | qsst == 2) # 1130520 Matchups
 
 # Now grab only variables that may be used to determine retrieval accuracy and make some new variables (i.e. x1, x2, x3)
 # Create df of features
@@ -110,9 +114,66 @@ orig <- dplyr::tbl_df(AQUA) %>%
     buoy.sst = buoy.sst,
     cell5deg = cell5deg,
     buoy.timedate = buoy.timedate,
+    cen.sst = cen.sst,
+    pseudo.resid.SMR = cen.sst - cen.ref.type.1.SST,
     SST.resid.SMB = cen.sst - (buoy.sst - 0.17)) %>% # SMB = sat minus buoy - also debias buoy.sst by turning buoy.sst into a skin measurement
   dplyr::select(T_11, T_12, band.diff, ref_SST, x2, x3, satz, lon, lat, sd11, sd12, range11, range12, diff.med.min11, diff.med.min12,
-    qsst, buoy.sst, cell5deg, buoy.timedate, SST.resid.SMB)
+    qsst, buoy.sst, cell5deg, cen.sst, pseudo.resid.SMR, buoy.timedate, SST.resid.SMB)
+
+```
+
+
+```{r median_by_location_raster, echo=TRUE}
+# --- These numbers may help perform statistics for the matchups
+# --- (e.g., number of matchups per cell, etc.).
+
+# --- Create a raster object with 5-degree pixels
+
+crs.string <- "+proj=longlat +datum=WGS84 +no_defs +ellps=WGS84 +towgs84=0,0,0"
+
+grid5deg <- raster::raster(ncol = 72, nrow = 36,
+  xmn = -180, xmx = 180,
+  ymn = -90, ymx = 90,
+  crs = crs.string)
+
+# --- Write cell numbers as value for the grids.
+# --- Cell 1 is the upper left corner and numbers go
+# --- across the top line through its end, then
+# --- start again in the second line, and so forth.
+
+raster::values(grid5deg) <- 1:raster::ncell(grid5deg) # Cell numbers for 5 deg grid
+
+raster::cellFromRowCol(object = grid5deg, rownr = 2, colnr = 72)
+
+raster::xyFromCell(object =  grid5deg, cell = (72 * 36), spatial = FALSE)
+
+qqq <- dplyr::tbl_df(orig) %>%
+  dplyr::group_by(cell5deg) %>%
+  dplyr::summarise(N = n(), med = median(SST.resid.SMB), IQR = IQR(SST.resid.SMB))
+
+qq1 <- rep(NA, (72 * 36))
+qq1[qqq$cell5deg] <- qqq$med
+
+raster::values(grid5deg) <- qq1
+
+blues_palette <- rev(RColorBrewer::brewer.pal(9, 'Blues'))
+#more_blues <- colorRampPalette(blues_palette)(13)
+reds_palette <- RColorBrewer::brewer.pal(9, 'Reds')
+
+# '#f0f0f0' --- white
+
+palette <- c(blues_palette, reds_palette)
+
+p <- rasterVis::levelplot(grid5deg, margin = FALSE,
+  at = c(-Inf, seq(-2, 2, 0.25), Inf), # For med
+  #at = c(1, 500, 1000, 2000, 5000, 10000, 15000, Inf), # For N
+  col.regions = palette)
+
+world.map <- rgdal::readOGR("/home/ckk/Projects/Matchup_R_Scripts", layer = "ne_110m_land", verbose = TRUE)
+
+p <- p + layer(sp.lines(world.map, lwd = .75, fill = 'grey70', col = 'yellow'))
+
+p
 
 ```
 
@@ -121,10 +182,10 @@ orig <- dplyr::tbl_df(AQUA) %>%
 cutoff <- Inf
 
 orig_out <- dplyr::tbl_df(orig) %>%
-  dplyr::filter(SST.resid.SMB > cutoff)
+  dplyr::filter(pseudo.resid.SMR > cutoff)
     
 orig <- dplyr::tbl_df(orig) %>%
-  dplyr::filter(SST.resid.SMB <= cutoff)
+  dplyr::filter(pseudo.resid.SMR <= cutoff)
 
 orig <- as.data.frame(orig)
 cutoff_filtered <- cutoff
@@ -138,10 +199,10 @@ if (cutoff_filtered != cutoff) {
   orig_whole <- rbind(orig, orig_out)
   
   orig_out <- dplyr::tbl_df(orig) %>%
-    dplyr::filter(SST.resid.SMB > cutoff)
+    dplyr::filter(pseudo.resid.SMR > cutoff)
   
   orig <- dplyr::tbl_df(orig_whole) %>%
-    dplyr::filter(SST.resid.SMB <= cutoff)
+    dplyr::filter(pseudo.resid.SMR <= cutoff)
   
   cutoff_filtered <- cutoff
 }
@@ -301,10 +362,6 @@ set.seed(42)
 #index <- sample(1:nrow(uuu), 50000, replace = FALSE)
 #uuu <- uuu[index, ]
 
-# Horizontalize
-td_estimate_fit <- predict(td_loess, newdata = uuu$product)
-uuu$td_fit_error <- uuu$temp_deficit_est - td_estimate_fit
-
 # --- Create a raster object with 5-degree pixels
 
 grid5deg <- raster::raster(ncol = 20, nrow = 20,
@@ -345,11 +402,11 @@ blues_palette <- rev(RColorBrewer::brewer.pal(9, 'Blues'))
 blues_palette <- colorRampPalette(blues_palette)(13)
 
 reds_palette <- RColorBrewer::brewer.pal(9, 'Reds')
-reds_palette <- colorRampPalette(reds_palette)(5)
+reds_palette <- colorRampPalette(reds_palette)(7)
 
 palette_test <- c((blues_palette), (reds_palette))
 
-breaks_med <- c(-Inf, -6, -5.5, -5, -4.5, -4, -3.5, -3, -2.5, -2, -1.5, -1, -0.5, 0, 0.5, 1, 1.5, 2, Inf)
+breaks_med <- c(-Inf, -6, -5.5, -5, -4.5, -4, -3.5, -3, -2.5, -2, -1.5, -1, -0.5, 0, 0.5, 1, 1.5, 2, 2.5, 3, Inf)
 
 palette_med <- RColorBrewer::brewer.pal(n = 9, 'YlOrRd')
 palette_med <- palette_med[3:9]
@@ -386,10 +443,6 @@ uuu <- data.frame(temp_deficit_est = temp_deficit_est, product = (orig$band.diff
 set.seed(42)
 #index <- sample(1:nrow(uuu), 50000, replace = FALSE)
 #uuu <- uuu[index, ]
-
-# Horizontalize
-td_estimate_fit <- predict(td_loess, newdata = uuu$product)
-uuu$td_fit_error <- uuu$temp_deficit_est - td_estimate_fit
 
 # --- Create a raster object with 5-degree pixels
 
@@ -491,7 +544,7 @@ orig_test <- orig[-index, ]
 ```{r ctree_big_4_variable_tree_regr, echo=TRUE}
 
 # Build the tree
-ctree_big_4_var_tree_regr <- partykit::ctree(formula = SST.resid.SMB ~ td_resid + x2 + sec_satz + sd11 + lat + month,
+ctree_big_4_var_tree_regr <- partykit::ctree(formula = SST.resid.SMB ~ td_resid + x2 + satz + sd11 + lat + month + ref_SST,
                                  data = orig_train,
                                  minbucket = 82,
                                  maxdepth = 7,
@@ -569,16 +622,16 @@ set.seed(108)
 index <- sample(1:nrow(uuu), 50000, replace = FALSE)
 uuu <- uuu[index, ]
 
-Cubist_rules <- Cubist::cubist(x = orig_train[, c('lat', 'month', 'sd11', 'td_resid', 'x2', 'sec_satz')], y = orig_train$SST.resid.SMB,
-                           committees = 5,
+Cubist_rules <- Cubist::cubist(x = orig_train[, c('lat', 'month', 'sd11', 'td_resid', 'x2', 'satz', 'ref_SST')], y = orig_train$SST.resid.SMB,
+                           committees = 1,
                            # Full data set: __ rules (no lat or month), 55 rules (both lat and month) 
-                           control = Cubist::cubistControl(rules = 44,
+                           control = Cubist::cubistControl(rules = 40,
                                                            unbiased = FALSE,
                                                            extrapolation = 100,
                                                            label = 'SST Residual',
                                                            seed = 108))
 
-capture.output(summary(Cubist_rules), file = 'Cubist_rules=44_committees=5_with_lat_and_month.txt')
+capture.output(summary(Cubist_rules), file = 'Cubist_rules=40_committees=1_with_lat_and_month.txt')
 
 dotplot(Cubist_rules, what = 'splits')
 dotplot(Cubist_rules, what = 'coefs')
@@ -586,7 +639,7 @@ dotplot(Cubist_rules, what = 'coefs')
 # Evaluate the tree
 ## Use the tree to predict
 ### Train set
-N_correction_neighbors <- 9 # Must be between 0 and 9
+N_correction_neighbors <- 8 # Must be between 0 and 9
 
 Cubist_rules_train_vals <- stats::predict(object = Cubist_rules, newdata = orig_train, na.action = na.pass, neighbors = N_correction_neighbors)
 
@@ -599,6 +652,8 @@ RMSE_train_cubist <- caret::RMSE(Cubist_rules_train_vals, orig_train$SST.resid.S
 RMSE_train_cubist
 MAE_train_cubist <- mean(abs(Cubist_rules_train_vals - orig_train$SST.resid.SMB))
 MAE_train_cubist
+IQR(Cubist_rules_train_vals - orig_train$SST.resid.SMB)
+median(Cubist_rules_train_vals - orig_train$SST.resid.SMB)
 cor(Cubist_rules_train_vals, orig_train$SST.resid.SMB)
 
 ### Test set
@@ -606,6 +661,8 @@ RMSE_test_cubist <- caret::RMSE(Cubist_rules_test_vals, orig_test$SST.resid.SMB)
 RMSE_test_cubist
 MAE_test_cubist <- mean(abs(Cubist_rules_test_vals - orig_test$SST.resid.SMB))
 MAE_test_cubist
+IQR(Cubist_rules_test_vals - orig_test$SST.resid.SMB)
+median(Cubist_rules_test_vals - orig_test$SST.resid.SMB)
 cor(Cubist_rules_test_vals, orig_test$SST.resid.SMB)
 
 ggplot2::ggplot() +
@@ -628,7 +685,7 @@ ggplot2::ggplot(data = yyy, aes(X, Y, fill = cut(..count.., c(0, 10, 25, 50, 100
   geom_bin2d(bins = 75) +
   scale_fill_manual(values = ccc, '# of Retrievals') +
   geom_abline(slope = 1, intercept = 0, color = 'black') +
-  labs(x = 'Actual Residual', y = 'Predicted Residual from the Cubist Decision Tree Regression Algorithm')
+  labs(x = 'Actual Residual', y = 'Predicted Residual')
   #ggsave('Cubist_predictions_vs_actual_residual_2d_histogram.pdf', device = 'pdf', width = 8, height = 6, units = 'in')
 
 residual_fit_cubist <- lm(Y ~ X, data = yyy)
@@ -639,7 +696,7 @@ residual_fit_cubist
 ```{r grid_search_for_committees_and_rules, echo = TRUE}
 set.seed(108)
 too_small <- FALSE
-committees <- seq(from = 1, to = 25)
+committees <- seq(from = 1, to = 2)
 rules <- seq(from = 1, to = 100)
 ctrl_params_performance <- expand.grid(rules = rules, committees = committees)
 ctrl_params_performance$RMSE_train <- rep(NA, nrow(ctrl_params_performance))
@@ -655,7 +712,7 @@ for (N in 1:nrow(ctrl_params_performance)) {
   
   if (!too_small) {
    
-    Cubist_rules <- Cubist::cubist(x = orig_train[, c('lat', 'month', 'sd11', 'td_resid', 'x2', 'sec_satz')], y = orig_train$SST.resid.SMB,
+    Cubist_rules <- Cubist::cubist(x = orig_train[, c('lat', 'month', 'sd11', 'td_resid', 'x2', 'satz', 'ref_SST')], y = orig_train$SST.resid.SMB,
                            committees = committees_specific, 
                            control = Cubist::cubistControl(rules = rules_specific,
                                                            unbiased = FALSE,
@@ -716,11 +773,14 @@ for (N in 1:nrow(ctrl_params_performance)) {
     
       too_small <- FALSE
     
-      cat('Committees:', committees_specific, 'out of 25; Rules:', rules_specific, 'out of 100; RMSE Test:', RMSE_test_cubist, '\n')
+      cat('Committees:', committees_specific, 'out of 2; Rules:', rules_specific, 'out of 100; RMSE Test:', RMSE_test_cubist, '\n')
+      
+      rm(Cubist_rules)
+      gc()
       
     } else{
     
-      too_small <- TRUE
+      too_small <- FALSE
     } 
     
   }
@@ -728,26 +788,6 @@ for (N in 1:nrow(ctrl_params_performance)) {
 }
 
 ```
-
-
-
-```{r expand_grid_to_find_best_neighbors, echo = TRUE}
-cb_grid <- expand.grid(committees = c(1), neighbors = c(1:9))
-
-set.seed(42)
-
-cb_tune_train <- caret::train(x = orig_train[, c('lat', 'month', 'sd11', 'td_resid', 'x2', 'sec_satz')], y = orig_train$SST.resid.SMB,
-                              method = 'cubist',
-                              tuneGrid = cb_grid,
-                              trcontrol = trainControl(method = 'repeatedcv', repeats = 5))
-
-ggplot(cb_tune_train)
-
-
-```
-
-
-
 
 ```{r evaluate_Cubist_regression_statistically, echo=TRUE}
 
@@ -769,7 +809,7 @@ IQR(Cubist_rules_residuals_test)
 ```
 
 ```{r evaluate_Cubist_regression_statistically_plot, echo=TRUE}
-windows <- seq(from = 0, to = 1.0, by = .05)
+windows <- seq(from = 0, to = 1.0, by = .01)
 
 prob_in_window <- windows
 
@@ -787,42 +827,43 @@ ggplot2::ggplot() +
   geom_point(aes(x = windows, y = prob_in_window)) +
   xlim(0, 1.0) +
   ylim(0, 100) +
-  labs(x = 'Plus/Minus Interval', y = '% Retrievals with abs(Predicted - Actual Residual) < Interval') +
-  ggsave('M5P_predictions_within_interval.svg', device = 'svg', width = 8, height = 6, units = 'in')
+  labs(x = 'Plus/Minus Interval', y = '% Retrievals with abs(Predicted - Actual Residual) < Interval')
+  #ggsave('M5P_predictions_within_interval.svg', device = 'svg', width = 8, height = 6, units = 'in')
 
 ```
 
 
 ```{r rule_distribution_Cubist, echo=TRUE}
+# Join train and test for rule assignments
+orig_b <- rbind(orig_train, orig_test)
 
-# Rules for tree without latitude and seasonality
-# Rule 1:
-rule1 <- dplyr::tbl_df(orig_train) %>%
-  dplyr::filter(td_resid > 1.013252) %>%
-  dplyr::filter(x2 <= 21.7106) %>%
-  dplyr::filter(sec_satz <= 1.536021) %>%
-  dplyr::filter(sd11 <= 0.1656)
+# Create empty columns for rule assignments
+orig_b$rule_numb <- rep(NA, nrow(orig_b))
 
-ggplot2::ggplot() +
-  geom_histogram(data = rule1, aes(SST.resid.SMB), bins = 20) +
-  xlim(-7, 0.5) +
-  labs(x = 'SST Residual', y = 'N of Retrievals') +
-  ggsave('Cubist_residual_distribution_rule_1.pdf', device = 'pdf', width = 8, height = 6, units = 'in')
+# Rule 1
+orig_b$rule_numb[orig_b$td_resid > 0.5109711 & orig_b$satz > -0.2305 & orig_b$satz <= 49.0389 & orig_b$ref_SST > 24.63] <- 1
+
+# Rule 2
+orig_b$rule_numb[orig_b$rule_numb <- NA & orig_b$td_resid > 0.5109711 & orig_b$satz > -45.5 & orig_b$satz <= -0.2305 & orig_b$ref_SST > 24.61] <- 2
+
+# Rule 3
+orig_b$rule_numb[orig_b$rule_numb <- NA & orig_b$td_resid > 0.5109711 & orig_b$satz > -45.5 & orig_b$satz <= -0.2305 & orig_b$ref_SST <= 24.61] <- 3
+
+# Rule 4
+orig_b$rule_numb[orig_b$rule_numb <- NA & orig_b$td_resid > 0.5109711 & orig_b$satz > -0.2305 & orig_b$satz <= 49.0389 & orig_b$ref_SST <= 24.63] <- 4
+
+# Rule 5
+orig_b$rule_numb[orig_b$rule_numb <- NA & orig_b$lat <= 22.77 & orig_b$td_resid > 0.5109711 & orig_b$x2 <= 45.23094 & satz > 49.0389 & orig_b$ref_SST > 24.9] <- 5
+
+# Rule 6
+orig_b$rule_numb[orig_b$rule_numb <- NA & orig_b$td_resid > -0.6436465 & orig_b$x2 <= 58.57362 & orib_b$satz > 1.9999 & orig_b$satz <= 40.15 & orig_b$ref_SST > 24.74] <- 6
+
+# Rule 7
 
 
-
-rule2 <- dplyr::tbl_df(orig_train) %>%
-  dplyr::filter(td_resid > 0.4383563) %>%
-  dplyr::filter(x2 > 21.7106) %>%
-  dplyr::filter(x2 <= 53.802) %>%
-  dplyr::filter(sec_satz <= 1.536021) %>%
-  dplyr::filter(sd11 > 0.1108)
-
-ggplot2::ggplot() +
-  geom_histogram(data = rule2, aes(SST.resid.SMB), bins = 20) +
-  xlim(-7, 0.5) +
-  labs(x = 'SST Residual', y = 'N of Retrievals') +
-  ggsave('Cubist_residual_distribution_rule_2.pdf', device = 'pdf', width = 8, height = 6, units = 'in')
+# Break back into train and test again
+orig_train <- orig_b[1:nrow(orig_train), ]
+orig_test <- orig_b[(nrow(orig_train) + 1):nrow(orig_test), ]
 
 ```
 
