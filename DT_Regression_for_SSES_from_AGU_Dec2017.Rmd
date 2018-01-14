@@ -856,15 +856,173 @@ orig_b$rule_numb[orig_b$rule_numb <- NA & orig_b$td_resid > 0.5109711 & orig_b$s
 orig_b$rule_numb[orig_b$rule_numb <- NA & orig_b$lat <= 22.77 & orig_b$td_resid > 0.5109711 & orig_b$x2 <= 45.23094 & satz > 49.0389 & orig_b$ref_SST > 24.9] <- 5
 
 # Rule 6
-orig_b$rule_numb[orig_b$rule_numb <- NA & orig_b$td_resid > -0.6436465 & orig_b$x2 <= 58.57362 & orib_b$satz > 1.9999 & orig_b$satz <= 40.15 & orig_b$ref_SST > 24.74] <- 6
+orig_b$rule_numb[orig_b$rule_numb <- NA & orig_b$td_resid > -0.6436465 & orig_b$x2 <= 58.57362 & orig_b$satz > 1.9999 & orig_b$satz <= 40.15 & orig_b$ref_SST > 24.74] <- 6
 
 # Rule 7
+orig_b$rule_numb[orig_b$rule_numb <- NA & orig_b$sd11 > 0.3425 & orig_b$x2 <= 56.5806 & orig_b$satz > -37.2888 & orig_b$satz <= 1.9999 & orig_b$ref_SST > 24.57] <- 7
 
+# Rule 8
+orig_b$rule_numb[orig_b$rule_numb <- NA & orig_b$lat <= 22.77 & orig_b$td_resid > 0.5109711 & orig_b$x2 <= 16.40869 & orig_b$satz > 49.0389] <- 8
+
+# Rule 9
+orig_b$rule_numb[orig_b$rule_numb <- NA & orig_b$lat > 22.77 & orig_b$td_resid > 0.5109711 & orig_b$x2 <= 23.78199 & orig_b$satz > 49.0389] <- 9
+
+# Rule 10
+orig_b$rule_numb[orig_b$rule_numb <- NA & orig_b$x2 > 56.5806 & orig_b$satz > -37.2888 & orig_b$satz <= 1.9999 & orig_b$ref_SST > 24.57] <- 10
+
+# Rule 11
+orig_b$rule_numb[orig_b$rule_numb <- NA & orig_b$x2 > 58.57362 & orig_b$satz > 1.9999 & orig_b$satz <= 40.15 & orig_b$ref_SST > 24.74] <- 11
+
+# Rule 12
+orig_b$rule_numb[orig_b$rule_numb <- NA & orig_b$lat <= 26.09 & orig_b$x2 <= 49.05643 & orig_b$satz <= -45.5 & orig_b$ref_SST > 24.84] <- 12
+
+# Rule 13
+orig_b$rule_numb[orig_b$rule_numb <- NA & orig_b$lat > 26.09 & orig_b$td_resid > 0.5109711 & orig_b$x2 <= 18.22698 & orig_b$satz <= -45.5] <- 13
+
+# Rule 14
+orig_b$rule_numb[orig_b$rule_numb <- NA & orig_b$lat <= 22.77 & orig_b$sd11 <= 0.0667 & orig_b$td_resid > 0.5109711 & orig_b$satz > 49.0389] <- 14
+
+# Rule 15
+orig_b$rule_numb[orig_b$rule_numb <- NA & orig_b$x2 > 45.23094 & orig_b$satz > 49.0389] <- 15
+
+# Rule 16
+orig_b$rule_numb[orig_b$rule_numb <- NA & orig_b$x2 > 58.58734 & orig_b$satz > 40.15] <- 16
+
+# Rule 17
+orig_b$rule_numb[orig_b$rule_numb <- NA & orig_b$x2 > 49.05643 & orig_b$satz <= -45.5] <- 17
+
+# Rule 18
+orig_b$rule_numb[orig_b$rule_numb <- NA & orig_b$lat > 22.77 & orig_b$x2 > 23.78199 & orig_b$satz > 49.0389] <- 18
+
+# Rule 19
+orig_b$rule_numb[orig_b$rule_numb <- NA & orig_b$lat <= 22.77 & orig_b$x2 > 16.40869 & orig_b$satz > 49.0389 & orig_b$ref_SST <= 24.9] <- 19
+
+# Rule 20
+orig_b$rule_numb[orig_b$rule_numb <- NA & orig_b$x2 <= 58.58734 & orig_b$satz > 40.15 & orig_b$satz <= 53.5194 & orig_b$ref_SST > 24.74] <- 20
+
+# Rule 21
+orig_b$rule_numb[orig_b$rule_numb <- NA & orig_b$lat > 26.09 & orig_b$x2 > 18.22698 & orig_b$satz <= -45.5] <- 21
+
+# Rule 22
+orig_b$rule_numb[orig_b$rule_numb <- NA & orig_b$lat <= 26.09 & orig_b$x2 <= 49.05643 & orig_b$satz <= -45.5 & orig_b$ref_SST <= 24.84] <- 22
+
+# Rule 23
+orig_b$rule_numb[orig_b$rule_numb <- NA & orig_b$lat <= 16.48 & orig_b$sd11 <= 0.3425 & orig_b$td_resid <= 0.5109711 & orig_b$x2 <= 56.5806 & orig_b$satz > -37.2888 & orig_b$satz <= 1.9999 & orig_b$ref_SST > 24.57] <- 23
+
+# Rule 24
+orig_b$rule_numb[orig_b$rule_numb <- NA & orig_b$lat > 16.48 & orig_b$sd11 <= 0.3425 & orig_b$td_resid <= 0.5109711 & orig_b$x2 <= 56.5806 & orig_b$satz > -37.2888 & orig_b$satz <= 1.9999 & orig_b$ref_SST > 24.57] <- 24
+
+# Rule 25
+orig_b$rule_numb[orig_b$rule_numb <- NA & orig_b$sd11 > 0.0842 & orig_b$td_resid <= 0.5109711 & orig_b$satz > 1.9999 & orig_b$satz <= 43.85 & orig_b$ref_SST <= 24.74] <- 25
+
+# Rule 26
+orig_b$rule_numb[orig_b$rule_numb <- NA & orig_b$lat > 19.06 & orig_b$td_resid <= 0.5109711 & orig_b$x2 <= 58.57362 & orig_b$satz > 1.9999 & orig_b$satz <= 40.15 & orig_b$ref_SST > 24.74] <- 26
+
+# Rule 27
+orig_b$rule_numb[orig_b$rule_numb <- NA & orig_b$lat <= 19.06 & orig_b$td_resid <= -0.6436465 & orig_b$x2 <= 58.57362 & orig_b$satz > 1.9999 & orig_b$satz <= 40.15 & orig_b$ref_SST > 24.74] <- 27
+
+# Rule 28
+orig_b$rule_numb[orig_b$rule_numb <- NA & orig_b$lat <= -18.62 & orig_b$td_resid <= 0.5109711 & orig_b$satz <= 1.9999 & orig_b$ref_SST <= 24.57] <- 28
+
+# Rule 29
+orig_b$rule_numb[orig_b$rule_numb <- NA & orig_b$td_resid <= 0.5109711 & orig_b$x2 <= 53.19003 & orig_b$satz <= -37.2888 & orig_b$ref_SST > 24.57] <- 29
+
+# Rule 30
+orig_b$rule_numb[orig_b$rule_numb <- NA & orig_b$td_resid <= 0.5109711 & orig_b$x2 > 53.19003 & orig_b$satz <= -37.2888] <- 30
+
+# Rule 31
+orig_b$rule_numb[orig_b$rule_numb <- NA & orig_b$lat <= -13.19 & orig_b$sd11 <= 0.0842 & orig_b$td_resid <= 0.5109711 & orig_b$satz > 1.9999 & orig_b$satz <= 43.85] <- 31
+
+# Rule 32
+orig_b$rule_numb[orig_b$rule_numb <- NA & orig_b$lat > -18.62 & orig_b$td_resid <= 0.5109711 & orig_b$satz > -50.2305 & orig_b$satz <= 1.9999 & orig_b$ref_SST <= 24.57] <- 32
+
+# Rule 33
+orig_b$rule_numb[orig_b$rule_numb <- NA & orig_b$lat > 22.27 & orig_b$td_resid <= 0.5109711 & orig_b$x2 <= 58.58734 & orig_b$satz > 40.15 & orig_bref_SST > 24.74] <- 33
+
+# Rule 34
+orig_b$rule_numb[orig_b$rule_numb <- NA & orig_b$lat > -13.19 & orig_b$sd11 <= 0.0842 & orig_b$td_resid <= 0.5109711 & orig_b$satz > 1.9999 & orig_b$satz <= 43.85 & orig_b$ref_SST <= 24.74] <- 34
+
+# Rule 35
+orig_b$rule_numb[orig_b$rule_numb <- NA & orig_b$lat <= 32.29 & orig_b$td_resid <= 0.5109711 & orig_b$satz > 43.85 & orig_b$ref_SST <= 24.74] <- 35
+
+# Rule 36
+orig_b$rule_numb[orig_b$rule_numb <- NA & orig_b$td_resid <= 0.5109711 & orig_b$x2 <= 58.58734 & orig_b$satz > 53.5194 & orig_b$ref_SST > 24.74] <- 36
+
+# Rule 37
+orig_b$rule_numb[orig_b$rule_numb <- NA & orig_b$lat > -18.62 & orig_b$lat <= 31.97 & orig_b$td_resid <= 0.5109711 & orig_b$x2 <= 32.9205 & orig_b$satz <= -50.2305] <- 37
+
+# Rule 38
+orig_b$rule_numb[orig_b$rule_numb <- NA & orig_b$lat > 32.29 & orig_b$td_resid <= 0.5109711 & orig_b$satz > 43.85 & orig_b$ref_SST <= 24.74] <- 38
+
+# Rule 39
+orig_b$rule_numb[orig_b$rule_numb <- NA & orig_b$lat > 31.97 & orig_b$td_resid <= 0.5109711 & orig_bx2 <= 32.9205 & orig_b$satz <= -50.2305] <- 39
+
+# Rule 40
+orig_b$rule_numb[orig_b$rule_numb <- NA & orig_b$td_resid <= 0.5109711 & orig_b$x2 > 32.9205 & orig_b$satz <= -50.2305 & orig_b$ref_SST <= 24.57] <- 40
 
 # Break back into train and test again
 orig_train <- orig_b[1:nrow(orig_train), ]
-orig_test <- orig_b[(nrow(orig_train) + 1):nrow(orig_test), ]
+orig_test <- orig_b[(nrow(orig_train) + 1):nrow(orig_b), ]
 
+```
+
+
+
+```{r Cubist_variable_importance, echo=TRUE}
+
+variable_names_long <- c('Except\nResidual Temperature Deficit Estimate',
+                        'Except\nScaled Channel Difference',
+                        'Except\nSatellite Zenith Angle)',
+                        'Except\nSD of T_11',
+                        'Except\nLatitude',
+                        'Except\nMonth',
+                        'Except\nReference SST')
+
+variable_names_abbrev <- c('td_resid',
+                           'x2',
+                           'sec_satz',
+                           'sd11',
+                           'lat',
+                           'month',
+                           'ref_SST')
+
+empty <- c(0, 0, 0, 0, 0, 0, 0)
+RMSE_without <- data.frame(variable_names_long = variable_names_long, variable_names_abbrev = variable_names_abbrev, RMSE = empty)
+
+for (variable_num in 1:nrow(RMSE_without)) {
+  iii <- c(1, 2, 3, 4, 5, 6, 7)
+  iii <- iii[!iii %in% variable_num]
+  variables_temp <- variable_names_abbrev[iii]
+  ppp <- orig_train[, c(variables_temp, 'SST.resid.SMB')]
+  
+  Cubist_var_imp <- Cubist::cubist(x = ppp[, variables_temp], y = ppp$SST.resid.SMB,
+                                   committees = 1, 
+                                   control = Cubist::cubistControl(rules = 40,
+                                                                   unbiased = FALSE,
+                                                                   extrapolation = 100,
+                                                                   label = 'SST Residual',
+                                                                   seed = 108))
+    
+  # Create test set predictions
+  Cubist_predictions_test_temp <- stats::predict(object = Cubist_var_imp, na.action = na.pass, neighbors = 8, newdata = orig_test)
+  
+  # Now compute RMSE
+  RMSE_temp <- caret::RMSE(orig_test$SST.resid.SMB, Cubist_predictions_test_temp)
+  
+  RMSE_without[variable_num, 'RMSE'] <- RMSE_temp
+
+}
+
+# 0.380 is the RMSE on the test set with ALL variables (from above)
+RMSE_without$RMSE_incr <- RMSE_without$RMSE - 0.380
+
+RMSE_without$variable_names_long <- reorder(RMSE_without$variable_names_long, -RMSE_without$RMSE)
+
+ggplot2::ggplot(data = RMSE_without, aes(x = variable_names_long, y = RMSE_incr)) +
+  geom_bar(stat = 'identity') +
+  theme(axis.text.x = element_text(angle = 45, hjust = 0.5, vjust = 0.5)) +
+  labs(x = 'Feature', y = 'Increase in RMSE')
+  #ggsave('variable_importance_RMSE_Cubist.pdf', device = 'pdf', width = 8, height = 6, units = 'in')
 ```
 
 
