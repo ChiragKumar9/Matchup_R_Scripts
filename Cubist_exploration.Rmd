@@ -1,0 +1,109 @@
+---
+title: "Cubist Exploration"
+author: "Chirag Kumar and Guillermo Podesta"
+output:
+  html_notebook:
+    toc: True
+    theme: united
+---
+
+
+```{r prep_workspace, echo=TRUE}
+require(ggplot2)
+require(dplyr)
+require(Cubist)
+require(caret)
+set.seed(108)
+```
+
+
+```{r create_data, echo=TRUE}
+# Create two variables, x1 and x2
+
+x1 <- runif(n = 10000, min = 0, max = 100)
+x2 <- runif(n = 10000, min = 0, max = 100)
+
+ggplot2::ggplot() + geom_histogram(aes(x1))
+ggplot2::ggplot() + geom_histogram(aes(x2))
+
+ggplot2::ggplot() + geom_point(aes(x1, x2), pch = '.')
+```
+
+```{r make_dataframe, echo=TRUE}
+y <- rep(NA, 10000)
+
+Cubist_test <- data.frame(x1 = x1, x2 = x2, y = y)
+
+```
+
+
+```{r rule_set_visualization, echo=TRUE}
+# Rule set 1
+set_1 <- data.frame(x1 = c(0:100), x2 = rep(80, 101))
+
+# Rule set 2
+aaa <- data.frame(x1 = c(0:15), x2 = rep(60, 16))
+bbb <- data.frame(x1 = rep(15, 21), x2 = c(60:80))
+
+set_2 <- rbind(qqq, uuu)
+
+# Rule set 3
+aaa <- data.frame(x1 = rep(15, 31), x2 = c(50:80))
+bbb <- data.frame(x1 = c(15:30), x2 = rep(50, 16))
+ccc <- data.frame(x1 = rep(30, 31), x2 = c(50:80))
+
+set_3 <- rbind(aaa, bbb, ccc)
+
+# Rule set 4
+aaa <- data.frame(x1 = c(30:60), x2 = rep(70, 31))
+bbb <- data.frame(x1 = rep(60, 11), x2 = c(70:80))
+
+set_4 <- rbind(aaa, bbb)
+
+# Rule set 5
+aaa <- data.frame(x1 = c(60:100), x2 = 55 + 0.25 * c(60:100))
+bbb <- data.frame(x1 = rep(60, 11), x2 = c(70:80))
+
+set_5 <- rbind(aaa, bbb)
+
+# Rule set 6
+
+```
+
+
+```{r rule_sets, echo=TRUE}
+# Rule set 1
+Cubist_test$y[x2 > 80] <- 50
+
+# Rule set 2
+x1_temp <- Cubist_test$x1[is.na(y) & x2 > 60 & x1 < 15]
+x2_temp <- Cubist_test$x2[is.na(y) & x2 > 60 & x1 < 15]
+
+Cubist_test$y[is.na(y) & x2 > 60 & x1 < 15] <- x1_temp + x2_temp
+
+# Rule set 3
+x1_temp <- Cubist_test$x1[is.na(y) & x2 > 50 & x1 > 15 & x1 < 30]
+x2_temp <- Cubist_test$x2[is.na(y) & x2 > 50 & x1 > 15 & x1 < 30]
+noise_temp <- rnorm(n = length(Cubist_test$x1[is.na(y) & x2 > 50 & x1 < 30]), mean = 0, sd = 3)
+
+Cubist_test$y[is.na(y) & x2 > 50 & x1 < 30] <- x1_temp + 3 * x2_temp + noise_temp
+
+# Rule set 4
+x1_temp <- Cubist_test$x1[is.na(y) & x2 > 70 & x1 < 60]
+x2_temp <- Cubist_test$x2[is.na(y) & x2 > 70 & x1 < 60]
+noise_temp <- rnorm(n = length(Cubist_test$x1[is.na(y) & x2 > 70 & x1 < 50]), mean = 0, sd = 7)
+
+Cubist_test$y[is.na(y) & x2 > 70 & x1 < 60] <- -5 * x2_temp + noise_temp
+
+# Rule set 5
+x1_temp <- Cubist_test$x1[is.na(y) & x2 > .25*x1 + 55]
+x2_temp <- Cubist_test$x2[is.na(y) & x2 > ]
+noise_temp <- rnorm(n = length(Cubist_test$x1[is.na(y) & x2 > 70 & x1 < 50]), mean = 0, sd = 7)
+
+Cubist_test$y[is.na(y) & x2 > 70 & x1 < 60] <- -5 * x2_temp + noise_temp
+
+
+```
+
+
+
