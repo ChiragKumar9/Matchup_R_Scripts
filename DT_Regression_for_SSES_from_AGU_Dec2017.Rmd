@@ -35,6 +35,9 @@ require(raster)
 require(sp)
 require(rgdal)
 require(rasterVis)
+require(rpart)
+require(rpart.plot)
+require(scales)
 
 ggplot <- function(...) {ggplot2::ggplot(...) + theme_bw()}
 
@@ -75,8 +78,7 @@ if (!file.exists(AQUA_file)) {
 rm(linux_dir, linux_file, AQUA_file)
 rm(MODIS_Aqua_GSFC_ALL_Class_6.4.1_ao_2017_04_12)
 
-set.seed(42)
-filtered <- FALSE
+set.seed(108)
 ```
 
 The matchup file read in at a previous step is not filtered and contains too many variables. For the purpose of 
@@ -157,15 +159,18 @@ qq1[qqq$cell5deg] <- qqq$med
 raster::values(grid5deg) <- qq1
 
 blues_palette <- rev(RColorBrewer::brewer.pal(9, 'Blues'))
-#more_blues <- colorRampPalette(blues_palette)(13)
+blues_palette <- blues_palette[3:9]
+blues_palette <- colorRampPalette(blues_palette)(17)
 reds_palette <- RColorBrewer::brewer.pal(9, 'Reds')
+reds_palette <- reds_palette[3:9]
+reds_palette <- colorRampPalette(reds_palette)(17)
 
 # '#f0f0f0' --- white
 
 palette <- c(blues_palette, reds_palette)
 
 p <- rasterVis::levelplot(grid5deg, margin = FALSE,
-  at = c(-Inf, seq(-2, 2, 0.25), Inf), # For med
+  at = c(-Inf, seq(-4, 4, 0.25), Inf), # For med
   #at = c(1, 500, 1000, 2000, 5000, 10000, 15000, Inf), # For N
   col.regions = palette)
 
@@ -176,6 +181,9 @@ p <- p + layer(sp.lines(world.map, lwd = .75, fill = 'grey70', col = 'yellow'))
 p
 
 ```
+
+
+
 
 
 ```{r}
@@ -273,13 +281,13 @@ uuu <- data.frame(temp_deficit_est = temp_deficit_est, product = (orig$band.diff
                   SST.resid.SMB = orig$SST.resid.SMB)
 
 # Take a sample of uuu bc loess requires lots of memory - for testing purposes
-set.seed(42)
-index <- sample(1:nrow(uuu), 50000, replace = FALSE)
-uuu <- uuu[index, ]
+set.seed(108)
+#index <- sample(1:nrow(uuu), 100000, replace = FALSE)
+#uuu <- uuu[index, ]
 
 # --- Create a raster object with 5-degree pixels
 
-grid5deg <- raster::raster(ncol = 20, nrow = 20,
+grid5deg <- raster::raster(ncol = 50, nrow = 50,
   xmn = min(uuu$product) - 0.1, xmx = max(uuu$product) + 0.1,
   ymn = min(uuu$temp_deficit) - 0.1, ymx = max(uuu$temp_deficit) + 0.1)
   #crs = crs.string)
@@ -291,9 +299,9 @@ grid5deg <- raster::raster(ncol = 20, nrow = 20,
 
 raster::values(grid5deg) <- 1:raster::ncell(grid5deg) # Cell numbers for 5 deg grid
 
-raster::cellFromRowCol(object = grid5deg, rownr = 2, colnr = 20)
+raster::cellFromRowCol(object = grid5deg, rownr = 2, colnr = 50)
 
-raster::xyFromCell(object =  grid5deg, cell = 800, spatial = FALSE)
+raster::xyFromCell(object =  grid5deg, cell = 2500, spatial = FALSE)
 
 pts <- data.frame(product = uuu$product, temp_deficit = uuu$temp_deficit)
 SST.resid.SMB <- uuu$SST.resid.SMB
@@ -306,13 +314,13 @@ cell5deg <- raster::rasterize(pts, grid5deg, SST.resid.SMB, fun = count_resids)
 
 ccc <- RColorBrewer::brewer.pal(n = 9, 'YlOrRd')
 ccc <- ccc[3:9]
-ccc <- colorRampPalette(ccc)(8)
+ccc <- colorRampPalette(ccc)(10)
 
-breaks <- c(0, 50, 100, 250, 500, 1000, 2500, 5000, Inf)
-#breaks <- breaks * 20
+breaks <- c(0, 6.25, 12.5, 25, 50, 100, 250, 500, 1000, Inf)
+breaks <- breaks * 20
 
 # Add loess and linear fits
-Xs <- data.frame(Xs = seq(from = 0, to = 140, by = .3505))
+Xs <- data.frame(Xs = seq(from = 0, to = 140, by = .31115/5.555))
 
 td_lm <- lm(uuu$temp_deficit ~ uuu$product)
 lm_estimates <- td_lm$coefficients[1] + (td_lm$coefficients[2] * Xs)
@@ -324,15 +332,45 @@ loess_estimates <- predict(td_loess, newdata = Xs$Xs)
 rasterVis::gplot(cell5deg) + 
   ggplot2::geom_raster(aes(fill = (cut(value, breaks)))) +
   scale_fill_manual(values = ccc) +
-  geom_line(aes(x = Xs, y = lm_estimates), color = 'green') +
+  geom_line(aes(x = Xs, y = lm_estimates), color = '#008000') +
   geom_line(aes(x = Xs, y = loess_estimates), color = 'blue') +
-  #scale_fill_gradientn(colours = palette) +
-  labs(x = '(T_11 - T_12) * Reference SST', y = 'Temperature Deficit', fill = '# of Retrievals') +
+  labs(x = 'Scaled Channel Difference (deg C)', y = 'Temperature Deficit (deg C)', fill = '# of Retrievals') +
   coord_fixed(ratio = 2.4) +
   xlim(-2, 122) +
-  ylim(-.1, 22)
-  #ggsave('x2_vs_TD_loess_and_linear.svg', device = 'svg', width = 8, height = 6, units = 'in')
+  ylim(-.1, 22) +
+  ggsave('x2_vs_TD_loess_and_linear.pdf', device = 'pdf', width = 8, height = 6, units = 'in') +
+  ggsave('x2_vs_TD_loess_and_linear.png', device = 'png', width = 8, height = 6, units = 'in')
+
+ggplot2::ggplot() +
+  geom_point(pch = '.', data = uuu, aes(product, temp_deficit)) +
+  geom_line(aes(x = Xs, y = lm_estimates), color = 'green') +
+  geom_line(aes(x = Xs, y = loess_estimates), color = 'blue')
 ```
+
+```{r loess_minus_linear_residual_effect, echo = TRUE}
+
+linear_predictions <- td_lm$coefficients[1] + td_lm$coefficients[2] * orig$x2
+loess_predictions <- predict(td_loess, newdata = orig$x2)
+
+difference <- loess_predictions - linear_predictions
+
+www <- data.frame(difference = difference, resid = orig$SST.resid.SMB)
+
+ccc <- RColorBrewer::brewer.pal(n = 9, 'YlOrRd')
+ccc <- ccc[3:9]
+breaks <- c(0, 10, 25, 50, 100, 500, 1000, 2500, 5000, 10000, Inf)
+ccc <- colorRampPalette(ccc)(length(breaks) - 1)
+
+ggplot2::ggplot(www, aes(x = difference, y = resid, fill = cut(..count.., c(0, 10, 25, 50, 100, 500, 1000, 2500, 5000, 10000, Inf)))) +
+  geom_bin2d(bins = 75) +
+  scale_fill_manual(values = ccc) +
+  labs(x = 'Loess - Linear', y = 'Residual', fill = '# of Retrievals') +
+  ggsave('nonlinearity_effect_on_residuals_2d_histogram.pdf', device = 'pdf', width = 8, height = 6, units = 'in')
+
+
+```
+
+
 
 At lower SSTs, there is a strong linear correlation between the product and the temperature deficit,
 indicating that at low SSTs, the NLSST atmospheric correction works very well.
@@ -364,7 +402,7 @@ set.seed(42)
 
 # --- Create a raster object with 5-degree pixels
 
-grid5deg <- raster::raster(ncol = 20, nrow = 20,
+grid5deg <- raster::raster(ncol = 50, nrow = 50,
   xmn = min(uuu$product) - 0.1, xmx = max(uuu$product) + 0.1,
   ymn = min(uuu$temp_deficit) - 0.1, ymx = max(uuu$temp_deficit) + 0.1)
   #crs = crs.string)
@@ -376,53 +414,36 @@ grid5deg <- raster::raster(ncol = 20, nrow = 20,
 
 raster::values(grid5deg) <- 1:raster::ncell(grid5deg) # Cell numbers for 5 deg grid
 
-raster::cellFromRowCol(object = grid5deg, rownr = 2, colnr = 20)
+raster::cellFromRowCol(object = grid5deg, rownr = 2, colnr = 50)
 
-raster::xyFromCell(object =  grid5deg, cell = 800, spatial = FALSE)
+raster::xyFromCell(object =  grid5deg, cell = 2500, spatial = FALSE)
 
 pts <- data.frame(product = uuu$product, temp_deficit = uuu$temp_deficit)
 SST.resid.SMB <- uuu$SST.resid.SMB
 
-count_good_residuals <- function(residuals, ...) {
-  #if (length(residuals) < 82) {
-  #  return(-Inf)
-  #}
-  resid_cats <- cut(residuals, c(-Inf, -0.4, 0.4))
-  N_resid_bad_low <- table(resid_cats)[1]
-  N_resid_good <- table(resid_cats)[2]
-  fraction_good <- N_resid_good / (N_resid_bad_low + N_resid_good)
-  return(fraction_good)
-}
-
 cell5deg <- raster::rasterize(pts, grid5deg, SST.resid.SMB, fun = median) # fun can be median, IQR, or count_good_residuals
 
-breaks_count_good <- seq(from = 0, to = 1, by = 0.1)
-
 blues_palette <- rev(RColorBrewer::brewer.pal(9, 'Blues'))
-blues_palette <- colorRampPalette(blues_palette)(13)
+blues_palette <- colorRampPalette(blues_palette)(11)
 
 reds_palette <- RColorBrewer::brewer.pal(9, 'Reds')
-reds_palette <- colorRampPalette(reds_palette)(7)
+reds_palette <- reds_palette[1:4]
+reds_palette <- colorRampPalette(reds_palette)(5)
 
-palette_test <- c((blues_palette), (reds_palette))
+palette_med <- c((blues_palette), (reds_palette))
 
-breaks_med <- c(-Inf, -6, -5.5, -5, -4.5, -4, -3.5, -3, -2.5, -2, -1.5, -1, -0.5, 0, 0.5, 1, 1.5, 2, 2.5, 3, Inf)
-
-palette_med <- RColorBrewer::brewer.pal(n = 9, 'YlOrRd')
-palette_med <- palette_med[3:9]
-palette_med <- colorRampPalette(palette_med)(length(breaks_med) - 1)
-palette_med <- rev(palette_med)
+breaks_med <- c(-Inf, -5, -4.5, -4, -3.5, -3, -2.5, -2, -1.5, -1, -0.5, 0, 0.5, 1, 1.5, 2, Inf)
 
 rasterVis::gplot(cell5deg) + 
   ggplot2::geom_raster(aes(fill = (cut(value, breaks_med)))) +
-  scale_fill_manual(values = palette_test) +
-  #scale_fill_gradientn(colours = palette) +
-  labs(x = '(T_11 - T_12) * Reference SST', y = 'Temperature Deficit', fill = 'Median Residuals') +
+  scale_fill_manual(values = palette_med) +
+  labs(x = 'Scaled Channel Difference (deg C)', y = 'Temperature Deficit (deg C)', fill = 'Median\nResidual (deg C)') +
   coord_fixed(ratio = 2.4) +
   xlim(-2, 122) +
   ylim(-.1, 22) +
-  theme(legend.key = element_blank(), legend.key.size = unit(12, "point"))
-  #ggsave('x2_vs_TD_raster_median.svg', device = 'svg', width = 8, height = 6, units = 'in')
+  theme(legend.key = element_blank(), legend.key.size = unit(12, "point")) +
+  ggsave('x2_vs_TD_raster_median.pdf', device = 'pdf', width = 8, height = 6, units = 'in') +
+  ggsave('x2_vs_TD_raster_median.png', device = 'png', width = 8, height = 6, units = 'in')
 ```
 
 
@@ -439,14 +460,9 @@ uuu <- data.frame(temp_deficit_est = temp_deficit_est, product = (orig$band.diff
                   sec_satz = secant.deg(orig$satz),
                   SST.resid.SMB = orig$SST.resid.SMB)
 
-# Take a sample of uuu bc loess requires lots of memory - for testing purposes
-set.seed(42)
-#index <- sample(1:nrow(uuu), 50000, replace = FALSE)
-#uuu <- uuu[index, ]
-
 # --- Create a raster object with 5-degree pixels
 
-grid5deg <- raster::raster(ncol = 20, nrow = 20,
+grid5deg <- raster::raster(ncol = 50, nrow = 50,
   xmn = min(uuu$product) - 0.1, xmx = max(uuu$product) + 0.1,
   ymn = min(uuu$temp_deficit) - 0.1, ymx = max(uuu$temp_deficit) + 0.1)
   #crs = crs.string)
@@ -458,16 +474,16 @@ grid5deg <- raster::raster(ncol = 20, nrow = 20,
 
 raster::values(grid5deg) <- 1:raster::ncell(grid5deg) # Cell numbers for 5 deg grid
 
-raster::cellFromRowCol(object = grid5deg, rownr = 2, colnr = 20)
+raster::cellFromRowCol(object = grid5deg, rownr = 2, colnr = 50)
 
-raster::xyFromCell(object =  grid5deg, cell = 800, spatial = FALSE)
+raster::xyFromCell(object =  grid5deg, cell = 2500, spatial = FALSE)
 
 pts <- data.frame(product = uuu$product, temp_deficit = uuu$temp_deficit)
 SST.resid.SMB <- uuu$SST.resid.SMB
 
 cell5deg <- raster::rasterize(pts, grid5deg, SST.resid.SMB, fun = IQR) # fun can be median, IQR, or count_good_residuals
 
-breaks_IQR <- c(seq(from = 0, to = 1.5, by = 0.1), Inf)
+breaks_IQR <- c(seq(from = 0, to = 1.5, by = 0.15), Inf)
 
 palette_IQR <- RColorBrewer::brewer.pal(9, 'Reds')
 #palette_IQR <- palette_IQR[5:9]
@@ -477,12 +493,13 @@ rasterVis::gplot(cell5deg) +
   ggplot2::geom_raster(aes(fill = (cut(value, breaks_IQR)))) +
   scale_fill_manual(values = palette_IQR) +
   #scale_fill_gradientn(colours = palette) +
-  labs(x = '(T_11 - T_12) * Reference SST', y = 'Temperature Deficit', fill = 'IQR of Residuals') +
+  labs(x = 'Scaled Channel Difference (deg C)', y = 'Temperature Deficit (deg C)', fill = 'IQR of\nResiduals (deg C)') +
   coord_fixed(ratio = 2.4) +
   xlim(-2, 122) +
   ylim(-.1, 22) +
-  theme(legend.key = element_blank(), legend.key.size = unit(12, "point"))
-  #ggsave('x2_vs_TD_raster_IQR.svg', device = 'svg', width = 8, height = 6, units = 'in')
+  theme(legend.key = element_blank(), legend.key.size = unit(12, "point")) +
+  ggsave('x2_vs_TD_raster_IQR.pdf', device = 'pdf', width = 8, height = 6, units = 'in') +
+  ggsave('x2_vs_TD_raster_IQR.png', device = 'png', width = 8, height = 6, units = 'in')
 ```
 
 
@@ -616,22 +633,16 @@ ggplot2::ggplot(data = node_predictions_ctree) +
 ## Cubist
 
 ```{r Cubist, echo=TRUE}
+Cubist_rules <- Cubist::cubist(x = orig_train[, c('td_resid', 'x2', 'satz', 'ref_SST', 'lat', 'month', 'sd11')], y = orig_train$SST.resid.SMB,
+                              committees = 1,
+                              # Full data set: __ rules (no lat or month), 55 rules (both lat and month) 
+                              control = Cubist::cubistControl(rules = 28,
+                                                              unbiased = FALSE,
+                                                              extrapolation = 100,
+                                                              label = 'SST Residual',
+                                                              seed = 108))
 
-uuu <- orig_train
-set.seed(108)
-index <- sample(1:nrow(uuu), 50000, replace = FALSE)
-uuu <- uuu[index, ]
-
-Cubist_rules <- Cubist::cubist(x = orig_train[, c('lat', 'month', 'sd11', 'td_resid', 'x2', 'satz', 'ref_SST')], y = orig_train$SST.resid.SMB,
-                           committees = 1,
-                           # Full data set: __ rules (no lat or month), 55 rules (both lat and month) 
-                           control = Cubist::cubistControl(rules = 40,
-                                                           unbiased = FALSE,
-                                                           extrapolation = 100,
-                                                           label = 'SST Residual',
-                                                           seed = 108))
-
-capture.output(summary(Cubist_rules), file = 'Cubist_rules=40_committees=1_with_lat_and_month.txt')
+capture.output(summary(Cubist_rules), file = 'Cubist_rules=28_committees=1_with_lat_and_month.txt')
 
 dotplot(Cubist_rules, what = 'splits')
 dotplot(Cubist_rules, what = 'coefs')
@@ -685,8 +696,9 @@ ggplot2::ggplot(data = yyy, aes(X, Y, fill = cut(..count.., c(0, 10, 25, 50, 100
   geom_bin2d(bins = 75) +
   scale_fill_manual(values = ccc, '# of Retrievals') +
   geom_abline(slope = 1, intercept = 0, color = 'black') +
-  labs(x = 'Actual Residual', y = 'Predicted Residual')
-  #ggsave('Cubist_predictions_vs_actual_residual_2d_histogram.pdf', device = 'pdf', width = 8, height = 6, units = 'in')
+  labs(x = 'Actual Residual (deg C)', y = 'Predicted Residual (deg C)') +
+  ggsave('Cubist_predictions_vs_actual_residual_2d_histogram.pdf', device = 'pdf', width = 8, height = 6, units = 'in') + 
+  ggsave('Cubist_predictions_vs_actual_residual_2d_histogram.png', device = 'png', width = 8, height = 6, units = 'in')
 
 residual_fit_cubist <- lm(Y ~ X, data = yyy)
 residual_fit_cubist
@@ -696,7 +708,7 @@ residual_fit_cubist
 ```{r grid_search_for_committees_and_rules, echo = TRUE}
 set.seed(108)
 too_small <- FALSE
-committees <- seq(from = 1, to = 2)
+committees <- seq(from = 1, to = 1)
 rules <- seq(from = 1, to = 100)
 ctrl_params_performance <- expand.grid(rules = rules, committees = committees)
 ctrl_params_performance$RMSE_train <- rep(NA, nrow(ctrl_params_performance))
@@ -750,11 +762,11 @@ for (N in 1:nrow(ctrl_params_performance)) {
       N_correction_neighbors <- 9 # Must be between 0 and 9
     
       uuu <- orig_train
-      index <- sample(1:nrow(uuu), 50000, replace = FALSE)
+      index <- sample(1:nrow(uuu), 100000, replace = FALSE)
       uuu <- uuu[index, ]
     
       zzz <- orig_test
-      index <- sample(1:nrow(zzz), 50000, replace = FALSE)
+      index <- sample(1:nrow(zzz), 100000, replace = FALSE)
       zzz <- zzz[index, ]
     
       ### Train set
@@ -773,12 +785,12 @@ for (N in 1:nrow(ctrl_params_performance)) {
     
       too_small <- FALSE
     
-      cat('Committees:', committees_specific, 'out of 2; Rules:', rules_specific, 'out of 100; RMSE Test:', RMSE_test_cubist, '\n')
+      cat('Committees:', committees_specific, 'out of 1; Rules:', rules_specific, 'out of 100; RMSE Test:', RMSE_test_cubist, '\n')
       
       rm(Cubist_rules)
       gc()
       
-    } else{
+    } else {
     
       too_small <- FALSE
     } 
@@ -797,7 +809,7 @@ Cubist_rules_residuals_train <- Cubist_rules_train_vals - orig_train$SST.resid.S
 
 table(abs(Cubist_rules_residuals_train) < window)
 prop.table(table(abs(Cubist_rules_residuals_train) < window))
-IQR(M5P_model_residuals_train)
+IQR(Cubist_rules_residuals_train)
 
 
 Cubist_rules_residuals_test <- Cubist_rules_test_vals - orig_test$SST.resid.SMB
@@ -841,124 +853,88 @@ orig_b <- rbind(orig_train, orig_test)
 orig_b$rule_numb <- rep(NA, nrow(orig_b))
 
 # Rule 1
-orig_b$rule_numb[orig_b$td_resid > 0.5109711 & orig_b$satz > -0.2305 & orig_b$satz <= 49.0389 & orig_b$ref_SST > 24.63] <- 1
+orig_b$rule_numb[orig_b$td_resid > 0.5102545 & orig_b$satz > -0.2305 & orig_b$satz <= 48.5194 & orig_b$ref_SST > 24.6] <- 1
 
 # Rule 2
-orig_b$rule_numb[orig_b$rule_numb <- NA & orig_b$td_resid > 0.5109711 & orig_b$satz > -45.5 & orig_b$satz <= -0.2305 & orig_b$ref_SST > 24.61] <- 2
+orig_b$rule_numb[is.na(orig_b$rule_numb) & orig_b$td_resid > 0.5102545 & orig_b$satz > -45.4611 & orig_b$satz <= -0.2305] <- 2
 
 # Rule 3
-orig_b$rule_numb[orig_b$rule_numb <- NA & orig_b$td_resid > 0.5109711 & orig_b$satz > -45.5 & orig_b$satz <= -0.2305 & orig_b$ref_SST <= 24.61] <- 3
+orig_b$rule_numb[is.na(orig_b$rule_numb) & orig_b$td_resid > 0.5102545 & orig_b$satz > -0.2305 & orig_b$satz <= 48.5194 & orig_b$ref_SST <= 24.6] <- 3
 
 # Rule 4
-orig_b$rule_numb[orig_b$rule_numb <- NA & orig_b$td_resid > 0.5109711 & orig_b$satz > -0.2305 & orig_b$satz <= 49.0389 & orig_b$ref_SST <= 24.63] <- 4
+orig_b$rule_numb[is.na(orig_b$rule_numb) & orig_b$td_resid > 0.5102545 & orig_b$x2 <= 45.74037 & orig_b$satz > 48.5194 & orig_b$ref_SST <= 24.93 & orig_b$lat <= 23.03] <- 4
 
 # Rule 5
-orig_b$rule_numb[orig_b$rule_numb <- NA & orig_b$lat <= 22.77 & orig_b$td_resid > 0.5109711 & orig_b$x2 <= 45.23094 & satz > 49.0389 & orig_b$ref_SST > 24.9] <- 5
+orig_b$rule_numb[is.na(orig_b$rule_numb) & orig_b$td_resid > 0.5102545 & orig_b$x2 <= 21.57097 & orig_b$satz > 48.5194 & orig_b$lat > 23.03] <- 5
 
 # Rule 6
-orig_b$rule_numb[orig_b$rule_numb <- NA & orig_b$td_resid > -0.6436465 & orig_b$x2 <= 58.57362 & orig_b$satz > 1.9999 & orig_b$satz <= 40.15 & orig_b$ref_SST > 24.74] <- 6
+orig_b$rule_numb[is.na(orig_b$rule_numb) & orig_b$x2 > 56.21659 & orig_b$satz > -37.75 & orig_b$satz <= 2.561 & orig_b$ref_SST > 24.57] <- 6
 
 # Rule 7
-orig_b$rule_numb[orig_b$rule_numb <- NA & orig_b$sd11 > 0.3425 & orig_b$x2 <= 56.5806 & orig_b$satz > -37.2888 & orig_b$satz <= 1.9999 & orig_b$ref_SST > 24.57] <- 7
+orig_b$rule_numb[is.na(orig_b$rule_numb) & orig_b$x2 <= 49.05643 & orig_b$satz <= -45.4611 & orig_b$ref_SST > 25.2 & orig_b$lat <= 25.99] <- 7
 
 # Rule 8
-orig_b$rule_numb[orig_b$rule_numb <- NA & orig_b$lat <= 22.77 & orig_b$td_resid > 0.5109711 & orig_b$x2 <= 16.40869 & orig_b$satz > 49.0389] <- 8
+orig_b$rule_numb[is.na(orig_b$rule_numb) & orig_b$x2 <= 45.74037 & orig_b$satz > 48.5194 & orig_b$ref_SST > 24.93 & orig_b$lat <= 23.03] <- 8
 
 # Rule 9
-orig_b$rule_numb[orig_b$rule_numb <- NA & orig_b$lat > 22.77 & orig_b$td_resid > 0.5109711 & orig_b$x2 <= 23.78199 & orig_b$satz > 49.0389] <- 9
+orig_b$rule_numb[is.na(orig_b$rule_numb) & orig_b$x2 > 57.63554 & orig_b$satz > 2.561 & orig_b$satz <= 40.15 & orig_b$ref_SST > 24.065] <- 9
 
 # Rule 10
-orig_b$rule_numb[orig_b$rule_numb <- NA & orig_b$x2 > 56.5806 & orig_b$satz > -37.2888 & orig_b$satz <= 1.9999 & orig_b$ref_SST > 24.57] <- 10
+orig_b$rule_numb[is.na(orig_b$rule_numb) & orig_b$td_resid > 0.5102545 & orig_b$x2 <= 18.49491 & orig_b$satz <= -45.4611 & orig_b$lat > 25.99] <- 10
 
 # Rule 11
-orig_b$rule_numb[orig_b$rule_numb <- NA & orig_b$x2 > 58.57362 & orig_b$satz > 1.9999 & orig_b$satz <= 40.15 & orig_b$ref_SST > 24.74] <- 11
+orig_b$rule_numb[is.na(orig_b$rule_numb) & orig_b$x2 > 45.74037 & orig_b$satz > 48.5194] <- 11
 
 # Rule 12
-orig_b$rule_numb[orig_b$rule_numb <- NA & orig_b$lat <= 26.09 & orig_b$x2 <= 49.05643 & orig_b$satz <= -45.5 & orig_b$ref_SST > 24.84] <- 12
+orig_b$rule_numb[is.na(orig_b$rule_numb) & orig_b$x2 > 49.05643 & orig_b$satz <= -45.4611] <- 12
 
 # Rule 13
-orig_b$rule_numb[orig_b$rule_numb <- NA & orig_b$lat > 26.09 & orig_b$td_resid > 0.5109711 & orig_b$x2 <= 18.22698 & orig_b$satz <= -45.5] <- 13
+orig_b$rule_numb[is.na(orig_b$rule_numb) & orig_b$x2 > 21.57097 & orig_b$satz > 48.5194 & orig_b$lat > 23.03] <- 13
 
 # Rule 14
-orig_b$rule_numb[orig_b$rule_numb <- NA & orig_b$lat <= 22.77 & orig_b$sd11 <= 0.0667 & orig_b$td_resid > 0.5109711 & orig_b$satz > 49.0389] <- 14
+orig_b$rule_numb[is.na(orig_b$rule_numb) & orig_b$x2 > 18.49491 & orig_b$satz <= -45.4611 & orig_b$lat > 25.99] <- 14
 
 # Rule 15
-orig_b$rule_numb[orig_b$rule_numb <- NA & orig_b$x2 > 45.23094 & orig_b$satz > 49.0389] <- 15
+orig_b$rule_numb[is.na(orig_b$rule_numb) & orig_b$x2 <= 49.05643 & orig_b$satz <= -45.4611 & orig_b$ref_SST <= 25.2 & orig_b$lat <= 25.99] <- 15
 
 # Rule 16
-orig_b$rule_numb[orig_b$rule_numb <- NA & orig_b$x2 > 58.58734 & orig_b$satz > 40.15] <- 16
+orig_b$rule_numb[is.na(orig_b$rule_numb) & orig_b$td_resid <= 0.5102545 & orig_b$x2 <= 56.21659 & orig_b$satz > -37.75 & orig_b$satz <= 2.561 & orig_b$ref_SST > 24.57] <- 16
 
 # Rule 17
-orig_b$rule_numb[orig_b$rule_numb <- NA & orig_b$x2 > 49.05643 & orig_b$satz <= -45.5] <- 17
+orig_b$rule_numb[is.na(orig_b$rule_numb) & orig_b$td_resid <= 0.5102545 & orig_b$x2 <= 57.63554 & orig_b$satz > 2.561 & orig_b$satz <= 40.15 & orig_b$ref_SST > 24.065] <- 17
 
 # Rule 18
-orig_b$rule_numb[orig_b$rule_numb <- NA & orig_b$lat > 22.77 & orig_b$x2 > 23.78199 & orig_b$satz > 49.0389] <- 18
+orig_b$rule_numb[is.na(orig_b$rule_numb) & orig_b$td_resid <= 0.5102545 & orig_b$x2 <= 58.59198 & orig_b$satz > 40.15 & orig_b$ref_SST > 24.065 & orig_b$lat <= 23.35] <- 18
 
 # Rule 19
-orig_b$rule_numb[orig_b$rule_numb <- NA & orig_b$lat <= 22.77 & orig_b$x2 > 16.40869 & orig_b$satz > 49.0389 & orig_b$ref_SST <= 24.9] <- 19
+orig_b$rule_numb[is.na(orig_b$rule_numb) & orig_b$td_resid <= 0.5102545 & orig_b$satz <= 2.561 & orig_b$ref_SST <= 24.57 & orig_b$lat <= -18.35] <- 19
 
 # Rule 20
-orig_b$rule_numb[orig_b$rule_numb <- NA & orig_b$x2 <= 58.58734 & orig_b$satz > 40.15 & orig_b$satz <= 53.5194 & orig_b$ref_SST > 24.74] <- 20
+orig_b$rule_numb[is.na(orig_b$rule_numb) & orig_b$td_resid <= 0.5102545 & orig_b$x2 <= 55.50642 & orig_b$satz <= -37.75 & orig_b$ref_SST > 24.57] <- 20
 
 # Rule 21
-orig_b$rule_numb[orig_b$rule_numb <- NA & orig_b$lat > 26.09 & orig_b$x2 > 18.22698 & orig_b$satz <= -45.5] <- 21
+orig_b$rule_numb[is.na(orig_b$rule_numb) & orig_b$td_resid <= 0.5102545 & orig_b$satz > 2.561 & orig_b$satz <= 44.3389 & orig_b$ref_SST <= 24.065] <- 21
 
 # Rule 22
-orig_b$rule_numb[orig_b$rule_numb <- NA & orig_b$lat <= 26.09 & orig_b$x2 <= 49.05643 & orig_b$satz <= -45.5 & orig_b$ref_SST <= 24.84] <- 22
+orig_b$rule_numb[is.na(orig_b$rule_numb) & orig_b$td_resid <= 0.5102545 & orig_b$x2 > 58.59198 & orig_b$satz > 40.15] <- 22
 
 # Rule 23
-orig_b$rule_numb[orig_b$rule_numb <- NA & orig_b$lat <= 16.48 & orig_b$sd11 <= 0.3425 & orig_b$td_resid <= 0.5109711 & orig_b$x2 <= 56.5806 & orig_b$satz > -37.2888 & orig_b$satz <= 1.9999 & orig_b$ref_SST > 24.57] <- 23
+orig_b$rule_numb[is.na(orig_b$rule_numb) & orig_b$td_resid <= 0.5102545 & orig_b$x2 > 55.50642 & orig_b$satz <= -37.75] <- 23
 
 # Rule 24
-orig_b$rule_numb[orig_b$rule_numb <- NA & orig_b$lat > 16.48 & orig_b$sd11 <= 0.3425 & orig_b$td_resid <= 0.5109711 & orig_b$x2 <= 56.5806 & orig_b$satz > -37.2888 & orig_b$satz <= 1.9999 & orig_b$ref_SST > 24.57] <- 24
+orig_b$rule_numb[is.na(orig_b$rule_numb) & orig_b$td_resid <= 0.5102545 & orig_b$satz > -45.3389 & orig_b$satz <= 2.561 & orig_b$ref_SST <= 24.57 & orig_b$lat > -18.35] <- 24
 
 # Rule 25
-orig_b$rule_numb[orig_b$rule_numb <- NA & orig_b$sd11 > 0.0842 & orig_b$td_resid <= 0.5109711 & orig_b$satz > 1.9999 & orig_b$satz <= 43.85 & orig_b$ref_SST <= 24.74] <- 25
+orig_b$rule_numb[is.na(orig_b$rule_numb) & orig_b$td_resid <= 0.5102545 & orig_b$x2 <= 58.59198 & orig_b$satz > 40.15 & orig_b$ref_SST > 24.065 & orig_b$lat > 23.35] <- 25
 
 # Rule 26
-orig_b$rule_numb[orig_b$rule_numb <- NA & orig_b$lat > 19.06 & orig_b$td_resid <= 0.5109711 & orig_b$x2 <= 58.57362 & orig_b$satz > 1.9999 & orig_b$satz <= 40.15 & orig_b$ref_SST > 24.74] <- 26
+orig_b$rule_numb[is.na(orig_b$rule_numb) & orig_b$td_resid <= 0.5102545 & orig_b$satz > 44.3389 & orig_b$ref_SST <= 24.065 & orig_b$lat <= 32.84] <- 26
 
 # Rule 27
-orig_b$rule_numb[orig_b$rule_numb <- NA & orig_b$lat <= 19.06 & orig_b$td_resid <= -0.6436465 & orig_b$x2 <= 58.57362 & orig_b$satz > 1.9999 & orig_b$satz <= 40.15 & orig_b$ref_SST > 24.74] <- 27
+orig_b$rule_numb[is.na(orig_b$rule_numb) & orig_b$td_resid <= 0.5102545 & orig_b$satz > 44.3389 & orig_b$ref_SST <= 24.065 & orig_b$lat > 32.84] <- 27
 
 # Rule 28
-orig_b$rule_numb[orig_b$rule_numb <- NA & orig_b$lat <= -18.62 & orig_b$td_resid <= 0.5109711 & orig_b$satz <= 1.9999 & orig_b$ref_SST <= 24.57] <- 28
-
-# Rule 29
-orig_b$rule_numb[orig_b$rule_numb <- NA & orig_b$td_resid <= 0.5109711 & orig_b$x2 <= 53.19003 & orig_b$satz <= -37.2888 & orig_b$ref_SST > 24.57] <- 29
-
-# Rule 30
-orig_b$rule_numb[orig_b$rule_numb <- NA & orig_b$td_resid <= 0.5109711 & orig_b$x2 > 53.19003 & orig_b$satz <= -37.2888] <- 30
-
-# Rule 31
-orig_b$rule_numb[orig_b$rule_numb <- NA & orig_b$lat <= -13.19 & orig_b$sd11 <= 0.0842 & orig_b$td_resid <= 0.5109711 & orig_b$satz > 1.9999 & orig_b$satz <= 43.85] <- 31
-
-# Rule 32
-orig_b$rule_numb[orig_b$rule_numb <- NA & orig_b$lat > -18.62 & orig_b$td_resid <= 0.5109711 & orig_b$satz > -50.2305 & orig_b$satz <= 1.9999 & orig_b$ref_SST <= 24.57] <- 32
-
-# Rule 33
-orig_b$rule_numb[orig_b$rule_numb <- NA & orig_b$lat > 22.27 & orig_b$td_resid <= 0.5109711 & orig_b$x2 <= 58.58734 & orig_b$satz > 40.15 & orig_bref_SST > 24.74] <- 33
-
-# Rule 34
-orig_b$rule_numb[orig_b$rule_numb <- NA & orig_b$lat > -13.19 & orig_b$sd11 <= 0.0842 & orig_b$td_resid <= 0.5109711 & orig_b$satz > 1.9999 & orig_b$satz <= 43.85 & orig_b$ref_SST <= 24.74] <- 34
-
-# Rule 35
-orig_b$rule_numb[orig_b$rule_numb <- NA & orig_b$lat <= 32.29 & orig_b$td_resid <= 0.5109711 & orig_b$satz > 43.85 & orig_b$ref_SST <= 24.74] <- 35
-
-# Rule 36
-orig_b$rule_numb[orig_b$rule_numb <- NA & orig_b$td_resid <= 0.5109711 & orig_b$x2 <= 58.58734 & orig_b$satz > 53.5194 & orig_b$ref_SST > 24.74] <- 36
-
-# Rule 37
-orig_b$rule_numb[orig_b$rule_numb <- NA & orig_b$lat > -18.62 & orig_b$lat <= 31.97 & orig_b$td_resid <= 0.5109711 & orig_b$x2 <= 32.9205 & orig_b$satz <= -50.2305] <- 37
-
-# Rule 38
-orig_b$rule_numb[orig_b$rule_numb <- NA & orig_b$lat > 32.29 & orig_b$td_resid <= 0.5109711 & orig_b$satz > 43.85 & orig_b$ref_SST <= 24.74] <- 38
-
-# Rule 39
-orig_b$rule_numb[orig_b$rule_numb <- NA & orig_b$lat > 31.97 & orig_b$td_resid <= 0.5109711 & orig_bx2 <= 32.9205 & orig_b$satz <= -50.2305] <- 39
-
-# Rule 40
-orig_b$rule_numb[orig_b$rule_numb <- NA & orig_b$td_resid <= 0.5109711 & orig_b$x2 > 32.9205 & orig_b$satz <= -50.2305 & orig_b$ref_SST <= 24.57] <- 40
+orig_b$rule_numb[is.na(orig_b$rule_numb) & orig_b$td_resid <= 0.5102545 & orig_b$satz <= -45.3389 & orig_b$ref_SST <= 24.57 & orig_b$lat > -18.35] <- 28
 
 # Break back into train and test again
 orig_train <- orig_b[1:nrow(orig_train), ]
@@ -967,12 +943,230 @@ orig_test <- orig_b[(nrow(orig_train) + 1):nrow(orig_b), ]
 ```
 
 
+```{r tree_reconstruction_of_rules}
+
+tree_recon <- rpart::rpart(formula = rule_numb ~ td_resid + lat + month + satz + x2 + ref_SST + sd11,
+                           data = orig_train,
+                           control = rpart::rpart.control(minbucket = 1, maxdepth = 11, cp = 0.0))
+
+plot(tree_recon)
+rpart.plot::prp(tree_recon, uniform = TRUE, main = 'Rule Sets')
+plot(partykit::as.party(tree_recon))
+
+tree_predics_train <- stats::predict(tree_recon, newdata = orig_train, na.action = na.pass)
+tree_predics_train_cm <- caret::confusionMatrix(data = tree_predics_train, reference = orig_train$rule_numb)
+tree_predics_train_cm
+
+tree_predics_test <- stats::predict(tree_recon, newdata = orig_test, na.action = na.pass)
+tree_predics_test_cm <- caret::confusionMatrix(data = tree_predics_test, reference = orig_test$rule_numb)
+tree_predics_test_cm
+
+```
+
+
+```{r explore_partition_statistics, echo = TRUE}
+
+orig_train$error <- orig_train$SST.resid.SMB - Cubist_rules_train_vals
+orig_test$error <- orig_test$SST.resid.SMB - Cubist_rules_test_vals
+
+orig_train$squared_error <- (orig_train$error) ^ 2
+orig_test$squared_error <- (orig_test$error) ^ 2
+
+medians_train <- tapply(orig_train$SST.resid.SMB, orig_train$rule_numb, median)
+IQRs_train <- tapply(orig_train$SST.resid.SMB, orig_train$rule_numb, IQR)
+lengths_train <- tapply(orig_train$SST.resid.SMB, orig_train$rule_numb, length)
+
+mean_sqr_error_train <- tapply(orig_train$squared_error, orig_train$rule_numb, mean)
+RMSE_partition_train <- (mean_sqr_error_train) ^ 0.5
+
+medians_test <- tapply(orig_test$SST.resid.SMB, orig_test$rule_numb, median)
+IQRs_test <- tapply(orig_test$SST.resid.SMB, orig_test$rule_numb, IQR)
+lengths_test <- tapply(orig_test$SST.resid.SMB, orig_test$rule_numb, length)
+
+mean_sqr_error_test <- tapply(orig_test$squared_error, orig_test$rule_numb, mean)
+RMSE_partition_test <- (mean_sqr_error_test) ^ 0.5
+
+```
+
+```{r schematic_diagram_lowest_resid_magnitude, echo = TRUE}
+
+ggplot2::ggplot() +
+  geom_histogram(bins = 50, aes(orig_train$SST.resid.SMB[orig_train$rule_numb == 21])) +
+  labs(x = 'Actual Residual  (deg C)', y = '# of Retrievals') +
+  xlim(-4, 2) +
+  ylim(0, 15000) +
+  annotate('text', x = -2.5, y = 13500, label = 'Size: 87113 Retrievals', size = 8) +
+  annotate('text', x = -2.5, y = 12500, label = 'Median: -0.0100 deg C', size = 8) +
+  annotate('text', x = -2.5, y = 11500, label = 'IQR: 0.46 deg C', size = 8) +
+  annotate('text', x = -2.5, y = 10500, label = 'Uncertainty: 0.314 deg C', size = 8) +
+  ggsave('lowest_resid_magnitude_partition_histogram.pdf', device = 'pdf', width = 8, height = 6, units = 'in') +
+  ggsave('lowest_resid_magnitude_partition_histogram.png', device = 'png', width = 8, height = 6, units = 'in')
+
+ccc <- RColorBrewer::brewer.pal(n = 9, 'YlOrRd')
+ccc <- ccc[3:9]
+breaks <- c(0, 10, 25, 50, 100, 500, 1000, 2500, Inf)
+ccc <- colorRampPalette(ccc)(length(breaks) - 1)
+
+rrr <- data.frame(X = orig_train$SST.resid.SMB[orig_train$rule_numb == 21], Y = Cubist_rules_train_vals[orig_train$rule_numb == 21])
+
+ggplot2::ggplot(data = rrr, aes(x = X, y = Y, fill = cut(..count.., c(0, 10, 25, 50, 100, 500, 1000, 2500, Inf)))) +
+  geom_bin2d(bins = 75) +
+  geom_abline(slope = 1, intercept = 0, col = 'black') +
+  scale_fill_manual(values = ccc) + 
+  labs(x = 'Actual Residual (deg C)', y = 'Predicted Residual (deg C)', fill = '# of Retrievals') +
+  ggsave('lowest_resid_magnitude_partition_predictions_vs_actual.pdf', device = 'pdf', width = 8, height = 6, units = 'in')
+
+```
+
+```{r schematic_diagram_highest_resid_magnitude, echo = TRUE}
+
+ggplot2::ggplot() +
+  geom_histogram(bins = 50, aes(orig_train$SST.resid.SMB[orig_train$rule_numb == 1])) +
+  labs(x = 'Actual Residual (deg C)', y = '# of Retrievals') +
+  xlim(-4, 2) +
+  ylim(0, 400) +
+  annotate('text', x = .67, y = 380, label = 'Size: 4968 Retrievals', size = 8) +
+  annotate('text', x = .67, y = 355, label = 'Median: -1.89 deg C', size = 8) +
+  annotate('text', x = .67, y = 330, label = 'IQR: 1.1 deg C', size = 8) +
+  annotate('text', x = .67, y = 305, label = 'Uncertainty: 0.376 deg C', size = 8) +
+  ggsave('highest_resid_magnitude_partition_histogram.pdf', device = 'pdf', width = 8, height = 6, units = 'in') +
+  ggsave('highest_resid_magnitude_partition_histogram.png', device = 'png', width = 8, height = 6, units = 'in')
+
+ccc <- RColorBrewer::brewer.pal(n = 9, 'YlOrRd')
+ccc <- ccc[3:9]
+breaks <- c(0, 10, 25, 50, 100, 500, 1000, 2500, Inf)
+ccc <- colorRampPalette(ccc)(length(breaks) - 1)
+
+rrr <- data.frame(X = orig_train$SST.resid.SMB[orig_train$rule_numb == 1], Y = Cubist_rules_train_vals[orig_train$rule_numb == 1])
+
+ggplot2::ggplot(data = rrr, aes(x = X, y = Y, fill = cut(..count.., c(0, 10, 25, 50, 100, 500, 1000, 2500, Inf)))) +
+  geom_bin2d(bins = 75) +
+  geom_abline(slope = 1, intercept = 0, col = 'black') +
+  scale_fill_manual(values = ccc) + 
+  labs(x = 'Actual Residual (deg C)', y = 'Predicted Residual (deg C)', fill = '# of Retrievals') +
+  ggsave('highest_resid_magnitude_partition_predictions_vs_actual.pdf', device = 'pdf', width = 8, height = 6, units = 'in')
+
+```
+
+```{r schematic_diagram_lowest_uncertainty, echo = TRUE}
+
+ggplot2::ggplot() +
+  geom_histogram(bins = 50, aes(orig_train$SST.resid.SMB[orig_train$rule_numb == 19])) +
+  labs(x = 'Actual Residual (deg C)', y = '# of Retrievals') +
+  xlim(-4, 2) +
+  ylim(0, 7500) +
+  annotate('text', x = -2.5, y = 7000, label = 'Size: 39791 Retrievals', size = 8) +
+  annotate('text', x = -2.5, y = 6550, label = 'Median: -0.0338 deg C', size = 8) +
+  annotate('text', x = -2.5, y = 6100, label = 'IQR: 0.252 deg C', size = 8) +
+  annotate('text', x = -2.5, y = 5650, label = 'Uncertainty: 0.255 deg C', size = 8) +
+  ggsave('lowest_uncertainty_partition_histogram.pdf', device = 'pdf', width = 8, height = 6, units = 'in') +
+  ggsave('lowest_uncertainty_partition_histogram.png', device = 'png', width = 8, height = 6, units = 'in')
+
+ccc <- RColorBrewer::brewer.pal(n = 9, 'YlOrRd')
+ccc <- ccc[3:9]
+breaks <- c(0, 10, 25, 50, 100, 500, 1000, 2500, Inf)
+ccc <- colorRampPalette(ccc)(length(breaks) - 1)
+
+rrr <- data.frame(X = orig_train$SST.resid.SMB[orig_train$rule_numb == 19], Y = Cubist_rules_train_vals[orig_train$rule_numb == 19])
+
+ggplot2::ggplot(data = rrr, aes(x = X, y = Y, fill = cut(..count.., c(0, 10, 25, 50, 100, 500, 1000, 2500, Inf)))) +
+  geom_bin2d(bins = 75) +
+  geom_abline(slope = 1, intercept = 0, col = 'black') +
+  scale_fill_manual(values = ccc) + 
+  labs(x = 'Actual Residual (deg C)', y = 'Predicted Residual (deg C)', fill = '# of Retrievals') +
+  ggsave('lowest_uncertainty_partition_predictions_vs_actual.pdf', device = 'pdf', width = 8, height = 6, units = 'in')
+
+```
+
+```{r schematic_diagram_highest_uncertainty, echo = TRUE}
+
+ggplot2::ggplot() +
+  geom_histogram(bins = 50, aes(orig_train$SST.resid.SMB[orig_train$rule_numb == 3])) +
+  labs(x = 'Actual Residual (deg C)', y = '# of Retrievals') +
+  xlim(-4, 2) +
+  ylim(0, 675) +
+  annotate('text', x = .67, y = 650, label = 'Size: 8854 Retrievals', size = 8) +
+  annotate('text', x = .67, y = 610, label = 'Median: -1.16 deg C', size = 8) +
+  annotate('text', x = .67, y = 570, label = 'IQR: 1.47 deg C', size = 8) +
+  annotate('text', x = .67, y = 530, label = 'Uncertainty: 0.521 deg C', size = 8) +
+  ggsave('highest_uncertainty_partition_histogram.pdf', device = 'pdf', width = 8, height = 6, units = 'in') +
+  ggsave('highest_uncertainty_partition_histogram.png', device = 'png', width = 8, height = 6, units = 'in')
+
+ccc <- RColorBrewer::brewer.pal(n = 9, 'YlOrRd')
+ccc <- ccc[3:9]
+breaks <- c(0, 10, 25, 50, 100, 500, 1000, 2500, Inf)
+ccc <- colorRampPalette(ccc)(length(breaks) - 1)
+
+rrr <- data.frame(X = orig_train$SST.resid.SMB[orig_train$rule_numb == 3], Y = Cubist_rules_train_vals[orig_train$rule_numb == 3])
+
+ggplot2::ggplot(data = rrr, aes(x = X, y = Y, fill = cut(..count.., c(0, 10, 25, 50, 100, 500, 1000, 2500, Inf)))) +
+  geom_bin2d(bins = 75) +
+  geom_abline(slope = 1, intercept = 0, col = 'black') +
+  scale_fill_manual(values = ccc) + 
+  labs(x = 'Actual Residual (deg C)', y = 'Predicted Residual (deg C)', fill = '# of Retrievals') +
+  ggsave('highest_uncertainty_partition_predictions_vs_actual.pdf', device = 'pdf', width = 8, height = 6, units = 'in')
+
+```
+
+
+```{r assign_uncertainties, echo = TRUE}
+
+orig_b <- rbind(orig_train, orig_test)
+orig_b$uncertainty <- rep(NA, nrow(orig_b))
+
+for (row_num in 1:nrow(orig_b)) {
+  orig_b$uncertainty[row_num] <- RMSE_partition_train[orig_b$rule_numb[row_num]]
+  #cat(row_num, '\n')
+}
+
+# Break back into train and test again
+orig_train <- orig_b[1:nrow(orig_train), ]
+orig_test <- orig_b[(nrow(orig_train) + 1):nrow(orig_b), ]
+
+```
+
+```{r plot_uncertainties, echo = TRUE}
+
+ccc <- RColorBrewer::brewer.pal(n = 9, 'YlOrRd')
+ccc <- ccc[3:9]
+breaks <- c(10, 50, 100, 500, 1000, 2500, 5000, Inf)
+
+mmm <- data.frame(X = Cubist_rules_test_vals, Y = orig_test$uncertainty)
+mmm$error <- mmm$X - orig_test$SST.resid.SMB
+
+means_train <- tapply(orig_train$SST.resid.SMB, orig_train$rule_numb, mean)
+IQR_error_train <- tapply(orig_train$error, orig_train$rule_numb, IQR)
+partition_explore <- data.frame(medians = medians_train, uncertainty = RMSE_partition_train, means = means_train, IQR_error = IQR_error_train)
+
+ccc <- colorRampPalette(ccc)(length(breaks) - 1)
+
+ggplot2::ggplot() +
+  geom_bin2d(data = mmm, aes(error, Y, fill = cut(..count.., c(10, 50, 100, 500, 1000, 2500, 5000, Inf))), bins = 100) +
+  geom_line(aes(partition_explore$IQR_error, partition_explore$uncertainty)) +
+  geom_line(aes(-partition_explore$IQR_error, partition_explore$uncertainty)) +
+  scale_fill_manual(values = ccc) +
+  labs(x = 'Actual Error', y = 'Predicted Uncertainty', fill = '# of Retrievals') +
+  ggsave('Cubist_predictions_vs_uncertainty_2d_histogram.pdf', device = 'pdf', width = 8, height = 6, units = 'in')
+
+```
+
+```{r evaluate_uncertainties, echo = TRUE}
+
+in_range_train <- ifelse(Cubist_rules_train_vals + orig_train$uncertainty >= orig_train$SST.resid.SMB & Cubist_rules_train_vals - orig_train$uncertainty <= orig_train$SST.resid.SMB, TRUE, FALSE)
+
+in_range_test <- ifelse(Cubist_rules_test_vals + orig_test$uncertainty >= orig_test$SST.resid.SMB & Cubist_rules_test_vals - orig_test$uncertainty <= orig_test$SST.resid.SMB, TRUE, FALSE)
+
+in_range_RMSE_train <- ifelse(Cubist_rules_train_vals + RMSE_test_cubist >= orig_train$SST.resid.SMB & Cubist_rules_train_vals - RMSE_test_cubist <= orig_train$SST.resid.SMB, TRUE, FALSE)
+
+in_range_RMSE_test <- ifelse(Cubist_rules_test_vals + RMSE_test_cubist >= orig_test$SST.resid.SMB & Cubist_rules_test_vals - RMSE_test_cubist <= orig_test$SST.resid.SMB, TRUE, FALSE)
+
+```
 
 ```{r Cubist_variable_importance, echo=TRUE}
 
 variable_names_long <- c('Except\nResidual Temperature Deficit Estimate',
                         'Except\nScaled Channel Difference',
-                        'Except\nSatellite Zenith Angle)',
+                        'Except\nSatellite Zenith Angle',
                         'Except\nSD of T_11',
                         'Except\nLatitude',
                         'Except\nMonth',
@@ -980,7 +1174,7 @@ variable_names_long <- c('Except\nResidual Temperature Deficit Estimate',
 
 variable_names_abbrev <- c('td_resid',
                            'x2',
-                           'sec_satz',
+                           'satz',
                            'sd11',
                            'lat',
                            'month',
@@ -997,7 +1191,7 @@ for (variable_num in 1:nrow(RMSE_without)) {
   
   Cubist_var_imp <- Cubist::cubist(x = ppp[, variables_temp], y = ppp$SST.resid.SMB,
                                    committees = 1, 
-                                   control = Cubist::cubistControl(rules = 40,
+                                   control = Cubist::cubistControl(rules = 28,
                                                                    unbiased = FALSE,
                                                                    extrapolation = 100,
                                                                    label = 'SST Residual',
@@ -1013,16 +1207,17 @@ for (variable_num in 1:nrow(RMSE_without)) {
 
 }
 
-# 0.380 is the RMSE on the test set with ALL variables (from above)
-RMSE_without$RMSE_incr <- RMSE_without$RMSE - 0.380
+# 0.3795971 is the RMSE on the test set with ALL variables (from above)
+RMSE_without$RMSE_incr <- RMSE_without$RMSE - 0.3795971
 
 RMSE_without$variable_names_long <- reorder(RMSE_without$variable_names_long, -RMSE_without$RMSE)
 
 ggplot2::ggplot(data = RMSE_without, aes(x = variable_names_long, y = RMSE_incr)) +
   geom_bar(stat = 'identity') +
   theme(axis.text.x = element_text(angle = 45, hjust = 0.5, vjust = 0.5)) +
-  labs(x = 'Feature', y = 'Increase in RMSE')
-  #ggsave('variable_importance_RMSE_Cubist.pdf', device = 'pdf', width = 8, height = 6, units = 'in')
+  labs(x = 'Feature', y = 'Increase in RMSE (deg C)') +
+  ggsave('variable_importance_RMSE_Cubist.pdf', device = 'pdf', width = 8, height = 6, units = 'in') +
+  ggsave('variable_importance_RMSE_Cubist.png', device = 'png', width = 8, height = 6, units = 'in')
 ```
 
 
