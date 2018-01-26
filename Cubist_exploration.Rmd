@@ -20,19 +20,15 @@ set.seed(108)
 ```{r create_data, echo=TRUE}
 # Create two variables, x1 and x2
 
-x1 <- runif(n = 10000, min = 0, max = 100)
-x2 <- runif(n = 10000, min = 0, max = 100)
+x1 <- runif(n = 100000, min = 0, max = 100)
+x2 <- runif(n = 100000, min = 0, max = 100)
 
 ggplot2::ggplot() + geom_histogram(aes(x1))
 ggplot2::ggplot() + geom_histogram(aes(x2))
 
 ggplot2::ggplot() + geom_point(aes(x1, x2), pch = '.')
-```
 
-```{r make_dataframe, echo=TRUE}
-y <- rep(NA, 10000)
-
-Cubist_test <- data.frame(x1 = x1, x2 = x2, y = y)
+Cubist_test <- data.frame(x1 = x1, x2 = x2, y = rep(NA, 100000))
 
 ```
 
@@ -45,7 +41,7 @@ set_1 <- data.frame(x1 = c(0:100), x2 = rep(80, 101))
 aaa <- data.frame(x1 = c(0:15), x2 = rep(60, 16))
 bbb <- data.frame(x1 = rep(15, 21), x2 = c(60:80))
 
-set_2 <- rbind(qqq, uuu)
+set_2 <- rbind(aaa, bbb)
 
 # Rule set 3
 aaa <- data.frame(x1 = rep(15, 31), x2 = c(50:80))
@@ -67,6 +63,87 @@ bbb <- data.frame(x1 = rep(60, 11), x2 = c(70:80))
 set_5 <- rbind(aaa, bbb)
 
 # Rule set 6
+aaa <- data.frame(x1 = c(0:15), x2 = rep(50, 16))
+bbb <- data.frame(x1 = rep(15, 11), x2 = c(50:60))
+
+set_6 <- rbind(aaa, bbb)
+
+# Rule set 7
+aaa <- data.frame(x1 = rep(30, 21), x2 = c(50:70))
+bbb <- data.frame(x1 = c(30:60), x2 = rep(50, 31))
+ccc <- data.frame(x1 = rep(60, 21), x2 = c(50:70))
+
+set_7 <- rbind(aaa, bbb, ccc)
+
+# Rule set 8
+aaa <- data.frame(x1 = rep(60, 71), x2 = c(0:70))
+bbb <- data.frame(x1 = c(60:100), x2 = 55 + 0.25 * c(60:100))
+
+set_8 <- rbind(aaa, bbb)
+
+# Rule set 9
+aaa <- data.frame(x1 = c(0:15), x2 = rep(10, 16))
+bbb <- data.frame(x1 = c(15:25), x2 = 4 * c(15:25) - 50)
+
+set_9 <- rbind(aaa, bbb)
+
+# Rule set 10
+aaa <- data.frame(x1 = c(0:15), x2 = rep(10, 16))
+bbb <- data.frame(x1 = rep(15, 11), x2 = c(0:10))
+
+set_10 <- rbind(aaa, bbb)
+
+# Rule set 11
+aaa <- data.frame(x1 = rep(15, 11), x2 = c(0:10))
+bbb <- data.frame(x1 = c(15:25), x2 = 4 * c(15:25) - 50)
+ccc <- data.frame(x1 = c(25:45), x2 = rep(50, 21))
+ddd <- data.frame(x1 = rep(45, 51), x2 = c(0:50))
+
+set_11 <- rbind(aaa, bbb, ccc, ddd)
+
+# Rule set 12
+aaa <- data.frame(x1 = rep(45, 51), x2 = c(0:50))
+bbb <- data.frame(x1 = c(45:60), x2 = (2/9) * (c(45:60) - 45) ^ 2)
+
+set_12 <- rbind(aaa, bbb)
+
+# Rule set 13
+aaa <- data.frame(x1 = c(45:60), x2 = (2/9) * (c(45:60) - 45) ^ 2)
+bbb <- data.frame(x1 = rep(60, 51), x2 = c(0:50))
+
+set_13 <- rbind(aaa, bbb)
+
+# Rule set 14
+aaa <- data.frame(x1 = c(60:100), x2 = -(5/4) * c(60:100) + 125)
+
+set_14 <- aaa
+```
+
+
+```{r visualize_rule_sets, echo=TRUE}
+
+visual <- ggplot2::ggplot() + xlim(0, 100) + ylim(0, 100)
+
+visual <- visual + geom_line(data = set_1, aes(x1, x2)) + annotate('text', x = 50, y = 90, label = 'Set 1', size = 4)
+visual <- visual + geom_line(data = set_2, aes(x1, x2)) + annotate('text', x = 7.5, y = 70, label = 'Set 2', size = 4)
+visual <- visual + geom_line(data = set_3, aes(x1, x2)) + annotate('text', x = 22.5, y = 65, label = 'Set 3', size = 4)
+visual <- visual + geom_line(data = set_4, aes(x1, x2)) + annotate('text', x = 45, y = 75, label = 'Set 4', size = 4)
+visual <- visual + geom_path(data = set_5, aes(x1, x2)) + annotate('text', x = 72, y = 77, label = 'Set 5', size = 4)
+visual <- visual + geom_line(data = set_6, aes(x1, x2)) + annotate('text', x = 7.5, y = 55, label = 'Set 6', size = 4)
+visual <- visual + geom_line(data = set_7, aes(x1, x2)) + annotate('text', x = 45, y = 60, label = 'Set 7', size = 4)
+visual <- visual + geom_line(data = set_8, aes(x1, x2)) + annotate('text', x = 80, y = 65, label = 'Set 8', size = 4)
+visual <- visual + geom_line(data = set_9, aes(x1, x2)) + annotate('text', x = 12.5, y = 30, label = 'Set 9', size = 4)
+visual <- visual + geom_line(data = set_10, aes(x1, x2)) + annotate('text', x = 7.5, y = 5, label = 'Set 10', size = 4)
+visual <- visual + geom_path(data = set_11, aes(x1, x2)) + annotate('text', x = 30, y = 25, label = 'Set 11', size = 4)
+visual <- visual + geom_line(data = set_12, aes(x1, x2)) + annotate('text', x = 52.5, y = 45, label = 'Set 12', size = 4)
+visual <- visual + geom_line(data = set_13, aes(x1, x2)) + annotate('text', x = 54, y = 4, label = 'Set 13', size = 4)
+visual <- visual + geom_line(data = set_14, aes(x1, x2)) + annotate('text', x = 75, y = 15, label = 'Set 14', size = 4)
+visual <- visual + geom_hline(aes(yintercept = 0)) +
+                   geom_hline(aes(yintercept = 100)) +
+                   geom_vline(aes(xintercept = 0)) +
+                   geom_vline(aes(xintercept = 100))
+
+visual
 
 ```
 
