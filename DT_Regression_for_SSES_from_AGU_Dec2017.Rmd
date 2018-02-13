@@ -883,7 +883,19 @@ orig_b$rule_numb[is.na(orig_b$rule_numb) & orig_b$x2 > 57.63554 & orig_b$satz > 
 orig_b$rule_numb[is.na(orig_b$rule_numb) & orig_b$td_resid > 0.5102545 & orig_b$x2 <= 18.49491 & orig_b$satz <= -45.4611 & orig_b$lat > 25.99] <- 10
 
 # Rule 11
-orig_b$rule_numb[is.na(orig_b$rule_numb) & orig_b$x2 > 45.74037 & orig_b$satz > 48.5194] <- 11
+orig_b$rule_numb[is.na(orig_b$rule_numb) & orig_b$x2 > 45.74037 & ori  Rule 1: [990 cases, mean 3169.0, range 9 to 10649, est err 6106.9]
+
+    if
+	x1 <= 11
+    then
+	outcome = -33383 + 5852 x1
+
+  Rule 2: [2160 cases, mean 30001.0, range 9 to 110593, est err 4059.8]
+
+    if
+	x1 <= 24
+    then
+	outcome = -77349 + 7093 x1g_b$satz > 48.5194] <- 11
 
 # Rule 12
 orig_b$rule_numb[is.na(orig_b$rule_numb) & orig_b$x2 > 49.05643 & orig_b$satz <= -45.4611] <- 12

@@ -17,6 +17,279 @@ set.seed(108)
 ```
 
 
+```{r Cubist_test_1, echo=TRUE}
+# Create two features, x1 and x2
+x1 <- seq(from = 1, to = 90, by = 1)
+x2 <- seq(from = 10, to = 900, by = 10)
+
+grid_1 <- expand.grid(x1, x2) # Turn x1 and x2 into a grid
+colnames(grid_1) <- c("x1", "x2") # Rename columns
+
+# Divide grid into 9 equally sized regions
+grid_1$region_num <- rep(NA, length(x1) * length(x2))
+
+grid_1$region_num[(grid_1$x1 >= 1 & grid_1$x1 <= 30) & (grid_1$x2 >= 10 & grid_1$x2 <= 300)] <- 1
+grid_1$region_num[(grid_1$x1 >= 31 & grid_1$x1 <= 60) & (grid_1$x2 >= 10 & grid_1$x2 <= 300)] <- 2
+grid_1$region_num[(grid_1$x1 >= 61 & grid_1$x1 <= 90) & (grid_1$x2 >= 10 & grid_1$x2 <= 300)] <- 3
+
+grid_1$region_num[(grid_1$x1 >= 1 & grid_1$x1 <= 30) & (grid_1$x2 >= 310 & grid_1$x2 <= 600)] <- 4
+grid_1$region_num[(grid_1$x1 >= 31 & grid_1$x1 <= 60) & (grid_1$x2 >= 310 & grid_1$x2 <= 600)] <- 5
+grid_1$region_num[(grid_1$x1 >= 61 & grid_1$x1 <= 90) & (grid_1$x2 >= 310 & grid_1$x2 <= 600)] <- 6
+
+grid_1$region_num[(grid_1$x1 >= 1 & grid_1$x1 <= 30) & (grid_1$x2 >= 610 & grid_1$x2 <= 900)] <- 7
+grid_1$region_num[(grid_1$x1 >= 31 & grid_1$x1 <= 60) & (grid_1$x2 >= 610 & grid_1$x2 <= 900)] <- 8
+grid_1$region_num[(grid_1$x1 >= 61 & grid_1$x1 <= 90) & (grid_1$x2 >= 610 & grid_1$x2 <= 900)] <- 9
+
+table(grid_1$region_num, useNA = "always")
+```
+
+```{r plot_regions_1, echo=TRUE}
+ggplot2::ggplot(data = grid_1) +
+  geom_point(aes(x = x1, y = x2, color = as.factor(region_num), pch = '.')) + 
+  scale_color_discrete()
+
+```
+
+
+```{r cubist_test_1_region_num, echo=TRUE}
+
+Cubist_region_num <- Cubist::cubist(x = grid_1[, c('x1', 'x2')], y = grid_1$region_num,
+                                    committees = 1,
+                                    control = Cubist::cubistControl(rules = 9))
+summary(Cubist_region_num)
+```
+
+
+```{r Cubist_test_2, echo=TRUE}
+# Create two features, x1 and x2
+x1 <- seq(from = 1, to = 90, by = 1)
+x2 <- seq(from = 10, to = 900, by = 10)
+
+grid_1 <- expand.grid(x1, x2) # Turn x1 and x2 into a grid
+colnames(grid_1) <- c("x1", "x2") # Rename columns
+
+# Divide grid into 9 equally sized regions
+grid_1$region_num <- rep(NA, length(x1) * length(x2))
+
+grid_1$region_num[(grid_1$x1 >= 1 & grid_1$x1 <= 30) & (grid_1$x2 >= 10 & grid_1$x2 <= 300)] <- 10
+grid_1$region_num[(grid_1$x1 >= 31 & grid_1$x1 <= 60) & (grid_1$x2 >= 10 & grid_1$x2 <= 300)] <- 20
+grid_1$region_num[(grid_1$x1 >= 61 & grid_1$x1 <= 90) & (grid_1$x2 >= 10 & grid_1$x2 <= 300)] <- 30
+
+grid_1$region_num[(grid_1$x1 >= 1 & grid_1$x1 <= 30) & (grid_1$x2 >= 310 & grid_1$x2 <= 600)] <- 40
+grid_1$region_num[(grid_1$x1 >= 31 & grid_1$x1 <= 60) & (grid_1$x2 >= 310 & grid_1$x2 <= 600)] <- 50
+grid_1$region_num[(grid_1$x1 >= 61 & grid_1$x1 <= 90) & (grid_1$x2 >= 310 & grid_1$x2 <= 600)] <- 60
+
+grid_1$region_num[(grid_1$x1 >= 1 & grid_1$x1 <= 30) & (grid_1$x2 >= 610 & grid_1$x2 <= 900)] <- 70
+grid_1$region_num[(grid_1$x1 >= 31 & grid_1$x1 <= 60) & (grid_1$x2 >= 610 & grid_1$x2 <= 900)] <- 80
+grid_1$region_num[(grid_1$x1 >= 61 & grid_1$x1 <= 90) & (grid_1$x2 >= 610 & grid_1$x2 <= 900)] <- 90
+
+table(grid_1$region_num, useNA = "always")
+
+grid_1$response <- grid_1$region_num + rnorm(n = length(grid_1$region_num), mean = 0, sd = 2)
+```
+
+```{r plot_regions_2, echo=TRUE}
+ggplot2::ggplot(data = grid_1) +
+  geom_point(aes(x = x1, y = x2, color = response, pch = '.'))
+
+```
+
+
+```{r cubist_test_2_region_num, echo=TRUE}
+
+Cubist_region_num <- Cubist::cubist(x = grid_1[, c('x1', 'x2')], y = grid_1$response,
+                                    committees = 1,
+                                    control = Cubist::cubistControl(rules = 9))
+summary(Cubist_region_num)
+```
+
+
+
+```{r Cubist_test_3, echo=TRUE}
+# Create two features, x1 and x2
+x1 <- seq(from = 1, to = 90, by = 1)
+x2 <- seq(from = 2, to = 92, by = 10)
+
+grid_1 <- expand.grid(x1, x2) # Turn x1 and x2 into a grid
+colnames(grid_1) <- c("x1", "x2") # Rename columns
+
+grid_1$true_res <- 10 + (8 * grid_1$x1) + (3 * grid_1$x2)
+
+grid_1$noise_res <- grid_1$true_res + rnorm(n = nrow(grid_1), mean = 0, sd = 150)
+```
+
+```{r plot_regions_3, echo=TRUE}
+ggplot2::ggplot(data = grid_1) +
+  geom_point(aes(x = x1, y = x2, color = true_res, pch = '.'))
+
+```
+
+
+```{r cubist_test_3_region_num, echo=TRUE}
+
+Cubist_region_num <- Cubist::cubist(x = grid_1[, c('x1', 'x2')], y = grid_1$noise_res,
+                                    committees = 1,
+                                    control = Cubist::cubistControl(rules = 9))
+summary(Cubist_region_num)
+
+Cubist_predict_noise_res <- stats::predict(object = Cubist_region_num, newdata = grid_1, na.action = na.pass, neighbors = 0)
+
+Cubist_explore_noise <- data.frame(x1 = grid_1$x1,
+                                   x2 = grid_1$x2,
+                                   true_res = grid_1$true_res,
+                                   noise_res = grid_1$noise_res,
+                                   pred_noise_res = Cubist_predict_noise_res,
+                                   resid = grid_1$noise_res - Cubist_predict_noise_res)
+```
+
+
+
+
+```{r Cubist_test_4, echo=TRUE}
+# Create two features, x1 and x2
+x1 <- seq(from = 1, to = 90, by = 1)
+x2 <- seq(from = 10, to = 900, by = 10)
+
+grid_1 <- expand.grid(x1, x2) # Turn x1 and x2 into a grid
+colnames(grid_1) <- c("x1", "x2") # Rename columns
+
+# Divide grid into 9 equally sized regions
+grid_1$region_num <- rep(NA, length(x1) * length(x2))
+
+grid_1$region_num[(grid_1$x1 >= 1 & grid_1$x1 <= 30) & (grid_1$x2 >= 10 & grid_1$x2 <= 300)] <- 1
+grid_1$region_num[(grid_1$x1 >= 31 & grid_1$x1 <= 60) & (grid_1$x2 >= 10 & grid_1$x2 <= 300)] <- 2
+grid_1$region_num[(grid_1$x1 >= 61 & grid_1$x1 <= 90) & (grid_1$x2 >= 10 & grid_1$x2 <= 300)] <- 3
+
+grid_1$region_num[(grid_1$x1 >= 1 & grid_1$x1 <= 30) & (grid_1$x2 >= 310 & grid_1$x2 <= 600)] <- 4
+grid_1$region_num[(grid_1$x1 >= 31 & grid_1$x1 <= 60) & (grid_1$x2 >= 310 & grid_1$x2 <= 600)] <- 5
+grid_1$region_num[(grid_1$x1 >= 61 & grid_1$x1 <= 90) & (grid_1$x2 >= 310 & grid_1$x2 <= 600)] <- 6
+
+grid_1$region_num[(grid_1$x1 >= 1 & grid_1$x1 <= 30) & (grid_1$x2 >= 610 & grid_1$x2 <= 900)] <- 7
+grid_1$region_num[(grid_1$x1 >= 31 & grid_1$x1 <= 60) & (grid_1$x2 >= 610 & grid_1$x2 <= 900)] <- 8
+grid_1$region_num[(grid_1$x1 >= 61 & grid_1$x1 <= 90) & (grid_1$x2 >= 610 & grid_1$x2 <= 900)] <- 9
+
+table(grid_1$region_num, useNA = "always")
+
+grid_1$response <- rep(NA, length(grid_1$x1))
+
+grid_1$response[grid_1$region_num == 1] <- 10 + (0 * grid_1$x1[grid_1$region_num == 1]) + (0 * grid_1$x2[grid_1$region_num == 1])
+grid_1$response[grid_1$region_num == 2] <- 00 + (2 * grid_1$x1[grid_1$region_num == 2]) + (0 * grid_1$x2[grid_1$region_num == 2])
+grid_1$response[grid_1$region_num == 3] <- 00 + (0 * grid_1$x1[grid_1$region_num == 3]) + (2 * grid_1$x2[grid_1$region_num == 3])
+grid_1$response[grid_1$region_num == 4] <- 00 + (2 * grid_1$x1[grid_1$region_num == 4]) + (2 * grid_1$x2[grid_1$region_num == 4])
+grid_1$response[grid_1$region_num == 5] <- 00 + (2 * grid_1$x1[grid_1$region_num == 5]) + (-2 * grid_1$x2[grid_1$region_num == 5])
+grid_1$response[grid_1$region_num == 6] <- 00 + (-2 * grid_1$x1[grid_1$region_num == 6]) + (2 * grid_1$x2[grid_1$region_num == 6])
+grid_1$response[grid_1$region_num == 7] <- 15 + (2 * grid_1$x1[grid_1$region_num == 7]) + (3 * grid_1$x2[grid_1$region_num == 7])
+grid_1$response[grid_1$region_num == 8] <- 8 + (2 * grid_1$x1[grid_1$region_num == 8]) + (-3 * grid_1$x2[grid_1$region_num == 8])
+grid_1$response[grid_1$region_num == 9] <- 00 + (2 * grid_1$x1[grid_1$region_num == 9]) + (2 * grid_1$x2[grid_1$region_num == 9])
+```
+
+```{r plot_regions_4, echo=TRUE}
+ggplot2::ggplot(data = grid_1) +
+  geom_point(aes(x = x1, y = x2, color = response, pch = '.'))
+
+```
+
+
+```{r cubist_test_4_region_num, echo=TRUE}
+
+Cubist_region_num <- Cubist::cubist(x = grid_1[, c('x1', 'x2')], y = grid_1$response,
+                                    committees = 1,
+                                    control = Cubist::cubistControl(rules = 9))
+summary(Cubist_region_num)
+```
+
+
+
+```{r Cubist_test_5, echo=TRUE}
+# Create two features, x1 and x2
+x1 <- seq(from = 1, to = 90, by = 1)
+x2 <- seq(from = 10, to = 900, by = 10)
+
+grid_1 <- expand.grid(x1, x2) # Turn x1 and x2 into a grid
+colnames(grid_1) <- c("x1", "x2") # Rename columns
+
+# Divide grid into 9 equally sized regions
+grid_1$region_num <- rep(NA, length(x1) * length(x2))
+
+grid_1$region_num[(grid_1$x1 >= 1 & grid_1$x1 <= 30) & (grid_1$x2 >= 10 & grid_1$x2 <= 300)] <- 1
+grid_1$region_num[(grid_1$x1 >= 31 & grid_1$x1 <= 60) & (grid_1$x2 >= 10 & grid_1$x2 <= 300)] <- 2
+grid_1$region_num[(grid_1$x1 >= 61 & grid_1$x1 <= 90) & (grid_1$x2 >= 10 & grid_1$x2 <= 300)] <- 3
+
+grid_1$region_num[(grid_1$x1 >= 1 & grid_1$x1 <= 30) & (grid_1$x2 >= 310 & grid_1$x2 <= 600)] <- 4
+grid_1$region_num[(grid_1$x1 >= 31 & grid_1$x1 <= 60) & (grid_1$x2 >= 310 & grid_1$x2 <= 600)] <- 5
+grid_1$region_num[(grid_1$x1 >= 61 & grid_1$x1 <= 90) & (grid_1$x2 >= 310 & grid_1$x2 <= 600)] <- 6
+
+grid_1$region_num[(grid_1$x1 >= 1 & grid_1$x1 <= 30) & (grid_1$x2 >= 610 & grid_1$x2 <= 900)] <- 7
+grid_1$region_num[(grid_1$x1 >= 31 & grid_1$x1 <= 60) & (grid_1$x2 >= 610 & grid_1$x2 <= 900)] <- 8
+grid_1$region_num[(grid_1$x1 >= 61 & grid_1$x1 <= 90) & (grid_1$x2 >= 610 & grid_1$x2 <= 900)] <- 9
+
+table(grid_1$region_num, useNA = "always")
+
+grid_1$response <- rep(NA, length(grid_1$x1))
+
+grid_1$response[grid_1$region_num == 1] <- 10 + (0 * grid_1$x1[grid_1$region_num == 1]) + (0 * grid_1$x2[grid_1$region_num == 1])
+grid_1$response[grid_1$region_num == 2] <- 00 + (2 * grid_1$x1[grid_1$region_num == 2]) + (0 * grid_1$x2[grid_1$region_num == 2])
+grid_1$response[grid_1$region_num == 3] <- 00 + (0 * grid_1$x1[grid_1$region_num == 3]) + (2 * grid_1$x2[grid_1$region_num == 3])
+grid_1$response[grid_1$region_num == 4] <- 00 + (2 * grid_1$x1[grid_1$region_num == 4]) + (2 * grid_1$x2[grid_1$region_num == 4])
+grid_1$response[grid_1$region_num == 5] <- 00 + (2 * grid_1$x1[grid_1$region_num == 5]) + (-2 * grid_1$x2[grid_1$region_num == 5])
+grid_1$response[grid_1$region_num == 6] <- 00 + (-2 * grid_1$x1[grid_1$region_num == 6]) + (2 * grid_1$x2[grid_1$region_num == 6])
+grid_1$response[grid_1$region_num == 7] <- 15 + (2 * grid_1$x1[grid_1$region_num == 7]) + (3 * grid_1$x2[grid_1$region_num == 7])
+grid_1$response[grid_1$region_num == 8] <- 8 + (2 * grid_1$x1[grid_1$region_num == 8]) + (-3 * grid_1$x2[grid_1$region_num == 8])
+grid_1$response[grid_1$region_num == 9] <- 00 + (2 * grid_1$x1[grid_1$region_num == 9]) + (2 * grid_1$x2[grid_1$region_num == 9])
+
+grid_1$response <- grid_1$response + rnorm(n = length(grid_1$response), mean = 0, sd = 10)
+```
+
+```{r plot_regions_5, echo=TRUE}
+ggplot2::ggplot(data = grid_1) +
+  geom_point(aes(x = x1, y = x2, color = response, pch = '.'))
+
+```
+
+
+```{r cubist_test_5_region_num, echo=TRUE}
+
+Cubist_region_num <- Cubist::cubist(x = grid_1[, c('x1', 'x2')], y = grid_1$response,
+                                    committees = 1,
+                                    control = Cubist::cubistControl(rules = 9))
+summary(Cubist_region_num)
+```
+
+
+
+```{r Cubist_test_6, echo=TRUE}
+# Create two features, x1 and x2
+x1 <- seq(from = 1, to = 90, by = 1)
+x2 <- seq(from = 10, to = 900, by = 10)
+
+grid_1 <- expand.grid(x1, x2) # Turn x1 and x2 into a grid
+colnames(grid_1) <- c("x1", "x2") # Rename columns
+
+grid_1$response <- 1 + ((2 * grid_1$x1) ^ 3)
+
+```
+
+```{r plot_regions_6, echo=TRUE}
+ggplot2::ggplot(data = grid_1) +
+  geom_point(aes(x = x1, y = x2, color = response, pch = '.'))
+
+```
+
+
+```{r cubist_test_6_region_num, echo=TRUE}
+
+Cubist_response_squared <- Cubist::cubist(x = grid_1[, c('x1', 'x2')], y = grid_1$response,
+                                          committees = 1,
+                                          control = Cubist::cubistControl(rules = 9))
+summary(Cubist_response_squared)
+
+plot(grid_1$x1, grid_1$response)
+#abline(v = c(10, 17, 28, 45, 56, 67, 78))
+```
+
+
+
+
 ```{r create_data, echo=TRUE}
 # Create two variables, x1 and x2
 
