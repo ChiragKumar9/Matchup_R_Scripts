@@ -337,9 +337,9 @@ rm(fun.dir, fun.file)
 
 # Load data
 # For 787
-linux_dir <- '~/Projects/Matchup_R_Scripts/Results/objects/'
+#linux_dir <- '~/Projects/Matchup_R_Scripts/Results/objects/'
 # For Laptop
-#linux_dir <- '~/Projects/Matchup_R_Scripts/'
+linux_dir <- '~/Projects/Matchup_R_Scripts/'
 linux_file <- 'MODIS_Aqua_GSFC_ALL_Class_6.4.1_ao_2017_04_12_with_ancillary.Rdata'
 AQUA_file <- paste0(linux_dir, linux_file)
 
@@ -401,12 +401,16 @@ orig <- dplyr::tbl_df(AQUA) %>%
 ```{r create_temp_SSES_dataframe, echo=TRUE}
 
 set.seed(108)
-index <- sample(1:nrow(uuu), 50000, replace = FALSE)
+index <- sample(1:nrow(orig), 50000, replace = FALSE)
 uuu <- orig[index, ]
 
 td_loess <- loess(td_estimate ~ x2, data = uuu, span = 0.4)
-orig$td_resid <- stats::predict(td_resid, newdata = orig$x2)
+orig$td_resid <- stats::predict(td_loess, newdata = orig$x2)
 
+# Remove NAs in td_resid because of domain restrictions in loess prediction
+orig <- dplyr::tbl_df(orig) %>%
+  dplyr::filter(!is.na(td_resid))
+  
 SSES_df_temp <- dplyr::tbl_df(orig) %>%
   dplyr::select(td_resid,
                 x2,
@@ -443,9 +447,8 @@ corrgram <- gplots::heatmap.2(cors_mat_f,
 
 ```{r correlogram_of_orig, echo=TRUE}
 # Take the correlation matrix
-eee <- orig[names(orig) != 'buoy.sst']
-cors_mat_o <- as.matrix(cor(eee))
-cors_df_o <- as.matrix(cor(eee))
+cors_mat_o <- as.matrix(cor(orig))
+cors_df_o <- as.matrix(cor(orig))
 
 # Format the data for the plot
 xval <- formatC(cors_mat_o, format = "f", digits = 2)
@@ -470,7 +473,7 @@ corrgram <- gplots::heatmap.2(cors_mat_o,
 # Take sample of orig
 len_samp <- 200000
 index <- sample(1:nrow(SSES_df_temp), len_samp, replace = FALSE)
-SSES_df_temp_samp <- SSES_df_temp[index]
+SSES_df_temp_samp <- SSES_df_temp[index, ]
 
 # Divide data into training and validation sets
 prop_train <- .7
@@ -482,6 +485,12 @@ SSES_df_temp_test <- SSES_df_temp_samp[-index, ]
 
 
 ```{r Cubist, echo=TRUE}
+# Statistics of train data
+cat('mean of train SST residuals: ')
+mean(SSES_df_temp_train$SST.resid.SMB)
+paste('sd of train SST residuals: ')
+sd(SSES_df_temp_train$SST.resid.SMB)
+
 Cubist_rules_expl <- Cubist::cubist(x = SSES_df_temp_train[, c('td_resid', 'x2', 'satz', 'ref_SST', 'lat', 'month', 'sd11')], y = SSES_df_temp$SST.resid.SMB,
                                     committees = 1,
                                     control = Cubist::cubistControl(rules = 28,
@@ -501,28 +510,47 @@ N_correction_neighbors <- 8 # Must be between 0 and 9
 
 Cubist_rules_train_vals <- stats::predict(object = Cubist_rules_expl, newdata = SSES_df_temp_train, na.action = na.pass, neighbors = N_correction_neighbors)
 
-### Test set
-Cubist_rules_test_vals <- stats::predict(object = Cubist_rules_expl, newdata = SSES_df_temp_test, na.action = na.pass, neighbors = N_correction_neighbors)
-
-
 ### Train set
+cat('TRAIN SET: ')
+cat('mean of residual predictions: ')
+mean(Cubist_rules_train_vals)
+cat('sd of residual predictions: ')
+sd(Cubist_rules_train_vals)
 RMSE_train_cubist <- caret::RMSE(Cubist_rules_train_vals, SSES_df_temp_train$SST.resid.SMB)
+cat('RMSE train: ')
 RMSE_train_cubist
 MAE_train_cubist <- mean(abs(Cubist_rules_train_vals - SSES_df_temp_train$SST.resid.SMB))
+cat('MAE train: ')
 MAE_train_cubist
+cat('IQR of model residuals: ')
 IQR(Cubist_rules_train_vals - SSES_df_temp_train$SST.resid.SMB)
+cat('median of model residuals: ')
 median(Cubist_rules_train_vals - SSES_df_temp_train$SST.resid.SMB)
+cat('Correlation of model predictions: ')
 cor(Cubist_rules_train_vals, SSES_df_temp_train$SST.resid.SMB)
+cat('Index of Agreement of model predictions: ')
 hydroGOF::d(Cubist_rules_train_vals, SSES_df_temp_train$SST.resid.SMB)
 
 ### Test set
+cat('TEST SET: ')
+cat('mean of residual predictions: ')
+mean(Cubist_rules_test_vals)
+cat('sd of residual predictions: ')
+sd(Cubist_rules_test_vals)
 RMSE_test_cubist <- caret::RMSE(Cubist_rules_test_vals, SSES_df_temp_train_test$SST.resid.SMB)
+cat('RMSE test: ')
 RMSE_test_cubist
 MAE_test_cubist <- mean(abs(Cubist_rules_test_vals - SSES_df_temp_train_test$SST.resid.SMB))
+cat('MAE test: ')
 MAE_test_cubist
+cat('IQR of model residuals: ')
 IQR(Cubist_rules_test_vals - SSES_df_temp_train_test$SST.resid.SMB)
+cat('median of model residuals: ')
 median(Cubist_rules_test_vals - SSES_df_temp_train_test$SST.resid.SMB)
+cat('Correlation of model predictions')
 cor(Cubist_rules_test_vals, SSES_df_temp_train_test$SST.resid.SMB)
+cat('Index of Agreement of model predictions')
+hydroGOF::d(Cubist_rules_test_vals, SSES_df_temp_train$SST.resid.SMB)
 
 # Plot
 ccc <- RColorBrewer::brewer.pal(n = 9, 'YlOrRd')
