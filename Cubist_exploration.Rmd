@@ -392,9 +392,10 @@ orig <- dplyr::tbl_df(AQUA) %>%
     td_estimate = cen.ref.type.1.SST - cen.11000,
     cen.sst = cen.sst,
     pseudo.resid.SMR = cen.sst - cen.ref.type.1.SST,
+    td_actual = T_11 - buoy.sst,
     SST.resid.SMB = cen.sst - (buoy.sst - 0.17)) %>% # SMB = sat minus buoy - also debias buoy.sst by turning buoy.sst into a skin measurement
   dplyr::select(T_11, T_12, band.diff, ref_SST, x2, x3, satz, lon, lat, month, sd11, sd12, range11, range12, diff.med.min11, diff.med.min12,
-    qsst, buoy.sst, cell5deg, cen.sst, td_estimate, SST.resid.SMB)
+    qsst, buoy.sst, cell5deg, cen.sst, td_estimate, td_actual, SST.resid.SMB)
 
 ```
 
@@ -405,7 +406,12 @@ index <- sample(1:nrow(uuu), 50000, replace = FALSE)
 uuu <- orig[index, ]
 
 td_loess <- loess(td_estimate ~ x2, data = uuu, span = 0.4)
-orig$td_resid <- stats::predict(td_resid, newdata = orig$x2)
+orig$td_resid <- stats::predict(td_loess, newdata = orig$x2)
+
+# Some td_resid may be NA because of domain restrictions on loess - filter them out
+orig <- dplyr::tbl_df(orig) %>%
+  dplyr::filter(!is.na(td_resid))
+orig <- as.data.frame(orig)
 
 SSES_df_temp <- dplyr::tbl_df(orig) %>%
   dplyr::select(td_resid,
@@ -415,7 +421,10 @@ SSES_df_temp <- dplyr::tbl_df(orig) %>%
                 ref_SST,
                 lat,
                 month,
+                td_estimate,
                 SST.resid.SMB)
+
+
 ```
 
 ```{r correlogram_of_features, echo=TRUE}
@@ -443,9 +452,8 @@ corrgram <- gplots::heatmap.2(cors_mat_f,
 
 ```{r correlogram_of_orig, echo=TRUE}
 # Take the correlation matrix
-eee <- orig[names(orig) != 'buoy.sst']
-cors_mat_o <- as.matrix(cor(eee))
-cors_df_o <- as.matrix(cor(eee))
+cors_mat_o <- as.matrix(cor(orig))
+cors_df_o <- as.matrix(cor(orig))
 
 # Format the data for the plot
 xval <- formatC(cors_mat_o, format = "f", digits = 2)
@@ -470,7 +478,7 @@ corrgram <- gplots::heatmap.2(cors_mat_o,
 # Take sample of orig
 len_samp <- 200000
 index <- sample(1:nrow(SSES_df_temp), len_samp, replace = FALSE)
-SSES_df_temp_samp <- SSES_df_temp[index]
+SSES_df_temp_samp <- SSES_df_temp[index, ]
 
 # Divide data into training and validation sets
 prop_train <- .7
