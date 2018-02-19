@@ -282,8 +282,8 @@ uuu <- data.frame(temp_deficit_est = temp_deficit_est, product = (orig$band.diff
 
 # Take a sample of uuu bc loess requires lots of memory - for testing purposes
 set.seed(108)
-#index <- sample(1:nrow(uuu), 100000, replace = FALSE)
-#uuu <- uuu[index, ]
+index <- sample(1:nrow(uuu), 100000, replace = FALSE)
+uuu <- uuu[index, ]
 
 # --- Create a raster object with 5-degree pixels
 
@@ -696,9 +696,9 @@ ggplot2::ggplot(data = yyy, aes(X, Y, fill = cut(..count.., c(0, 10, 25, 50, 100
   geom_bin2d(bins = 75) +
   scale_fill_manual(values = ccc, '# of Retrievals') +
   geom_abline(slope = 1, intercept = 0, color = 'black') +
-  labs(x = 'Actual Residual (deg C)', y = 'Predicted Residual (deg C)') +
-  ggsave('Cubist_predictions_vs_actual_residual_2d_histogram.pdf', device = 'pdf', width = 8, height = 6, units = 'in') + 
-  ggsave('Cubist_predictions_vs_actual_residual_2d_histogram.png', device = 'png', width = 8, height = 6, units = 'in')
+  labs(x = 'Actual Residual (deg C)', y = 'Predicted Residual (deg C)')
+  #ggsave('Cubist_predictions_vs_actual_residual_2d_histogram.pdf', device = 'pdf', width = 8, height = 6, units = 'in') + 
+  #ggsave('Cubist_predictions_vs_actual_residual_2d_histogram.png', device = 'png', width = 8, height = 6, units = 'in')
 
 residual_fit_cubist <- lm(Y ~ X, data = yyy)
 residual_fit_cubist

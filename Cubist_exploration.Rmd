@@ -393,9 +393,17 @@ orig <- dplyr::tbl_df(AQUA) %>%
     cen.sst = cen.sst,
     pseudo.resid.SMR = cen.sst - cen.ref.type.1.SST,
     td_actual = T_11 - buoy.sst,
+    abs_satz = abs(satz),
     SST.resid.SMB = cen.sst - (buoy.sst - 0.17)) %>% # SMB = sat minus buoy - also debias buoy.sst by turning buoy.sst into a skin measurement
   dplyr::select(T_11, T_12, band.diff, ref_SST, x2, x3, satz, lon, lat, month, sd11, sd12, range11, range12, diff.med.min11, diff.med.min12,
     qsst, buoy.sst, cell5deg, cen.sst, td_estimate, td_actual, SST.resid.SMB)
+
+orig <- orig %>% 
+  dplyr::mutate(N34 = ifelse(lat >= -5 & lat <= 5 & lon >= -170 & lon <= -120, TRUE, FALSE))
+
+orig2 <- orig %>%
+  dplyr::filter(N34 == TRUE) %>%
+  dplyr::select(td_estimate, x2, abs_satz, sd11, ref_SST, lat, month, SST.resid.SMB)
 
 ```
 
@@ -405,8 +413,8 @@ set.seed(108)
 index <- sample(1:nrow(orig), 50000, replace = FALSE)
 uuu <- orig[index, ]
 
-td_loess <- loess(td_estimate ~ x2, data = uuu, span = 0.4)
-orig$td_resid <- stats::predict(td_loess, newdata = orig$x2)
+td_loess <- loess(td_actual ~ x2, data = uuu, span = 0.4)
+orig$td_resid <- orig$td_estimate - stats::predict(td_loess, newdata = orig$x2)
 
 # Some td_resid may be NA because of domain restrictions on loess - filter them out
 orig <- dplyr::tbl_df(orig) %>%
@@ -422,9 +430,11 @@ SSES_df_temp <- dplyr::tbl_df(orig) %>%
                 lat,
                 month,
                 td_estimate,
+                cen.sst,
                 SST.resid.SMB)
 
-
+SSES_df_temp <- as.data.frame(SSES_df_temp)
+SSES_df_temp$abs_satz <- abs(SSES_df_temp$satz)
 ```
 
 ```{r correlogram_of_features, echo=TRUE}
@@ -475,8 +485,8 @@ corrgram <- gplots::heatmap.2(cors_mat_o,
 ## Cubist Exploration
 
 ```{r create_train_test_sets, echo=TRUE}
-# Take sample of orig
-len_samp <- 200000
+# Take sample of SSES_df_temp
+len_samp <- 800000
 index <- sample(1:nrow(SSES_df_temp), len_samp, replace = FALSE)
 SSES_df_temp_samp <- SSES_df_temp[index, ]
 
@@ -493,17 +503,17 @@ SSES_df_temp_test <- SSES_df_temp_samp[-index, ]
 # Statistics of train data
 cat('mean of train SST residuals: ')
 mean(SSES_df_temp_train$SST.resid.SMB)
-paste('sd of train SST residuals: ')
+cat('sd of train SST residuals: ')
 sd(SSES_df_temp_train$SST.resid.SMB)
 
-Cubist_rules_expl <- Cubist::cubist(x = SSES_df_temp_train[, c('td_resid', 'x2', 'satz', 'ref_SST', 'lat', 'month', 'sd11')], y = SSES_df_temp$SST.resid.SMB,
+Cubist_rules_expl <- Cubist::cubist(x = SSES_df_temp_train[, c('td_resid', 'x2', 'satz', 'ref_SST', 'lat', 'month', 'sd11')], y = SSES_df_temp_train$SST.resid.SMB,
                                     committees = 1,
                                     control = Cubist::cubistControl(rules = 28,
                                                                     unbiased = FALSE,
                                                                     extrapolation = 100,
                                                                     label = 'SST Residual',
                                                                     seed = 108))
-Cubist_rules_explr
+Cubist_rules_expl
 
 dotplot(Cubist_rules_expl, what = 'splits')
 dotplot(Cubist_rules_expl, what = 'coefs')
@@ -514,6 +524,7 @@ dotplot(Cubist_rules_expl, what = 'coefs')
 N_correction_neighbors <- 8 # Must be between 0 and 9
 
 Cubist_rules_train_vals <- stats::predict(object = Cubist_rules_expl, newdata = SSES_df_temp_train, na.action = na.pass, neighbors = N_correction_neighbors)
+Cubist_rules_test_vals <- stats::predict(object = Cubist_rules_expl, newdata = SSES_df_temp_test, na.action = na.pass, neighbors = N_correction_neighbors)
 
 ### Train set
 cat('TRAIN SET: ')
@@ -542,27 +553,27 @@ cat('mean of residual predictions: ')
 mean(Cubist_rules_test_vals)
 cat('sd of residual predictions: ')
 sd(Cubist_rules_test_vals)
-RMSE_test_cubist <- caret::RMSE(Cubist_rules_test_vals, SSES_df_temp_train_test$SST.resid.SMB)
+RMSE_test_cubist <- caret::RMSE(Cubist_rules_test_vals, SSES_df_temp_test$SST.resid.SMB)
 cat('RMSE test: ')
 RMSE_test_cubist
-MAE_test_cubist <- mean(abs(Cubist_rules_test_vals - SSES_df_temp_train_test$SST.resid.SMB))
+MAE_test_cubist <- mean(abs(Cubist_rules_test_vals - SSES_df_temp_test$SST.resid.SMB))
 cat('MAE test: ')
 MAE_test_cubist
 cat('IQR of model residuals: ')
-IQR(Cubist_rules_test_vals - SSES_df_temp_train_test$SST.resid.SMB)
+IQR(Cubist_rules_test_vals - SSES_df_temp_test$SST.resid.SMB)
 cat('median of model residuals: ')
-median(Cubist_rules_test_vals - SSES_df_temp_train_test$SST.resid.SMB)
+median(Cubist_rules_test_vals - SSES_df_temp_test$SST.resid.SMB)
 cat('Correlation of model predictions')
-cor(Cubist_rules_test_vals, SSES_df_temp_train_test$SST.resid.SMB)
+cor(Cubist_rules_test_vals, SSES_df_temp_test$SST.resid.SMB)
 cat('Index of Agreement of model predictions')
-hydroGOF::d(Cubist_rules_test_vals, SSES_df_temp_train$SST.resid.SMB)
+hydroGOF::d(Cubist_rules_test_vals, SSES_df_temp_test$SST.resid.SMB)
 
 # Plot
 ccc <- RColorBrewer::brewer.pal(n = 9, 'YlOrRd')
 ccc <- ccc[3:9]
 breaks <- c(0, 10, 25, 50, 100, 500, 1000, 2500, 5000, 10000, Inf)
 
-yyy <- data.frame(Y = Cubist_rules_test_vals, X = SSES_df_temp_train_test$SST.resid.SMB)
+yyy <- data.frame(Y = Cubist_rules_test_vals, X = SSES_df_temp_test$SST.resid.SMB)
 
 ccc <- colorRampPalette(ccc)(length(breaks) - 1)
 
@@ -570,9 +581,7 @@ ggplot2::ggplot(data = yyy, aes(X, Y, fill = cut(..count.., c(0, 10, 25, 50, 100
   geom_bin2d(bins = 75) +
   scale_fill_manual(values = ccc, '# of Retrievals') +
   geom_abline(slope = 1, intercept = 0, color = 'black') +
-  labs(x = 'Actual Residual (deg C)', y = 'Predicted Residual (deg C)') +
-  ggsave('Cubist_predictions_vs_actual_residual_2d_histogram.pdf', device = 'pdf', width = 8, height = 6, units = 'in') + 
-  ggsave('Cubist_predictions_vs_actual_residual_2d_histogram.png', device = 'png', width = 8, height = 6, units = 'in')
+  labs(x = 'Actual Residual (deg C)', y = 'Predicted Residual (deg C)')
 
 residual_fit_cubist <- lm(Y ~ X, data = yyy)
 residual_fit_cubist
