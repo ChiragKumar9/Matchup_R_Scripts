@@ -319,6 +319,27 @@ ggplot <- function(...) {ggplot2::ggplot(...) + theme_bw()}
 # Define secant function
 secant.deg <- function(x) {1 / (cos(circular::rad(x)))}
 
+
+# Measures of accuracy/error function
+regression_error_stats <- function(predicted, observed) {
+  # Compute the error measures
+  R_cor <- cor(predicted, observed)
+  RMSE <- caret::RMSE(Cubist_rules_train_vals, SSES_df_train$SST.resid.SMB)
+  MAE <- hydroGOF::mae(Cubist_rules_train_vals, SSES_df_train$SST.resid.SMB)
+  d_willmott <- hydroGOF::d(Cubist_rules_train_vals, SSES_df_train$SST.resid.SMB)
+  NSE_efficiency <- hydroGOF::NSE(Cubist_rules_train_vals, SSES_df_train$SST.resid.SMB)
+  ratio_sds <- hydroGOF::rSD(Cubist_rules_train_vals, SSES_df_train$SST.resid.SMB)
+    
+  # Turn all the error stats into one dataframe to return
+  error_stats <- c(R_cor, RMSE, MAE, d_willmott, NSE_efficiency, ratio_sds)
+  error_stats <- as.data.frame(error_stats)
+  error_stats <- t(error_stats)
+  rownames(error_stats) <- 'Stats'
+  colnames(error_stats) <- c('R', 'RMSE', 'MAE', 'd', 'NSE', 'ratio_SDs')
+    
+  return(error_stats)
+}
+
 # Source own functions
 # Define direwctory where functions are for each operating system
 
@@ -534,7 +555,6 @@ SSES_df_test <- SSES_df_temp_N34[-index, ]
 
 Statistics of the residuals (i.e., what Cubist will try to predict)
 ```{r statistics_of_residuals, echo=TRUE}
-cat('Summary statistics of train residuals: ')
 summary(SSES_df_train$SST.resid.SMB)
 cat('SD of train residuals: ')
 sd(SSES_df_train$SST.resid.SMB)
@@ -546,10 +566,10 @@ Cubist_rules_expl <- Cubist::cubist(x = SSES_df_train[, c('td_resid',
                                                           'x2',
                                                           'satz',
                                                           'ref_SST',
-                                                          'lat',
-                                                          'month',
+                                                          #'lat',
+                                                          #'month',
                                                           'sd11')],
-                                    y = SSES_df_temp_train$SST.resid.SMB,
+                                    y = SSES_df_train$SST.resid.SMB,
                                     committees = 1,
                                     control = Cubist::cubistControl(rules = 28,
                                                                     unbiased = FALSE,
@@ -563,7 +583,7 @@ To evaluate the model, we (1) print it out, (2) spit out the diagnostic plots, (
 and actual residuals with the associated regression model, and (4) print out all the pertinent error statistics.
 
 ```{r Cubist_tree_print_out, echo=TRUE}
-Cubist_rules_expl
+summary(Cubist_rules_expl)
 ```
 
 ```{r diagnostic_plots, echo=TRUE}
@@ -578,13 +598,13 @@ N_correction_neighbors <- 8 # Must be between 0 and 9
 
 # Train set
 Cubist_rules_train_vals <- stats::predict(object = Cubist_rules_expl,
-                                          newdata = SSES_df_temp_train,
+                                          newdata = SSES_df_train,
                                           na.action = na.pass,
                                           neighbors = N_correction_neighbors)
 
 # Test set
 Cubist_rules_test_vals <- stats::predict(object = Cubist_rules_expl,
-                                         newdata = SSES_df_temp_test,
+                                         newdata = SSES_df_test,
                                          na.action = na.pass,
                                          neighbors = N_correction_neighbors)
 
@@ -593,7 +613,7 @@ ccc <- RColorBrewer::brewer.pal(n = 9, 'YlOrRd')
 ccc <- ccc[3:9]
 breaks <- c(0, 10, 25, 50, 100, 500, 1000, 2500, 5000, 10000, Inf)
 
-yyy <- data.frame(Y = Cubist_rules_test_vals, X = SSES_df_temp_test$SST.resid.SMB)
+yyy <- data.frame(Y = Cubist_rules_test_vals, X = SSES_df_test$SST.resid.SMB)
 
 ccc <- colorRampPalette(ccc)(length(breaks) - 1)
 
@@ -608,48 +628,42 @@ residual_fit_cubist
 ```
 
 
-```{r statistics_for_model_evaluation, echo=TRUE}
-### Train set
-cat('TRAIN SET: ')
-cat('mean of residual predictions: ')
-mean(Cubist_rules_train_vals)
-cat('sd of residual predictions: ')
-sd(Cubist_rules_train_vals)
-RMSE_train_cubist <- caret::RMSE(Cubist_rules_train_vals, SSES_df_temp_train$SST.resid.SMB)
-cat('RMSE train: ')
-RMSE_train_cubist
-MAE_train_cubist <- mean(abs(Cubist_rules_train_vals - SSES_df_temp_train$SST.resid.SMB))
-cat('MAE train: ')
-MAE_train_cubist
-cat('IQR of model residuals: ')
-IQR(Cubist_rules_train_vals - SSES_df_temp_train$SST.resid.SMB)
-cat('median of model residuals: ')
-median(Cubist_rules_train_vals - SSES_df_temp_train$SST.resid.SMB)
-cat('Correlation of model predictions: ')
-cor(Cubist_rules_train_vals, SSES_df_temp_train$SST.resid.SMB)
-cat('Index of Agreement of model predictions: ')
-hydroGOF::d(Cubist_rules_train_vals, SSES_df_temp_train$SST.resid.SMB)
+The statistics here are suggestions from Willmott 1995...
 
-### Test set
-cat('TEST SET: ')
-cat('mean of residual predictions: ')
-mean(Cubist_rules_test_vals)
-cat('sd of residual predictions: ')
+```{r statistics_for_model_evaluation_train_set, echo=TRUE}
+# 1-D Statistics
+# Just of Predictions
+summary(Cubist_rules_train_vals)
+sd(Cubist_rules_train_vals)
+
+train_model_resids <- Cubist_rules_train_vals - SSES_df_train$SST.resid.SMB
+
+# 2-D Statistics
+# Base statistics summary of Train Model Residuals
+summary(train_model_resids)
+sd(train_model_resids)
+
+# Measures of error/accuracy
+regression_error_stats(Cubist_rules_train_vals, SSES_df_train$SST.resid.SMB)
+
+```
+
+
+```{r statistics_for_model_evaluation_test_set, echo=TRUE}
+# 1-D Statistics
+# Just of Predictions
+summary(Cubist_rules_test_vals)
 sd(Cubist_rules_test_vals)
-RMSE_test_cubist <- caret::RMSE(Cubist_rules_test_vals, SSES_df_temp_test$SST.resid.SMB)
-cat('RMSE test: ')
-RMSE_test_cubist
-MAE_test_cubist <- mean(abs(Cubist_rules_test_vals - SSES_df_temp_test$SST.resid.SMB))
-cat('MAE test: ')
-MAE_test_cubist
-cat('IQR of model residuals: ')
-IQR(Cubist_rules_test_vals - SSES_df_temp_test$SST.resid.SMB)
-cat('median of model residuals: ')
-median(Cubist_rules_test_vals - SSES_df_temp_test$SST.resid.SMB)
-cat('Correlation of model predictions')
-cor(Cubist_rules_test_vals, SSES_df_temp_test$SST.resid.SMB)
-cat('Index of Agreement of model predictions')
-hydroGOF::d(Cubist_rules_test_vals, SSES_df_temp_test$SST.resid.SMB)
+
+test_model_resids <- Cubist_rules_test_vals - SSES_df_test$SST.resid.SMB
+
+# 2-D Statistics
+# Base statistics summary of Train Model Residuals
+summary(test_model_resids)
+sd(test_model_resids)
+
+# Measures of error/accuracy
+regression_error_stats(Cubist_rules_test_vals, SSES_df_test$SST.resid.SMB)
 
 ```
 
