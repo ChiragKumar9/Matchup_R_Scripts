@@ -6,9 +6,12 @@ output:
     toc: True
     theme: united
 ---
+We try to gain a better understanding of how Cubist works.
+First we explore giving the Cubist algorithm various synethic datasets and see how it performs.
+We then expand our exploration to actual MODIS data where we aim to better understand our feature
+set and how the Cubist algorithm is behaving.
 
-
-```{r prep_workspace, echo=TRUE}
+```{r prep_workspace, include=FALSE}
 require(ggplot2)
 require(dplyr)
 require(Cubist)
@@ -16,7 +19,7 @@ require(caret)
 set.seed(108)
 ```
 
-# Cubist Exploration with Simulated Data
+# Cubist Exploration with Synthetic Data
 
 ```{r Cubist_test_1, echo=TRUE}
 # Create two features, x1 and x2
@@ -126,7 +129,7 @@ ggplot2::ggplot(data = grid_1) +
 ```
 
 
-```{r cubist_test_3_region_num, echo=TRUE}
+```{r cubist_test_3_response, echo=TRUE}
 
 Cubist_region_num <- Cubist::cubist(x = grid_1[, c('x1', 'x2')], y = grid_1$noise_res,
                                     committees = 1,
@@ -142,8 +145,6 @@ Cubist_explore_noise <- data.frame(x1 = grid_1$x1,
                                    pred_noise_res = Cubist_predict_noise_res,
                                    resid = grid_1$noise_res - Cubist_predict_noise_res)
 ```
-
-
 
 
 ```{r Cubist_test_4, echo=TRUE}
@@ -191,14 +192,13 @@ ggplot2::ggplot(data = grid_1) +
 ```
 
 
-```{r cubist_test_4_region_num, echo=TRUE}
+```{r cubist_test_4_response, echo=TRUE}
 
 Cubist_region_num <- Cubist::cubist(x = grid_1[, c('x1', 'x2')], y = grid_1$response,
                                     committees = 1,
                                     control = Cubist::cubistControl(rules = 9))
 summary(Cubist_region_num)
 ```
-
 
 
 ```{r Cubist_test_5, echo=TRUE}
@@ -248,7 +248,7 @@ ggplot2::ggplot(data = grid_1) +
 ```
 
 
-```{r cubist_test_5_region_num, echo=TRUE}
+```{r cubist_test_5_response, echo=TRUE}
 
 Cubist_region_num <- Cubist::cubist(x = grid_1[, c('x1', 'x2')], y = grid_1$response,
                                     committees = 1,
@@ -277,7 +277,7 @@ ggplot2::ggplot(data = grid_1) +
 ```
 
 
-```{r cubist_test_6_region_num, echo=TRUE}
+```{r cubist_test_6_response, echo=TRUE}
 
 Cubist_response_squared <- Cubist::cubist(x = grid_1[, c('x1', 'x2')], y = grid_1$response,
                                           committees = 1,
@@ -337,9 +337,9 @@ rm(fun.dir, fun.file)
 
 # Load data
 # For 787
-linux_dir <- '~/Projects/Matchup_R_Scripts/Results/objects/'
+#linux_dir <- '~/Projects/Matchup_R_Scripts/Results/objects/'
 # For Laptop
-#linux_dir <- '~/Projects/Matchup_R_Scripts/'
+linux_dir <- '~/Projects/Matchup_R_Scripts/'
 linux_file <- 'MODIS_Aqua_GSFC_ALL_Class_6.4.1_ao_2017_04_12_with_ancillary.Rdata'
 AQUA_file <- paste0(linux_dir, linux_file)
 
@@ -395,15 +395,14 @@ orig <- dplyr::tbl_df(AQUA) %>%
     td_actual = T_11 - buoy.sst,
     abs_satz = abs(satz),
     SST.resid.SMB = cen.sst - (buoy.sst - 0.17)) %>% # SMB = sat minus buoy - also debias buoy.sst by turning buoy.sst into a skin measurement
-  dplyr::select(T_11, T_12, band.diff, ref_SST, x2, x3, satz, lon, lat, month, sd11, sd12, range11, range12, diff.med.min11, diff.med.min12,
+  dplyr::select(T_11, T_12, band.diff, ref_SST, x2, x3, satz, abs_satz, lon, lat, month, sd11, sd12, range11, range12, diff.med.min11, diff.med.min12,
     qsst, buoy.sst, cell5deg, cen.sst, td_estimate, td_actual, SST.resid.SMB)
 
 orig <- orig %>% 
   dplyr::mutate(N34 = ifelse(lat >= -5 & lat <= 5 & lon >= -170 & lon <= -120, TRUE, FALSE))
 
 orig2 <- orig %>%
-  dplyr::filter(N34 == TRUE) %>%
-  dplyr::select(td_estimate, x2, abs_satz, sd11, ref_SST, lat, month, SST.resid.SMB)
+  dplyr::filter(N34 == TRUE)
 
 ```
 
@@ -425,6 +424,7 @@ SSES_df_temp <- dplyr::tbl_df(orig) %>%
   dplyr::select(td_resid,
                 x2,
                 satz,
+                abs_satz,
                 sd11,
                 ref_SST,
                 lat,
@@ -433,10 +433,22 @@ SSES_df_temp <- dplyr::tbl_df(orig) %>%
                 cen.sst,
                 SST.resid.SMB)
 
-SSES_df_temp <- as.data.frame(SSES_df_temp)
-SSES_df_temp$abs_satz <- abs(SSES_df_temp$satz)
+SSES_df_temp_N34 <- dplyr::tbl_df(orig2) %>%
+  dplyr::select(td_resid,
+                x2,
+                satz,
+                abs_satz,
+                sd11,
+                ref_SST,
+                lat,
+                month,
+                td_estimate,
+                cen.sst,
+                SST.resid.SMB)
+
 ```
 
+### Correlograms
 ```{r correlogram_of_features, echo=TRUE}
 # Take the correlation matrix
 cors_mat_f <- as.matrix(cor(SSES_df_temp))
@@ -448,6 +460,28 @@ pal <- colorRampPalette(c(rgb(0.96,0.96,1), rgb(0.1,0.1,0.9)), space = "rgb")
 
  # Plot the matrix
 corrgram <- gplots::heatmap.2(cors_mat_f,
+                              Rowv = FALSE, Colv = FALSE,
+                              dendrogram = "none",
+                              main = "Correlogram",
+                              xlab = "Columns", ylab = "Rows",
+                              col = pal,
+                              tracecol = "#303030", trace = "none",
+                              cellnote = xval, notecol = "black", notecex = 0.8,
+                              keysize = 1.5, margins = c(5, 5))
+
+```
+
+```{r correlogram_of_features_N34, echo=TRUE}
+# Take the correlation matrix
+cors_mat_f_N34 <- as.matrix(cor(SSES_df_temp_N34))
+cors_df_f_N34 <- as.matrix(cor(SSES_df_temp_N34))
+
+# Format the data for the plot
+xval <- formatC(cors_mat_f_N34, format = "f", digits = 2)
+pal <- colorRampPalette(c(rgb(0.96,0.96,1), rgb(0.1,0.1,0.9)), space = "rgb")
+
+ # Plot the matrix
+corrgram <- gplots::heatmap.2(cors_mat_f_N34,
                               Rowv = FALSE, Colv = FALSE,
                               dendrogram = "none",
                               main = "Correlogram",
@@ -483,7 +517,6 @@ corrgram <- gplots::heatmap.2(cors_mat_o,
 ```
 
 ## Cubist Exploration
-
 ```{r create_train_test_sets, echo=TRUE}
 # Take sample of SSES_df_temp
 len_samp <- 800000
