@@ -104,8 +104,11 @@ orig <- dplyr::tbl_df(AQUA) %>%
     ref_SST = cen.ref.type.1.SST,
     x2 = band.diff * ref_SST,
     x3 = ((secant.deg(satz) - 1) * band.diff),
+    abs_satz = abs(satz),
+    sec_satz = secant.deg(satz),
     lat = buoy.lat,
     lon = buoy.lon,
+    month = lubridate::month(as.POSIXct(orig$buoy.timedate)),
     sd11 = sd.11000,
     sd12 = sd.12000,
     range11 = max.11000 - min.11000,
@@ -118,105 +121,12 @@ orig <- dplyr::tbl_df(AQUA) %>%
     buoy.timedate = buoy.timedate,
     cen.sst = cen.sst,
     pseudo.resid.SMR = cen.sst - cen.ref.type.1.SST,
+    td_estimate <- ref_SST - T_11,
     SST.resid.SMB = cen.sst - (buoy.sst - 0.17)) %>% # SMB = sat minus buoy - also debias buoy.sst by turning buoy.sst into a skin measurement
-  dplyr::select(T_11, T_12, band.diff, ref_SST, x2, x3, satz, lon, lat, sd11, sd12, range11, range12, diff.med.min11, diff.med.min12,
-    qsst, buoy.sst, cell5deg, cen.sst, pseudo.resid.SMR, buoy.timedate, SST.resid.SMB)
+  dplyr::select(T_11, T_12, band.diff, ref_SST, x2, x3, satz, abs_satz, sec_satz, lon, lat, sd11, sd12, range11, range12, diff.med.min11,
+                diff.med.min12, qsst, buoy.sst, cell5deg, cen.sst, buoy.timedate, pseudo.resid.SMR, td_estimate, SST.resid.SMB)
 
 ```
-
-
-```{r median_by_location_raster, echo=TRUE}
-# --- These numbers may help perform statistics for the matchups
-# --- (e.g., number of matchups per cell, etc.).
-
-# --- Create a raster object with 5-degree pixels
-
-crs.string <- "+proj=longlat +datum=WGS84 +no_defs +ellps=WGS84 +towgs84=0,0,0"
-
-grid5deg <- raster::raster(ncol = 72, nrow = 36,
-  xmn = -180, xmx = 180,
-  ymn = -90, ymx = 90,
-  crs = crs.string)
-
-# --- Write cell numbers as value for the grids.
-# --- Cell 1 is the upper left corner and numbers go
-# --- across the top line through its end, then
-# --- start again in the second line, and so forth.
-
-raster::values(grid5deg) <- 1:raster::ncell(grid5deg) # Cell numbers for 5 deg grid
-
-raster::cellFromRowCol(object = grid5deg, rownr = 2, colnr = 72)
-
-raster::xyFromCell(object =  grid5deg, cell = (72 * 36), spatial = FALSE)
-
-qqq <- dplyr::tbl_df(orig) %>%
-  dplyr::group_by(cell5deg) %>%
-  dplyr::summarise(N = n(), med = median(SST.resid.SMB), IQR = IQR(SST.resid.SMB))
-
-qq1 <- rep(NA, (72 * 36))
-qq1[qqq$cell5deg] <- qqq$med
-
-raster::values(grid5deg) <- qq1
-
-blues_palette <- rev(RColorBrewer::brewer.pal(9, 'Blues'))
-blues_palette <- blues_palette[3:9]
-blues_palette <- colorRampPalette(blues_palette)(17)
-reds_palette <- RColorBrewer::brewer.pal(9, 'Reds')
-reds_palette <- reds_palette[3:9]
-reds_palette <- colorRampPalette(reds_palette)(17)
-
-# '#f0f0f0' --- white
-
-palette <- c(blues_palette, reds_palette)
-
-p <- rasterVis::levelplot(grid5deg, margin = FALSE,
-  at = c(-Inf, seq(-4, 4, 0.25), Inf), # For med
-  #at = c(1, 500, 1000, 2000, 5000, 10000, 15000, Inf), # For N
-  col.regions = palette)
-
-world.map <- rgdal::readOGR("/home/ckk/Projects/Matchup_R_Scripts", layer = "ne_110m_land", verbose = TRUE)
-
-p <- p + layer(sp.lines(world.map, lwd = .75, fill = 'grey70', col = 'yellow'))
-
-p
-
-```
-
-
-
-
-
-```{r}
-cutoff <- Inf
-
-orig_out <- dplyr::tbl_df(orig) %>%
-  dplyr::filter(pseudo.resid.SMR > cutoff)
-    
-orig <- dplyr::tbl_df(orig) %>%
-  dplyr::filter(pseudo.resid.SMR <= cutoff)
-
-orig <- as.data.frame(orig)
-cutoff_filtered <- cutoff
-
-```
-
-```{r}
-cutoff <- Inf
-
-if (cutoff_filtered != cutoff) {
-  orig_whole <- rbind(orig, orig_out)
-  
-  orig_out <- dplyr::tbl_df(orig) %>%
-    dplyr::filter(pseudo.resid.SMR > cutoff)
-  
-  orig <- dplyr::tbl_df(orig_whole) %>%
-    dplyr::filter(pseudo.resid.SMR <= cutoff)
-  
-  cutoff_filtered <- cutoff
-}
-
-```
-
 
 # SST and Residuals
 
@@ -517,24 +427,14 @@ the machine learning model. We create estimates of the temperature deficit using
 minus T_11 (T_12).
 
 ```{r create_additional_variables, echo=TRUE}
-# Month
-orig$month <- lubridate::month(as.POSIXct(orig$buoy.timedate))
-
-# Secant of the satz
-orig$sec_satz <- secant.deg(orig$satz)
-
-# Temperature Deficit Estimate
-orig$ref_SST_minus_T_11 <- orig$ref_SST - orig$T_11
-
 # Linearized temperature deficit estimate as a function of NLSST product
-orig$td_resid <- orig$ref_SST_minus_T_11 - predict(td_loess, newdata = orig$x2)
+orig$td_resid <- orig$td_estimate - predict(td_loess, newdata = orig$x2)
 
 # Loess can only interpolate
 # Those values of x2 that are outside the domain get put in as NA
 # Remove those
 orig <- dplyr::tbl_df(orig) %>%
   dplyr::filter(!is.na(td_resid))
-
 
 orig <- as.data.frame(orig)
 
@@ -556,7 +456,7 @@ orig_test <- orig[-index, ]
 ```
 
 
-### Regression
+## Regression Trees
 
 ```{r ctree_big_4_variable_tree_regr, echo=TRUE}
 
@@ -613,7 +513,6 @@ IQR(dt_model_residuals_test)
 
 ```
 
-
 ```{r explore_regression_ctree}
 ctree_big_4_var_tree_train_nodes <- stats::predict(object = ctree_big_4_var_tree_regr, newdata = orig_train, type = 'node', na.action = na.pass)
 
@@ -630,7 +529,7 @@ ggplot2::ggplot(data = node_predictions_ctree) +
 ```
 
 
-## Cubist
+## Cubist Regression Models
 
 ```{r Cubist, echo=TRUE}
 Cubist_rules <- Cubist::cubist(x = orig_train[, c('td_resid', 'x2', 'satz', 'ref_SST', 'lat', 'month', 'sd11')], y = orig_train$SST.resid.SMB,
@@ -682,8 +581,6 @@ ggplot2::ggplot() +
   labs(x = 'Predicted Residual from the Cubist Decision Tree Regression Algorithm', y = 'Actual Residual')
   #ggsave('M5P_predictions_vs_actual_residual.svg', device = 'svg', width = 8, height = 6, units = 'in')
 
-
-
 ccc <- RColorBrewer::brewer.pal(n = 9, 'YlOrRd')
 ccc <- ccc[3:9]
 breaks <- c(0, 10, 25, 50, 100, 500, 1000, 2500, 5000, 10000, Inf)
@@ -704,7 +601,6 @@ residual_fit_cubist <- lm(Y ~ X, data = yyy)
 residual_fit_cubist
 
 ```
-
 ```{r grid_search_for_committees_and_rules, echo = TRUE}
 set.seed(108)
 too_small <- FALSE
@@ -801,6 +697,7 @@ for (N in 1:nrow(ctrl_params_performance)) {
 
 ```
 
+### Exploring and Evaluating the Cubist Regression
 ```{r evaluate_Cubist_regression_statistically, echo=TRUE}
 
 window <- .2
@@ -883,19 +780,7 @@ orig_b$rule_numb[is.na(orig_b$rule_numb) & orig_b$x2 > 57.63554 & orig_b$satz > 
 orig_b$rule_numb[is.na(orig_b$rule_numb) & orig_b$td_resid > 0.5102545 & orig_b$x2 <= 18.49491 & orig_b$satz <= -45.4611 & orig_b$lat > 25.99] <- 10
 
 # Rule 11
-orig_b$rule_numb[is.na(orig_b$rule_numb) & orig_b$x2 > 45.74037 & ori  Rule 1: [990 cases, mean 3169.0, range 9 to 10649, est err 6106.9]
-
-    if
-	x1 <= 11
-    then
-	outcome = -33383 + 5852 x1
-
-  Rule 2: [2160 cases, mean 30001.0, range 9 to 110593, est err 4059.8]
-
-    if
-	x1 <= 24
-    then
-	outcome = -77349 + 7093 x1g_b$satz > 48.5194] <- 11
+orig_b$rule_numb[is.na(orig_b$rule_numb) & orig_b$x2 > 45.74037 & orig_b$satz > 48.5194] <- 11
 
 # Rule 12
 orig_b$rule_numb[is.na(orig_b$rule_numb) & orig_b$x2 > 49.05643 & orig_b$satz <= -45.4611] <- 12
@@ -1000,6 +885,8 @@ RMSE_partition_test <- (mean_sqr_error_test) ^ 0.5
 
 ```
 
+
+#
 ```{r schematic_diagram_lowest_resid_magnitude, echo = TRUE}
 
 ggplot2::ggplot() +
