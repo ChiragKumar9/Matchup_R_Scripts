@@ -413,12 +413,13 @@ orig <- dplyr::tbl_df(AQUA) %>%
     td_estimate = cen.ref.type.1.SST - cen.11000,
     cen.sst = cen.sst,
     pseudo.resid.SMR = cen.sst - cen.ref.type.1.SST,
-    td_actual = T_11 - buoy.sst,
+    td_actual = buoy.sst - T_11,
     abs_satz = abs(satz),
     SST.resid.SMB = cen.sst - (buoy.sst - 0.17)) %>% # SMB = sat minus buoy - also debias buoy.sst by turning buoy.sst into a skin measurement
   dplyr::select(T_11, T_12, band.diff, ref_SST, x2, x3, satz, abs_satz, lon, lat, month, sd11, sd12, range11, range12, diff.med.min11,
                 diff.med.min12, qsst, buoy.sst, cell5deg, cen.sst, td_estimate, td_actual, SST.resid.SMB)
 
+# Subset the data such that we are looking at retrievals only within the Nino 3.4 zone
 orig <- orig %>% 
   dplyr::mutate(N34 = ifelse(lat >= -5 & lat <= 5 & lon >= -170 & lon <= -120, TRUE, FALSE))
 
@@ -478,7 +479,18 @@ cors_df_f <- as.matrix(cor(SSES_df_temp))
 
 # Format the data for the plot
 xval <- formatC(cors_mat_f, format = "f", digits = 2)
-pal <- colorRampPalette(c(rgb(0.96,0.96,1), rgb(0.1,0.1,0.9)), space = "rgb")
+
+blues_palette <- rev(RColorBrewer::brewer.pal(9, 'Blues'))
+blues_palette <- blues_palette[1:5]
+blues_palette <- colorRampPalette(blues_palette)(5)
+
+reds_palette <- RColorBrewer::brewer.pal(9, 'Reds')
+reds_palette <- reds_palette[1:5]
+reds_palette <- colorRampPalette(reds_palette)(5)
+
+palette_med <- c((blues_palette), (reds_palette))
+
+pal <- colorRampPalette(palette_med)
 
  # Plot the matrix
 corrgram <- gplots::heatmap.2(cors_mat_f,
@@ -500,8 +512,18 @@ cors_df_f_N34 <- as.matrix(cor(SSES_df_temp_N34))
 
 # Format the data for the plot
 xval <- formatC(cors_mat_f_N34, format = "f", digits = 2)
-pal <- colorRampPalette(c(rgb(0.96,0.96,1), rgb(0.1,0.1,0.9)), space = "rgb")
 
+blues_palette <- rev(RColorBrewer::brewer.pal(9, 'Blues'))
+blues_palette <- blues_palette[1:5]
+blues_palette <- colorRampPalette(blues_palette)(5)
+
+reds_palette <- RColorBrewer::brewer.pal(9, 'Reds')
+reds_palette <- reds_palette[1:5]
+reds_palette <- colorRampPalette(reds_palette)(5)
+
+palette_med <- c((blues_palette), (reds_palette))
+
+pal <- colorRampPalette(palette_med)
  # Plot the matrix
 corrgram <- gplots::heatmap.2(cors_mat_f_N34,
                               Rowv = FALSE, Colv = FALSE,
@@ -515,18 +537,29 @@ corrgram <- gplots::heatmap.2(cors_mat_f_N34,
 
 ```
 
-
-```{r correlogram_of_orig, echo=TRUE}
+```{r correlogram_of_specific_features_and_residual, echo=TRUE}
 # Take the correlation matrix
-cors_mat_o <- as.matrix(cor(orig))
-cors_df_o <- as.matrix(cor(orig))
+uuu <- SSES_df_temp_N34[, c('td_resid', 'x2', 'abs_satz', 'sd11', 'ref_SST', 'SST.resid.SMB')]
+cors_mat_uuu <- as.matrix(cor(uuu))
+cors_df_uuu <- as.matrix(cor(uuu))
 
 # Format the data for the plot
-xval <- formatC(cors_mat_o, format = "f", digits = 2)
-pal <- colorRampPalette(c(rgb(0.96,0.96,1), rgb(0.1,0.1,0.9)), space = "rgb")
+xval <- formatC(cors_mat_uuu, format = "f", digits = 2)
+
+blues_palette <- rev(RColorBrewer::brewer.pal(9, 'Blues'))
+blues_palette <- blues_palette[1:5]
+blues_palette <- colorRampPalette(blues_palette)(5)
+
+reds_palette <- RColorBrewer::brewer.pal(9, 'Reds')
+reds_palette <- reds_palette[1:5]
+reds_palette <- colorRampPalette(reds_palette)(5)
+
+palette_med <- c((blues_palette), (reds_palette))
+
+pal <- colorRampPalette(palette_med)
 
  # Plot the matrix
-corrgram <- gplots::heatmap.2(cors_mat_o,
+corrgram <- gplots::heatmap.2(cors_mat_uuu,
                               Rowv = FALSE, Colv = FALSE,
                               dendrogram = "none",
                               main = "Correlogram",
@@ -538,9 +571,20 @@ corrgram <- gplots::heatmap.2(cors_mat_o,
 
 ```
 
+```{r pairwise_plot_of_features, echo=TRUE}
+# Take random sample
+index <- sample(1:nrow(uuu), 5000, replace = FALSE)
+
+ttt <- uuu[index, ]
+
+plot(ttt, pch = '.')
+
+```
+
+
 ## Cubist Exploration
 ```{r create_train_test_sets, echo=TRUE}
-# Take sample of SSES_df_temp
+# Take sample of SSES_df_temp#
 #len_samp <- 800000
 #index <- sample(1:nrow(SSES_df_temp), len_samp, replace = FALSE)
 #SSES_df_temp_samp <- SSES_df_temp[index, ]
@@ -564,11 +608,12 @@ sd(SSES_df_train$SST.resid.SMB)
 ```{r Cubist, echo=TRUE}
 Cubist_rules_expl <- Cubist::cubist(x = SSES_df_train[, c('td_resid',
                                                           'x2',
-                                                          'satz',
+                                                          #'abs_satz'
                                                           'ref_SST',
                                                           #'lat',
                                                           #'month',
-                                                          'sd11')],
+                                                          'sd11'
+                                                          )],
                                     y = SSES_df_train$SST.resid.SMB,
                                     committees = 1,
                                     control = Cubist::cubistControl(rules = 28,
@@ -627,19 +672,21 @@ residual_fit_cubist <- lm(Y ~ X, data = yyy)
 residual_fit_cubist
 ```
 
-
 The statistics here are suggestions from Willmott 1995...
 
 ```{r statistics_for_model_evaluation_train_set, echo=TRUE}
 # 1-D Statistics
+# Stats for actual residuals
+summary(SSES_df_train$SST.resid.SMB)
+sd(SSES_df_train$SST.resid.SMB)
+
 # Just of Predictions
 summary(Cubist_rules_train_vals)
 sd(Cubist_rules_train_vals)
 
-train_model_resids <- Cubist_rules_train_vals - SSES_df_train$SST.resid.SMB
-
 # 2-D Statistics
 # Base statistics summary of Train Model Residuals
+train_model_resids <- Cubist_rules_train_vals - SSES_df_train$SST.resid.SMB
 summary(train_model_resids)
 sd(train_model_resids)
 
@@ -651,6 +698,10 @@ regression_error_stats(Cubist_rules_train_vals, SSES_df_train$SST.resid.SMB)
 
 ```{r statistics_for_model_evaluation_test_set, echo=TRUE}
 # 1-D Statistics
+# Stats for actual residuals
+summary(SSES_df_test$SST.resid.SMB)
+sd(SSES_df_test$SST.resid.SMB)
+
 # Just of Predictions
 summary(Cubist_rules_test_vals)
 sd(Cubist_rules_test_vals)
@@ -667,3 +718,55 @@ regression_error_stats(Cubist_rules_test_vals, SSES_df_test$SST.resid.SMB)
 
 ```
 
+```{r Cubist_variable_importance, echo=TRUE}
+
+variable_names_long <- c('Except\nResidual Temperature Deficit Estimate',
+                        'Except\nScaled Channel Difference',
+                        'Except\nAbs Satellite Zenith Angle',
+                        'Except\nSD of T_11',
+                        'Except\nReference SST')
+
+variable_names_abbrev <- c('td_resid',
+                           'x2',
+                           'abs_satz',
+                           'sd11',
+                           'ref_SST')
+
+empty <- c(0, 0, 0, 0, 0)
+MAE_without <- data.frame(variable_names_long = variable_names_long, variable_names_abbrev = variable_names_abbrev, MAE = empty)
+
+for (variable_num in 1:nrow(MAE_without)) {
+  iii <- c(1, 2, 3, 4, 5)
+  iii <- iii[!iii %in% variable_num]
+  variables_temp <- variable_names_abbrev[iii]
+  ppp <- SSES_df_train[, c(variables_temp, 'SST.resid.SMB')]
+  
+  Cubist_var_imp <- Cubist::cubist(x = ppp[, variables_temp], y = ppp$SST.resid.SMB,
+                                   committees = 1, 
+                                   control = Cubist::cubistControl(rules = 28,
+                                                                   unbiased = FALSE,
+                                                                   extrapolation = 100,
+                                                                   label = 'SST Residual',
+                                                                   seed = 108))
+    
+  # Create test set predictions
+  Cubist_predictions_test_temp <- stats::predict(object = Cubist_var_imp, na.action = na.pass, neighbors = 8, newdata = SSES_df_test)
+  
+  # Now compute RMSE
+  MAE_temp <- hydroGOF::mae(Cubist_predictions_test_temp, SSES_df_test$SST.resid.SMB)
+  
+  MAE_without[variable_num, 'MAE'] <- MAE_temp
+
+}
+
+MAE_without$MAE_incr <- MAE_without$MAE - 0.187825
+
+MAE_without$variable_names_long <- reorder(MAE_without$variable_names_long, -MAE_without$MAE)
+
+ggplot2::ggplot(data = MAE_without, aes(x = variable_names_long, y = MAE_incr)) +
+  geom_bar(stat = 'identity') +
+  theme(axis.text.x = element_text(angle = 45, hjust = 0.5, vjust = 0.5)) +
+  labs(x = 'Feature', y = 'Increase in MAE (deg C)')
+  #ggsave('variable_importance_MAE_Cubist.pdf', device = 'pdf', width = 8, height = 6, units = 'in') +
+  #ggsave('variable_importance_MAE_Cubist.png', device = 'png', width = 8, height = 6, units = 'in')
+```
