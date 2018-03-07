@@ -688,7 +688,7 @@ Cubist_rules_expl <- Cubist::cubist(x = SSES_df_train_N34[, c('td_resid',
                                                               )],
                                     y = SSES_df_train_N34$SST.resid.SMB,
                                     committees = 1,
-                                    control = Cubist::cubistControl(rules = 50,
+                                    control = Cubist::cubistControl(rules = 100,
                                                                     unbiased = FALSE,
                                                                     extrapolation = 100,
                                                                     label = 'SST Residual',
@@ -839,7 +839,7 @@ for (variable_num in 1:nrow(MAE_without)) {
   
   Cubist_var_imp <- Cubist::cubist(x = ppp[, variables_temp], y = ppp$SST.resid.SMB,
                                    committees = 1, 
-                                   control = Cubist::cubistControl(rules = 28,
+                                   control = Cubist::cubistControl(rules = 100,
                                                                    unbiased = FALSE,
                                                                    extrapolation = 100,
                                                                    label = 'SST Residual',
@@ -982,7 +982,7 @@ Cubist_rules_expl <- Cubist::cubist(x = SSES_df_train_NE[, c('td_resid',
                                                              )],
                                     y = SSES_df_train_NE$SST.resid.SMB,
                                     committees = 1,
-                                    control = Cubist::cubistControl(rules = 28,
+                                    control = Cubist::cubistControl(rules = 100,
                                                                     unbiased = FALSE,
                                                                     extrapolation = 100,
                                                                     label = 'SST Residual',
@@ -1574,17 +1574,17 @@ sd(SSES_df_train_MA$SST.resid.SMB)
 
 ```{r Cubist_MA, echo=TRUE}
 Cubist_rules_expl <- Cubist::cubist(x = SSES_df_train_MA[, c('td_resid',
-                                                              'x2',
-                                                              'sec_satz',
+                                                              #'x2',
+                                                              'sec_satz'
                                                               #'abs_satz'
-                                                              'ref_SST',
+                                                              #'ref_SST',
                                                               #'lat',
                                                               #'month',
-                                                              'sd11'
+                                                              #'sd11'
                                                               )],
                                     y = SSES_df_train_MA$SST.resid.SMB,
                                     committees = 1,
-                                    control = Cubist::cubistControl(rules = 50,
+                                    control = Cubist::cubistControl(rules = 100,
                                                                     unbiased = FALSE,
                                                                     extrapolation = 100,
                                                                     label = 'SST Residual',
@@ -1606,20 +1606,18 @@ blues_palette <- rev(RColorBrewer::brewer.pal(9, 'Blues'))
 reds_palette <- RColorBrewer::brewer.pal(9, 'Reds')
 
 ggplot2::ggplot() +
-  geom_point(aes(x = td_resid, y = abs_satz, col = SST.resid.SMB), data = SSES_df_temp_N34) +
+  geom_point(aes(x = td_resid, y = sec_satz, col = SST.resid.SMB), data = SSES_df_temp_MA) +
   scale_color_gradientn(colors = c(blues_palette, reds_palette)) +
-  ggplot2::geom_segment(aes(x = 1.918183, xend = Inf, y = 58.9694, yend = 58.9694)) +
-  ggplot2::geom_segment(aes(x = 1.918183, xend = 1.918183, y = 58.9694, yend = Inf)) + # Rule 1
-  ggplot2::geom_segment(aes(x = -0.2174259, xend = Inf, y = 38.9694, yend = 38.9694)) +
-  ggplot2::geom_segment(aes(x = -0.2174259, xend = -0.2174259, y = 0, yend = 38.9694)) + # Rule 2
-  ggplot2::geom_segment(aes(x = -0.2174259, xend = Inf, y = 58.9694, yend = 58.9694)) +
-  ggplot2::geom_segment(aes(x = -0.2174259, xend = -0.2174259, y = 38.9694, yend = 58.9694)) + # Rule 3
-  ggplot2::geom_segment(aes(x = -Inf, xend = 1.918183, y = 58.9694, yend = 58.9694)) +
-  ggplot2::geom_segment(aes(x = 1.918183, xend = 1.918183, y = 58.9694, yend = Inf)) + # Rule 4
-  ggplot2::geom_segment(aes(x = -Inf, xend = -0.2174259, y = 38.4694, yend = 38.4694)) +
-  ggplot2::geom_segment(aes(x = -0.2174259, xend = -0.2174259, y = 0, yend = 38.4694)) + # Rule 5
-  ggplot2::geom_segment(aes(x = -Inf, xend = -0.2174259, y = 38.4694, yend = 38.4694)) +
-  ggplot2::geom_segment(aes(x = -0.2174259, xend = -0.2174259, y = 38.4694, yend = 58.9694)) # Rule 6
+  ggplot2::geom_segment(aes(x = 2.438402, xend = Inf, y = 1.512727, yend = 1.512727)) +
+  ggplot2::geom_segment(aes(x = 2.438402, xend = 2.438402, y = 1.512727, yend = Inf)) + # Rule 1
+  ggplot2::geom_segment(aes(x = 0.412829, xend = Inf, y = 1.512727, yend = 1.512727)) +
+  ggplot2::geom_segment(aes(x = 0.412829, xend = 0.412829, y = 1, yend = 1.512727)) + # Rule 2
+  ggplot2::geom_segment(aes(x = -Inf, xend = 2.438402, y = 2.172158, yend = 2.172158)) + # Rule 3
+  ggplot2::geom_segment(aes(x = 0.412829, xend = 0.412829, y = 1.512727, yend = 2.172158)) + # Rule 4
+  ggplot2::geom_segment(aes(x = -1.186202, xend = -1.186202, y = 1, yend = 2.172158)) + # Rule 5
+  ggplot2::geom_segment(aes(x = -1.186202, xend = 0.412829, y = 1.512727, yend = 1.512727)) # Rule 6
+
+# Rule 7 is defined as the space left - the space to the bottom left of the plot
 
 ```
 
@@ -1735,7 +1733,7 @@ for (variable_num in 1:nrow(MAE_without)) {
   
   Cubist_var_imp <- Cubist::cubist(x = ppp[, variables_temp], y = ppp$SST.resid.SMB,
                                    committees = 1, 
-                                   control = Cubist::cubistControl(rules = 28,
+                                   control = Cubist::cubistControl(rules = 100,
                                                                    unbiased = FALSE,
                                                                    extrapolation = 100,
                                                                    label = 'SST Residual',
@@ -1864,13 +1862,13 @@ sd(SSES_df_train_OO$SST.resid.SMB)
 
 ```{r Cubist_OO, echo=TRUE}
 Cubist_rules_expl <- Cubist::cubist(x = SSES_df_train_OO[, c('td_resid',
-                                                             'x2',
+                                                             #'x2',
                                                              #'abs_satz',
-                                                             'sec_satz',
-                                                             'ref_SST',
-                                                             'lat',
-                                                             'month',
-                                                             'sd11'
+                                                             'sec_satz'
+                                                             #'ref_SST',
+                                                             #'lat',
+                                                             #'month',
+                                                             #'sd11'
                                                              )],
                                     y = SSES_df_train_OO$SST.resid.SMB,
                                     committees = 1,
@@ -1887,6 +1885,26 @@ and actual residuals with the associated regression model, and (4) print out all
 
 ```{r Cubist_tree_print_out_OO, echo=TRUE}
 summary(Cubist_rules_expl)
+```
+
+
+```{r diagnostic_plot_OO_td_resid_sec_satz_resid_rules, echo=TRUE}
+blues_palette <- rev(RColorBrewer::brewer.pal(9, 'Blues'))
+
+reds_palette <- RColorBrewer::brewer.pal(9, 'Reds')
+
+ggplot2::ggplot() +
+  geom_point(aes(x = td_resid, y = sec_satz, col = SST.resid.SMB), data = SSES_df_temp_OO) +
+  scale_color_gradientn(colors = c(blues_palette, reds_palette)) +
+  ggplot2::geom_segment(aes(x = 2.45314, xend = 2.45314, y = -Inf, yend = Inf)) + # Rule 1
+  ggplot2::geom_segment(aes(x = -0.0323415, xend = 2.45314, y = 1.35894, yend = 1.35894)) +
+  ggplot2::geom_segment(aes(x = -0.0323415, xend = -0.0323415, y = 1, yend = 1.35894)) + # Rule 2
+  ggplot2::geom_segment(aes(x = 0.7378626, xend = 0.7378626, y = 1.35894, yend = Inf)) + # Rule 3
+  ggplot2::geom_segment(aes(x = -0.0323415, xend = -0.0323415, y = 1.35894, yend = Inf)) # Rule 4
+  
+# Rule 5 is defined as the remaining space - the left chunk
+
+
 ```
 
 
@@ -1978,39 +1996,6 @@ regression_error_stats(RF_rules_test_vals, SSES_df_test_OO$SST.resid.SMB)
 ```
 
 
-```{r diagnostic_plot_OO_td_resid_sec_satz_resid_rules, echo=TRUE}
-blues_palette <- rev(RColorBrewer::brewer.pal(9, 'Blues'))
-
-reds_palette <- RColorBrewer::brewer.pal(9, 'Reds')
-
-ggplot2::ggplot() +
-  geom_point(aes(x = td_resid, y = sec_satz, col = SST.resid.SMB), data = SSES_df_temp_NN) +
-  scale_color_gradientn(colors = c(blues_palette, reds_palette))
-```
-
-
-```{r diagnostic_plot_OO_td_resid_abs_satz_resid_rules, echo=TRUE}
-blues_palette <- rev(RColorBrewer::brewer.pal(9, 'Blues'))
-
-reds_palette <- RColorBrewer::brewer.pal(9, 'Reds')
-
-ggplot2::ggplot() +
-  geom_point(aes(x = td_resid, y = abs_satz, col = SST.resid.SMB), data = SSES_df_temp_NN) +
-  scale_color_gradientn(colors = c(blues_palette, reds_palette)) +
-  ggplot2::geom_segment(aes(x = -0.0288744, xend = Inf, y = 39.85, yend = 39.85)) +
-  ggplot2::geom_segment(aes(x = -0.0288744, xend = -0.0288744, y = 0, yend = 39.85)) + # Rule 1
-  ggplot2::geom_segment(aes(x = 0.9583272, xend = 0.9583272, y = 39.85, yend = 61.2889)) + 
-  ggplot2::geom_segment(aes(x = 0.9583272, xend = Inf, y = 61.2889, yend = 61.2889)) + # Rule 2
-  ggplot2::geom_segment(aes(x = -0.0288744, xend = -0.0288744, y = 61.2889, yend = Inf)) + 
-  ggplot2::geom_segment(aes(x = -0.0288744, xend = Inf, y = 61.2889, yend = 61.2889)) +# Rule 3
-  ggplot2::geom_segment(aes(x = -0.0288744, xend = -0.0288744, y = 39.85, yend = Inf)) + 
-  ggplot2::geom_segment(aes(x = -0.0288744, xend = 0.9583272, y = 39.85, yend = 39.85)) + # Rule 4
-  ggplot2::geom_segment(aes(x = -0.0288744, xend = -0.0288744, y = -Inf, yend = 38.3305)) + 
-  ggplot2::geom_segment(aes(x = -Inf, xend = -0.0288744, y = 38.3305, yend = 38.3305)) + # Rule 5
-  ggplot2::geom_segment(aes(x = -0.0288744, xend = -0.0288744, y = 38.3305, yend = Inf)) + 
-  ggplot2::geom_segment(aes(x = -Inf, xend = -0.0288744, y = 38.3305, yend = 38.3305)) # Rule 6
-  #scale_color_gradient2(midpoint = 0.0, low = '#0000ff', mid = 'white', high = '#ff0000', space = 'Lab')
-```
 
 ```{r diagnostic_plots_OO, echo=TRUE}
 dotplot(Cubist_rules_expl, what = 'splits')
