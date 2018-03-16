@@ -108,7 +108,7 @@ orig <- dplyr::tbl_df(AQUA) %>%
     sec_satz = secant.deg(satz),
     lat = buoy.lat,
     lon = buoy.lon,
-    month = lubridate::month(as.POSIXct(orig$buoy.timedate)),
+    month = lubridate::month(as.POSIXct(buoy.timedate)),
     sd11 = sd.11000,
     sd12 = sd.12000,
     range11 = max.11000 - min.11000,
@@ -121,7 +121,7 @@ orig <- dplyr::tbl_df(AQUA) %>%
     buoy.timedate = buoy.timedate,
     cen.sst = cen.sst,
     pseudo.resid.SMR = cen.sst - cen.ref.type.1.SST,
-    td_estimate <- ref_SST - T_11,
+    td_estimate = ref_SST - T_11,
     SST.resid.SMB = cen.sst - (buoy.sst - 0.17)) %>% # SMB = sat minus buoy - also debias buoy.sst by turning buoy.sst into a skin measurement
   dplyr::select(T_11, T_12, band.diff, ref_SST, x2, x3, satz, abs_satz, sec_satz, lon, lat, sd11, sd12, range11, range12, diff.med.min11,
                 diff.med.min12, qsst, buoy.sst, cell5deg, cen.sst, buoy.timedate, pseudo.resid.SMR, td_estimate, SST.resid.SMB)
@@ -161,7 +161,6 @@ temp_deficit <- orig$buoy.sst - orig$T_11
 
 # Take a sample of orig bc loess requires lots of memory - for testing purposes
 index <- sample(1:nrow(orig), 50000, replace = FALSE)
-zz1 <- zz1[index, ]
 
 rrr <- ggplot2::ggplot(mapping = aes(x = orig$band.diff[index], y = temp_deficit[index])) +
   geom_bin2d(bins = 20) +
@@ -227,7 +226,7 @@ ccc <- ccc[3:9]
 ccc <- colorRampPalette(ccc)(10)
 
 breaks <- c(0, 6.25, 12.5, 25, 50, 100, 250, 500, 1000, Inf)
-breaks <- breaks * 20
+#breaks <- breaks * 20
 
 # Add loess and linear fits
 Xs <- data.frame(Xs = seq(from = 0, to = 140, by = .31115/5.555))
@@ -247,9 +246,9 @@ rasterVis::gplot(cell5deg) +
   labs(x = 'Scaled Channel Difference (deg C)', y = 'Temperature Deficit (deg C)', fill = '# of Retrievals') +
   coord_fixed(ratio = 2.4) +
   xlim(-2, 122) +
-  ylim(-.1, 22) +
-  ggsave('x2_vs_TD_loess_and_linear.pdf', device = 'pdf', width = 8, height = 6, units = 'in') +
-  ggsave('x2_vs_TD_loess_and_linear.png', device = 'png', width = 8, height = 6, units = 'in')
+  ylim(-.1, 22)
+  #ggsave('x2_vs_TD_loess_and_linear.pdf', device = 'pdf', width = 8, height = 6, units = 'in') +
+  #ggsave('x2_vs_TD_loess_and_linear.png', device = 'png', width = 8, height = 6, units = 'in')
 
 ggplot2::ggplot() +
   geom_point(pch = '.', data = uuu, aes(product, temp_deficit)) +
@@ -430,6 +429,9 @@ minus T_11 (T_12).
 # Linearized temperature deficit estimate as a function of NLSST product
 orig$td_resid <- orig$td_estimate - predict(td_loess, newdata = orig$x2)
 
+# Month
+orig$month <- lubridate::month(as.POSIXct(orig$buoy.timedate))
+
 # Loess can only interpolate
 # Those values of x2 that are outside the domain get put in as NA
 # Remove those
@@ -447,6 +449,7 @@ We make that split here.
 
 ```{r create_train_test_set, echo=TRUE}
 # Divide data into training and validation sets
+set.seed(108)
 prop_train <- .6
 len_train <- floor(prop_train * nrow(orig))
 index <- sample(1:nrow(orig), len_train, replace = FALSE)
@@ -541,7 +544,7 @@ Cubist_rules <- Cubist::cubist(x = orig_train[, c('td_resid', 'x2', 'satz', 'ref
                                                               label = 'SST Residual',
                                                               seed = 108))
 
-capture.output(summary(Cubist_rules), file = 'Cubist_rules=28_committees=1_with_lat_and_month.txt')
+capture.output(summary(Cubist_rules), file = 'Cubist_rules=28_committees=1_with_lat_and_month_Mar16.2017.txt')
 
 dotplot(Cubist_rules, what = 'splits')
 dotplot(Cubist_rules, what = 'coefs')
@@ -700,19 +703,19 @@ for (N in 1:nrow(ctrl_params_performance)) {
 ### Exploring and Evaluating the Cubist Regression
 ```{r evaluate_Cubist_regression_statistically, echo=TRUE}
 
-window <- .2
+window <- .4
 
 Cubist_rules_residuals_train <- Cubist_rules_train_vals - orig_train$SST.resid.SMB
 
 table(abs(Cubist_rules_residuals_train) < window)
-prop.table(table(abs(Cubist_rules_residuals_train) < window))
+prop.table(table(abs(Cubist_rules_residuals_train) <= window))
 IQR(Cubist_rules_residuals_train)
 
 
 Cubist_rules_residuals_test <- Cubist_rules_test_vals - orig_test$SST.resid.SMB
 
 table(abs(Cubist_rules_residuals_test) < window)
-prop.table(table(abs(Cubist_rules_residuals_test) < window))
+prop.table(table(abs(Cubist_rules_residuals_test) <= window))
 IQR(Cubist_rules_residuals_test)
 
 ```
@@ -839,8 +842,177 @@ orig_test <- orig_b[(nrow(orig_train) + 1):nrow(orig_b), ]
 
 ```
 
+```{r rule_distribution_Cubist_mar8, echo=TRUE}
+# Join train and test for rule assignments
+orig_b <- rbind(orig_train, orig_test)
 
-```{r tree_reconstruction_of_rules}
+# Create empty columns for rule assignments
+orig_b$rule_numb <- rep(NA, nrow(orig_b))
+
+# Rule 1
+orig_b$rule_numb[orig_b$td_resid > 0.5120884 & orig_b$satz > -45.5 & orig_b$satz <= 0.1999] <- 1
+
+# Rule 2
+orig_b$rule_numb[is.na(orig_b$rule_numb) & orig_b$td_resid > 0.5120884 & orig_b$satz > 0.1999 & orig_b$satz <= 49.2] <- 2
+
+# Rule 3
+orig_b$rule_numb[is.na(orig_b$rule_numb) & orig_b$td_resid > 0.5120884 & orig_b$satz > 49.2 & orig_b$lat <= -2.11 & orig_b$sd11 > 0.2059] <- 3
+
+# Rule 4
+orig_b$rule_numb[is.na(orig_b$rule_numb) & orig_b$td_resid > 0.5120884 & orig_b$x2 <= 22.06817 & orig_b$satz <= 0.1999 & orig_b$lat <= 25.37] <- 4
+
+# Rule 5
+orig_b$rule_numb[is.na(orig_b$rule_numb) & orig_b$td_resid > 0.5120884 & orig_b$x2 <= 14.29007 & orig_b$satz > 49.2 & orig_b$lat <= 23.03] <- 5
+
+# Rule 6
+orig_b$rule_numb[is.na(orig_b$rule_numb) & orig_b$x2 > 56.11533 & orig_b$satz > -37.4888 & orig_b$satz <= 1.8305] <- 6
+
+# Rule 7
+orig_b$rule_numb[is.na(orig_b$rule_numb) & orig_b$x2 <= 64.16445 & orig_b$satz > 49.2 & orig_b$lat > -2.11 & orig_b$lat <= 23.03] <- 7
+
+# Rule 8
+orig_b$rule_numb[is.na(orig_b$rule_numb) & orig_b$x2 > 64.16445 & orig_b$satz > 49.2] <- 8
+
+# Rule 9
+orig_b$rule_numb[is.na(orig_b$rule_numb) & orig_b$x2 > 57.63554 & orig_b$satz > 1.8305 & orig_b$satz <= 40.15 & orig_b$ref_SST > 25.345] <- 9
+
+# Rule 10
+orig_b$rule_numb[is.na(orig_b$rule_numb) & orig_b$td_resid > 0.5120884 & orig_b$x2 <= 18.5143 & orig_b$satz <= -45.5 & orig_b$lat > 25.37] <- 10
+
+# Rule 11
+orig_b$rule_numb[is.na(orig_b$rule_numb) & orig_b$x2 > 22.06817 & orig_b$satz <= -45.5 & orig_b$ref_SST > 28.885] <- 11
+
+# Rule 12
+orig_b$rule_numb[is.na(orig_b$rule_numb) & orig_b$x2 > 61.07097 & orig_b$satz > 40.15] <- 12
+
+# Rule 13
+orig_b$rule_numb[is.na(orig_b$rule_numb) & orig_b$x2 > 22.06817 & orig_b$satz <= -45.5 & orig_b$ref_SST <= 28.885 & orig_b$lat <= 25.37] <- 13
+
+# Rule 14
+orig_b$rule_numb[is.na(orig_b$rule_numb) & orig_b$x2 > 24.93083 & orig_b$satz > 49.2 & orig_b$lat > 23.03] <- 14
+
+# Rule 15
+orig_b$rule_numb[is.na(orig_b$rule_numb) & orig_b$x2 > 18.5143 & orig_b$satz <= -45.5& orig_b$lat > 25.37] <- 15
+
+# Rule 16
+orig_b$rule_numb[is.na(orig_b$rule_numb) & orig_b$x2 > 14.29007 & orig_b$satz > 49.2 & orig_b$lat <= -2.11 & orig_b$sd11 <= 0.2059] <- 16
+
+# Rule 17
+orig_b$rule_numb[is.na(orig_b$rule_numb) & orig_b$x2 <= 24.93083 & orig_b$satz > 49.2 & orig_b$lat > 23.03] <- 17
+
+# Rule 18
+orig_b$rule_numb[is.na(orig_b$rule_numb) & orig_b$td_resid <= 0.5120884 & orig_b$x2 <= 56.11533 & orig_b$satz > -37.4888 & orig_b$satz <= 1.8305 & orig_b$ref_SST > 24.855] <- 18
+
+# Rule 19
+orig_b$rule_numb[is.na(orig_b$rule_numb) & orig_b$td_resid <= 0.5120884 & orig_b$x2 <= 57.63554 & orig_b$satz > 1.8305 & orig_b$satz <= 40.15 & orig_b$ref_SST > 25.345] <- 119
+
+# Rule 20
+orig_b$rule_numb[is.na(orig_b$rule_numb) & orig_b$td_resid <= 0.5120884 & orig_b$x2 <= 61.07097 & orig_b$satz > 40.15 & orig_b$ref_SST > 25.345 & orig_b$lat <= 20.27] <- 20
+
+# Rule 21
+orig_b$rule_numb[is.na(orig_b$rule_numb) & orig_b$td_resid <= 0.5120884 & orig_b$satz <= 1.8305  & orig_b$ref_SST <= 24.855 & orig_b$lat <= -18.61] <- 21
+
+# Rule 22
+orig_b$rule_numb[is.na(orig_b$rule_numb) & orig_b$td_resid <= 0.5120884 & orig_b$satz > 1.8305 & orig_b$satz <= 44.0305 & orig_b$ref_SST <= 25.345] <- 22
+
+# Rule 23
+orig_b$rule_numb[is.na(orig_b$rule_numb) & orig_b$td_resid <= 0.5120884 & orig_b$x2 <= 53.19009 & orig_b$satz <= -37.4888 & orig_b$ref_SST > 24.855] <- 23
+
+# Rule 24
+orig_b$rule_numb[is.na(orig_b$rule_numb) & orig_b$td_resid <= 0.5120884 & orig_b$x2 > 53.19009 & orig_b$satz <= -37.4888] <- 24
+
+# Rule 25
+orig_b$rule_numb[is.na(orig_b$rule_numb) & orig_b$td_resid <= 0.5120884 & orig_b$satz > -50.0305 & orig_b$satz <= 1.8305 & orig_b$ref_SST <= 24.855 & orig_b$lat > -18.61] <- 25
+
+# Rule 26
+orig_b$rule_numb[is.na(orig_b$rule_numb) & orig_b$td_resid <= 0.5120884 & orig_b$satz > 40.15 & orig_b$ref_SST > 25.345 & orig_b$lat > 20.27] <- 26
+
+# Rule 27
+orig_b$rule_numb[is.na(orig_b$rule_numb) & orig_b$td_resid <= 0.5120884 & orig_b$satz > 44.0305 & orig_b$ref_SST <= 25.345] <- 27
+
+# Rule 28
+orig_b$rule_numb[is.na(orig_b$rule_numb) & orig_b$td_resid <= 0.5120884 & orig_b$satz <= -50.0305 & orig_b$ref_SST <= 24.855 & orig_b$lat > -18.61] <- 28
+
+# Break back into train and test again
+orig_train <- orig_b[1:nrow(orig_train), ]
+orig_test <- orig_b[(nrow(orig_train) + 1):nrow(orig_b), ]
+
+```
+
+```{r rule_set_9_and_22_hists, echo=TRUE}
+
+ggplot2::ggplot() +
+  geom_histogram(data = orig_train[orig_train$rule_numb == 9, ], aes(SST.resid.SMB), bins = 100, col = 'tomato') +
+  geom_vline(xintercept = mean(orig_train[orig_train$rule_numb == 9, "SST.resid.SMB"])) +
+  geom_histogram(data = orig_train[orig_train$rule_numb == 22, ], aes(SST.resid.SMB), bins = 100, col = 'blue') +
+  geom_vline(xintercept = mean(orig_train[orig_train$rule_numb == 22, "SST.resid.SMB"])) +
+  labs(x = 'Actual Residual  (deg C)', y = '# of Retrievals')
+  #xlim(-3.5, 3.5)
+
+
+mmm <- dplyr::tbl_df(orig_test) %>%
+  dplyr::filter(rule_numb == 8)
+
+nnn <- dplyr::tbl_df(orig_test) %>%
+  dplyr::filter(rule_numb == 24)
+
+eee <- rbind(mmm, nnn)
+
+ggplot2::ggplot() + 
+  geom_histogram(data = mmm, aes(x = SST.resid.SMB), col = '#084A92', fill = '#084A92', alpha = 0.3, bins = 100) +
+  geom_histogram(data = nnn, aes(SST.resid.SMB), col = '#72af2f', fill = '#72af2f', alpha = 0.3, bins = 100) +
+  geom_segment(aes(x = median(mmm$SST.resid.SMB), xend = median(mmm$SST.resid.SMB), y = 0, yend = Inf), col = 'black') +
+  geom_segment(aes(x = median(nnn$SST.resid.SMB), xend = median(nnn$SST.resid.SMB), y = 0, yend = Inf), col = 'black') +
+  annotate('text', x = -3, y = 100, label = 'Rule Set 8 (Blue):\nMedian Residual = -0.38 deg C*', size = 4.) +
+  annotate('text', x = 2.1, y = 100, label = 'Rule Set 24 (Green):\nMedian Residual = -0.145 deg C*', size = 4.) +
+  annotate('text', x = -.5, y = -8.5, label = '*The populations of the two rule sets were found to be statistically different with t = 13.74 and p < 0.0001.', size = 3) +
+  labs(x = 'Actual Residual  (deg C)', y = '# of Retrievals') +
+  ggsave('rule_set_8_and_24.png', device = 'png', width = 8, height = 6, units = 'in')
+
+ggplot2::ggplot() +
+  geom_point(data = mmm, aes(x = x2, y = td_resid + predict(td_loess, newdata = mmm$x2)), col = '#084A92', alpha = 0.3) +
+  geom_point(data = nnn, aes(x = x2, y = td_resid + predict(td_loess, newdata = nnn$x2)), col = '#72af2f', alpha = 0.3) +
+  labs(x = 'Scaled Channel Difference (deg C)', y = 'Temperature Deficit (deg C)') +
+  xlim(-2, 122) +
+  ylim(-.1, 22) +
+  annotate('text', x = 60, y = 17.5, label = 'Rule Set 8: Blue', size = 4) +
+  annotate('text', x = 60, y = 5, label = 'Rule Set 24: Green', size = 4) +
+  ggsave('rule_set_8_and_24_x2_tde.png', device = 'png', width = 8, height = 6, units = 'in')
+```
+
+
+```{r spatial_distribution, echo=TRUE}
+mp <- NULL
+mapWorld <- borders("world", colour = "gray50", fill = "gray70") # create a layer of borders
+mp <- ggplot() +  mapWorld +
+  ggplot2::scale_x_continuous(breaks = seq(from = -180, to = 180, by = 60)) +
+  ggplot2::scale_y_continuous(breaks = seq(from = -90, to = 90, by = 30)) +
+  coord_fixed(ratio = 1)
+
+# WARNING: Be careful as this worked with ggplot2 2.1.0 on Linux
+# Try to work on different machines with varying versions of ggplot2
+# Now layer the buoys on top with hexagonal binning
+mp <- mp + 
+  ggplot2::stat_binhex(data = eee,
+    aes(x = lon, # Use hexagonal binning command and give x and y input
+    y = lat,
+    fill = cut(..count.., c(0, 50, 100, 250, 500, 1000, Inf))), # Divides matchups per bin into discrete chunks and colors likewise
+    binwidth = c(10, 10)) +
+  mapWorld + labs(x = NULL, y = NULL) +
+  #scale_fill_hue('value') + # Standard colors with discrete chunking
+  scale_fill_brewer(palette = 'YlOrRd') + # Change colors to Yellow, Orange, and Red - many diff 
+  guides(fill = guide_legend(title = "N of matchups"))
+
+#ggplot2::ggsave(filename = 'spatial_distribution.ps', device = 'ps',
+#       width = 8, height = 6, units = 'in')
+
+mp
+```
+
+
+
+
+```{r tree_reconstruction_of_rules, echo=TRUE}
 
 tree_recon <- rpart::rpart(formula = rule_numb ~ td_resid + lat + month + satz + x2 + ref_SST + sd11,
                            data = orig_train,
