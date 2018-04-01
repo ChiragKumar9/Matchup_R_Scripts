@@ -533,6 +533,7 @@ SSES_df_temp_OO <- dplyr::tbl_df(orig) %>%
                 sd11,
                 ref_SST,
                 lat,
+                lon,
                 month,
                 td_estimate,
                 cen.sst,
@@ -1601,13 +1602,13 @@ summary(Cubist_rules_expl)
 
 
 ```{r diagnostic_plot_MA_td_resid_abs_satz_resid_rules, echo=TRUE}
-blues_palette <- rev(RColorBrewer::brewer.pal(9, 'Blues'))
+blues_palette <- rev(RColorBrewer::brewer.pal(8, 'Blues'))
 
-reds_palette <- RColorBrewer::brewer.pal(9, 'Reds')
+reds_palette <- RColorBrewer::brewer.pal(4, 'Reds')
 
 ggplot2::ggplot() +
   geom_point(aes(x = td_resid, y = sec_satz, col = SST.resid.SMB), data = SSES_df_temp_MA) +
-  scale_color_gradientn(colors = c(blues_palette, reds_palette)) +
+  scale_color_gradientn(colors = c(blues_palette, '#f7f7f7', reds_palette)) +
   ggplot2::geom_segment(aes(x = 2.438402, xend = Inf, y = 1.512727, yend = 1.512727)) +
   ggplot2::geom_segment(aes(x = 2.438402, xend = 2.438402, y = 1.512727, yend = Inf)) + # Rule 1
   ggplot2::geom_segment(aes(x = 0.412829, xend = Inf, y = 1.512727, yend = 1.512727)) +
@@ -1798,7 +1799,7 @@ corrgram <- gplots::heatmap.2(cors_mat_f_OO,
 
 ```{r correlogram_of_specific_features_and_residual_OO, echo=TRUE}
 # Take the correlation matrix
-uuu <- SSES_df_temp_OO[, c('td_resid', 'x2', 'abs_satz', 'sd11', 'ref_SST', 'lat', 'month', 'SST.resid.SMB')]
+uuu <- SSES_df_temp_OO[, c('td_resid', 'x2', 'abs_satz', 'sd11', 'ref_SST', 'lat', 'lon', 'month', 'SST.resid.SMB')]
 cors_mat_uuu <- as.matrix(cor(uuu))
 cors_df_uuu <- as.matrix(cor(uuu))
 
@@ -1859,71 +1860,23 @@ cat('SD of train residuals: ')
 sd(SSES_df_train_OO$SST.resid.SMB)
 ```
 
-
-```{r Cubist_OO, echo=TRUE}
-Cubist_rules_expl <- Cubist::cubist(x = SSES_df_train_OO[, c('td_resid',
-                                                             #'x2',
-                                                             #'abs_satz',
-                                                             'sec_satz'
-                                                             #'ref_SST',
-                                                             #'lat',
-                                                             #'month',
-                                                             #'sd11'
-                                                             )],
-                                    y = SSES_df_train_OO$SST.resid.SMB,
-                                    committees = 1,
-                                    control = Cubist::cubistControl(rules = 100,
-                                                                    unbiased = FALSE,
-                                                                    extrapolation = 100,
-                                                                    label = 'SST Residual',
-                                                                    seed = 108))
-```
-
-
-To evaluate the model, we (1) print it out, (2) spit out the diagnostic plots, (3) plot the predicted residuals
-and actual residuals with the associated regression model, and (4) print out all the pertinent error statistics.
-
-```{r Cubist_tree_print_out_OO, echo=TRUE}
-summary(Cubist_rules_expl)
-```
-
-
-```{r diagnostic_plot_OO_td_resid_sec_satz_resid_rules, echo=TRUE}
-blues_palette <- rev(RColorBrewer::brewer.pal(9, 'Blues'))
-
-reds_palette <- RColorBrewer::brewer.pal(9, 'Reds')
-
-ggplot2::ggplot() +
-  geom_point(aes(x = td_resid, y = sec_satz, col = SST.resid.SMB), data = SSES_df_temp_OO) +
-  scale_color_gradientn(colors = c(blues_palette, reds_palette)) +
-  ggplot2::geom_segment(aes(x = 2.45314, xend = 2.45314, y = -Inf, yend = Inf)) + # Rule 1
-  ggplot2::geom_segment(aes(x = -0.0323415, xend = 2.45314, y = 1.35894, yend = 1.35894)) +
-  ggplot2::geom_segment(aes(x = -0.0323415, xend = -0.0323415, y = 1, yend = 1.35894)) + # Rule 2
-  ggplot2::geom_segment(aes(x = 0.7378626, xend = 0.7378626, y = 1.35894, yend = Inf)) + # Rule 3
-  ggplot2::geom_segment(aes(x = -0.0323415, xend = -0.0323415, y = 1.35894, yend = Inf)) # Rule 4
-  
-# Rule 5 is defined as the remaining space - the left chunk
-
-
-```
-
-
 ```{r RandFor_OO, echo=TRUE}
 rand_for_expl_OO <- randomForest::randomForest(SST.resid.SMB ~ td_resid + x2 + sec_satz + ref_SST + lat + month + sd11,
-                                               data = SSES_df_temp_OO,
+                                               data = SSES_df_train_OO,
                                                nodesize = 100,
-                                               ntree = 750,
-                                               mtry = 2)
+                                               ntree = 200,
+                                               mtry = 4)
 ```
 
 ```{r RandFor_OO_plot, echo=TRUE}
-randomForest::varImpPlot(rand_for_expl_OO)
+#randomForest::varImpPlot(rand_for_expl_OO, type = 1)
+randomForest::varImpPlot(rand_for_expl_OO, type = 2)
+
+plot(rand_for_expl_OO)
 ```
 
 
 ```{r predicted_and_actual_residuals_RF_OO, echo=TRUE}
-# Use the tree to predict
-N_correction_neighbors <- 8 # Must be between 0 and 9
 
 # Train set
 RF_rules_train_vals <- stats::predict(object = rand_for_expl_OO,
@@ -1944,14 +1897,23 @@ yyy <- data.frame(Y = RF_rules_test_vals, X = SSES_df_test_OO$SST.resid.SMB)
 
 ccc <- colorRampPalette(ccc)(length(breaks) - 1)
 
-ggplot2::ggplot(data = yyy, aes(X, Y, fill = cut(..count.., c(0, 10, 25, 50, 100, 500, 1000, 2500, 5000, 10000, Inf)))) +
-  geom_bin2d(bins = 75) +
+loess_RF <- loess(data = yyy, Y ~ X, span = 0.4)
+
+uuu <- data.frame(X = seq(from = min(yyy$X), to = max(yyy$X), by = .1), Y = predict(newdata = seq(from = min(yyy$X), to = max(yyy$X), by = .1), object = loess_RF))
+
+residual_fit_RF <- lm(data = yyy, Y ~ X)
+residual_fit_RF
+
+iii <- data.frame(X = seq(from = min(yyy$X), to = max(yyy$X), by = .1), Y = residual_fit_RF$coefficients[1] + residual_fit_RF$coefficients[2] * seq(from = min(yyy$X), to = max(yyy$X), by = .1))
+
+ggplot2::ggplot() +
+  geom_bin2d(data = yyy, aes(X, Y, fill = cut(..count.., c(0, 10, 25, 50, 100, 500, 1000, 2500, 5000, 10000, Inf))), bins = 75) +
   scale_fill_manual(values = ccc, '# of Retrievals') +
   geom_abline(slope = 1, intercept = 0, color = 'black') +
+  geom_line(data = uuu, aes(X, Y), color = 'blue') +
+  geom_line(data = iii, aes(X, Y), color = 'green') +
   labs(x = 'Actual Residual (deg C)', y = 'Predicted Residual (deg C)')
 
-residual_fit_RF <- lm(Y ~ X, data = yyy)
-residual_fit_RF
 ```
 
 ```{r statistics_for_RF_evaluation_train_set_OO, echo=TRUE}
@@ -1995,6 +1957,107 @@ regression_error_stats(RF_rules_test_vals, SSES_df_test_OO$SST.resid.SMB)
 
 ```
 
+```{r RF_variable_importance_OO, echo=TRUE}
+
+variable_names_long <- c('Except\nResidual Temperature Deficit Estimate',
+                        'Except\nScaled Channel Difference',
+                        'Except\nSec Satellite Zenith Angle',
+                        'Except\nSD of T_11',
+                        'Except\nReference SST',
+                        'Except\nLatitude',
+                        'Except\nMonth')
+
+variable_names_abbrev <- c('td_resid',
+                           'x2',
+                           'sec_satz',
+                           'sd11',
+                           'ref_SST',
+                           'lat',
+                           'month')
+
+empty <- c(0, 0, 0, 0, 0, 0, 0)
+MAE_without <- data.frame(variable_names_long = variable_names_long, variable_names_abbrev = variable_names_abbrev, MAE = empty)
+
+for (variable_num in 1:nrow(MAE_without)) {
+  iii <- c(1, 2, 3, 4, 5)
+  iii <- iii[!iii %in% variable_num]
+  variables_temp <- variable_names_abbrev[iii]
+  ppp <- SSES_df_train_OO[, c(variables_temp, 'SST.resid.SMB')]
+  
+  rand_for_expl_OO_var_imp <- randomForest::randomForest(x = ppp[, variables_temp], y = ppp$SST.resid.SMB,
+                                               nodesize = 100,
+                                               ntree = 200,
+                                               mtry = 4)
+    
+  # Create test set predictions
+  RF_predictions_test_temp <- stats::predict(object = rand_for_expl_OO_var_imp, na.action = na.pass, newdata = SSES_df_test_OO)
+  
+  # Now compute RMSE
+  MAE_temp <- hydroGOF::mae(RF_predictions_test_temp, SSES_df_test_OO$SST.resid.SMB)
+  
+  MAE_without[variable_num, 'MAE'] <- MAE_temp
+
+}
+
+MAE_without$MAE_incr <- MAE_without$MAE - 0.2344954
+
+MAE_without$variable_names_long <- reorder(MAE_without$variable_names_long, -MAE_without$MAE)
+
+ggplot2::ggplot(data = MAE_without, aes(x = variable_names_long, y = MAE_incr)) +
+  geom_bar(stat = 'identity') +
+  theme(axis.text.x = element_text(angle = 45, hjust = 0.5, vjust = 0.5)) +
+  labs(x = 'Feature', y = 'Increase in MAE (deg C)')
+  #ggsave('variable_importance_MAE_Cubist.pdf', device = 'pdf', width = 8, height = 6, units = 'in') +
+  #ggsave('variable_importance_MAE_Cubist.png', device = 'png', width = 8, height = 6, units = 'in')
+```
+
+
+```{r Cubist_OO, echo=TRUE}
+Cubist_rules_expl <- Cubist::cubist(x = SSES_df_train_OO[, c('td_resid',
+                                                             'x2',
+                                                             #'abs_satz',
+                                                             'sec_satz',
+                                                             'ref_SST',
+                                                             'lat',
+                                                             'month',
+                                                             'sd11'
+                                                             )],
+                                    y = SSES_df_train_OO$SST.resid.SMB,
+                                    committees = 1,
+                                    control = Cubist::cubistControl(rules = 100,
+                                                                    unbiased = FALSE,
+                                                                    extrapolation = 100,
+                                                                    label = 'SST Residual',
+                                                                    seed = 108))
+```
+
+
+To evaluate the model, we (1) print it out, (2) spit out the diagnostic plots, (3) plot the predicted residuals
+and actual residuals with the associated regression model, and (4) print out all the pertinent error statistics.
+
+```{r Cubist_tree_print_out_OO, echo=TRUE}
+summary(Cubist_rules_expl)
+```
+
+
+```{r diagnostic_plot_OO_td_resid_sec_satz_resid_rules, echo=TRUE}
+blues_palette <- rev(RColorBrewer::brewer.pal(7, 'Blues'))
+
+reds_palette <- RColorBrewer::brewer.pal(4, 'Reds')
+
+ggplot2::ggplot() +
+  geom_point(aes(x = td_resid, y = sec_satz, col = cut(SST.resid.SMB, c(-Inf, -6, -5, -4, -3, -2, -1, 0, 1, 2, 3, Inf))), data = SSES_df_temp_OO) +
+  scale_color_manual('SST.resid.SMB', values = c(blues_palette, reds_palette)) +
+  ggplot2::geom_segment(aes(x = 2.45314, xend = 2.45314, y = -Inf, yend = Inf)) + # Rule 1
+  ggplot2::geom_segment(aes(x = -0.0323415, xend = 2.45314, y = 1.35894, yend = 1.35894)) +
+  ggplot2::geom_segment(aes(x = -0.0323415, xend = -0.0323415, y = 1, yend = 1.35894)) + # Rule 2
+  ggplot2::geom_segment(aes(x = 0.7378626, xend = 0.7378626, y = 1.35894, yend = Inf)) + # Rule 3
+  ggplot2::geom_segment(aes(x = -0.0323415, xend = -0.0323415, y = 1.35894, yend = Inf)) # Rule 4
+  
+# Rule 5 is defined as the remaining space - the left chunk
+
+
+```
 
 
 ```{r diagnostic_plots_OO, echo=TRUE}
@@ -2005,7 +2068,7 @@ dotplot(Cubist_rules_expl, what = 'coefs')
 
 ```{r predicted_and_actual_residuals_OO, echo=TRUE}
 # Use the tree to predict
-N_correction_neighbors <- 8 # Must be between 0 and 9
+N_correction_neighbors <- 0 # Must be between 0 and 9
 
 # Train set
 Cubist_rules_train_vals <- stats::predict(object = Cubist_rules_expl,
@@ -2019,6 +2082,7 @@ Cubist_rules_test_vals <- stats::predict(object = Cubist_rules_expl,
                                          na.action = na.pass,
                                          neighbors = N_correction_neighbors)
 
+
 # Plot
 ccc <- RColorBrewer::brewer.pal(n = 9, 'YlOrRd')
 ccc <- ccc[3:9]
@@ -2028,14 +2092,23 @@ yyy <- data.frame(Y = Cubist_rules_test_vals, X = SSES_df_test_OO$SST.resid.SMB)
 
 ccc <- colorRampPalette(ccc)(length(breaks) - 1)
 
-ggplot2::ggplot(data = yyy, aes(X, Y, fill = cut(..count.., c(0, 10, 25, 50, 100, 500, 1000, 2500, 5000, 10000, Inf)))) +
-  geom_bin2d(bins = 75) +
+loess_Cubist <- loess(data = yyy, Y ~ X, span = 0.4)
+
+uuu <- data.frame(X = seq(from = min(yyy$X), to = max(yyy$X), by = .1), Y = predict(newdata = seq(from = min(yyy$X), to = max(yyy$X), by = .1), object = loess_RF))
+
+residual_fit_Cubist <- lm(data = yyy, Y ~ X)
+residual_fit_Cubist
+
+iii <- data.frame(X = seq(from = min(yyy$X), to = max(yyy$X), by = .1), Y = residual_fit_Cubist$coefficients[1] + residual_fit_Cubist$coefficients[2] * seq(from = min(yyy$X), to = max(yyy$X), by = .1))
+
+ggplot2::ggplot() +
+  geom_bin2d(data = yyy, aes(X, Y, fill = cut(..count.., c(0, 10, 25, 50, 100, 500, 1000, 2500, 5000, 10000, Inf))), bins = 75) +
   scale_fill_manual(values = ccc, '# of Retrievals') +
   geom_abline(slope = 1, intercept = 0, color = 'black') +
+  geom_line(data = uuu, aes(X, Y), color = 'blue') +
+  geom_line(data = iii, aes(X, Y), color = 'green') +
   labs(x = 'Actual Residual (deg C)', y = 'Predicted Residual (deg C)')
 
-residual_fit_cubist <- lm(Y ~ X, data = yyy)
-residual_fit_cubist
 ```
 
 The statistics here are suggestions from Willmott 1995...
@@ -2140,4 +2213,592 @@ ggplot2::ggplot(data = MAE_without, aes(x = variable_names_long, y = MAE_incr)) 
   #ggsave('variable_importance_MAE_Cubist.pdf', device = 'pdf', width = 8, height = 6, units = 'in') +
   #ggsave('variable_importance_MAE_Cubist.png', device = 'png', width = 8, height = 6, units = 'in')
 ```
+
+```{r grid_search_for_committees_and_rules_satz, echo = TRUE}
+set.seed(108)
+too_small <- FALSE
+committees <- seq(from = 1, to = 5)
+rules <- seq(from = 1, to = 100)
+ctrl_params_performance_satz <- expand.grid(rules = rules, committees = committees)
+ctrl_params_performance_satz$RMSE_train <- rep(NA, nrow(ctrl_params_performance_satz))
+ctrl_params_performance_satz$RMSE_test <- rep(NA, nrow(ctrl_params_performance_satz))
+
+ctrl_params_performance_satz$MAE_train <- rep(NA, nrow(ctrl_params_performance_satz))
+ctrl_params_performance_satz$MAE_test <- rep(NA, nrow(ctrl_params_performance_satz))
+
+ctrl_params_performance_satz$d_train <- rep(NA, nrow(ctrl_params_performance_satz))
+ctrl_params_performance_satz$d_test <- rep(NA, nrow(ctrl_params_performance_satz))
+
+ctrl_params_performance_satz$R_train <- rep(NA, nrow(ctrl_params_performance_satz))
+ctrl_params_performance_satz$R_test <- rep(NA, nrow(ctrl_params_performance_satz))
+
+ctrl_params_performance_satz$m_train <- rep(NA, nrow(ctrl_params_performance_satz))
+ctrl_params_performance_satz$m_test <- rep(NA, nrow(ctrl_params_performance_satz))
+
+ctrl_params_performance_satz$rSDs_train <- rep(NA, nrow(ctrl_params_performance_satz))
+ctrl_params_performance_satz$rSDs_test <- rep(NA, nrow(ctrl_params_performance_satz))
+
+
+for (N in 1:nrow(ctrl_params_performance_satz)) {
+  committees_specific <- ctrl_params_performance_satz[N, 'committees']
+  rules_specific <- ctrl_params_performance_satz[N, 'rules']
+
+   
+  Cubist_rules <- Cubist::cubist(x = SSES_df_train_OO[, c('lat', 'month', 'sd11', 'td_resid', 'x2', 'satz', 'ref_SST')], y = SSES_df_train_OO$SST.resid.SMB,
+                           committees = committees_specific, 
+                           control = Cubist::cubistControl(rules = rules_specific,
+                                                           unbiased = FALSE,
+                                                           extrapolation = 100,
+                                                           label = 'SST Residual',
+                                                           seed = 108))
+  
+  file <- paste0('Cubist_Rule_Sets_OO/Cubist_rules=', rules_specific, '_committees=', committees_specific, '_with_lat_and_month.txt')
+  capture.output(summary(Cubist_rules), file = file)
+  
+  rule_summary <- summary(Cubist_rules)
+  
+  node_sizes <- rep(NA, rules_specific)
+  node_sizes <- as.data.frame(node_sizes)
+  mmm <- strsplit(paste(rule_summary), '\n')
+  mmm <- as.vector(unlist(mmm))
+  counter <- 0
+  for (K in 1:length(mmm)) {
+    line_specific <- mmm[K]
+  
+    if (substring(line_specific, 1, 7) == "  Rule ") {
+      cases_in_node <- stringr::str_extract(line_specific, '[0-9]+ cases')
+      cases_in_node <- substring(cases_in_node, 1, stringi::stri_length(cases_in_node) - 6)
+      cases_in_node <- as.numeric(cases_in_node)
+    
+      node_sizes[counter + 1] <- cases_in_node
+      counter <- counter + 1
+    }
+    
+  }
+  
+  if (min(node_sizes) >= 100) {
+
+    N_correction_neighbors <- 8 # Must be between 0 and 9
+
+    # Predict with the new model
+    ## Train Set
+    Cubist_rules_train_vals <- stats::predict(object = Cubist_rules, newdata = SSES_df_train_OO, na.action = na.pass, neighbors = N_correction_neighbors)
+    
+    ## Test Set
+    Cubist_rules_test_vals <- stats::predict(object = Cubist_rules, newdata = SSES_df_test_OO, na.action = na.pass, neighbors = N_correction_neighbors)
+
+    # Evaluate model
+    ## Train Set
+    ctrl_params_performance_satz[N, 'RMSE_train'] <- caret::RMSE(Cubist_rules_train_vals, SSES_df_train_OO$SST.resid.SMB)
+    ctrl_params_performance_satz[N, 'MAE_train'] <- hydroGOF::mae(Cubist_rules_train_vals, SSES_df_train_OO$SST.resid.SMB)
+    ctrl_params_performance_satz[N, 'd_train'] <- hydroGOF::d(Cubist_rules_train_vals, SSES_df_train_OO$SST.resid.SMB)
+    ctrl_params_performance_satz[N, 'R_train'] <- cor(Cubist_rules_train_vals, SSES_df_train_OO$SST.resid.SMB)
+    ctrl_params_performance_satz[N, 'rSDs_train'] <- hydroGOF::rSD(Cubist_rules_train_vals, SSES_df_train_OO$SST.resid.SMB)
+    ctrl_params_performance_satz[N, 'm_train'] <- lm(Cubist_rules_train_vals ~ SSES_df_train_OO$SST.resid.SMB)$coefficients[2]
+    
+    ## Test Set
+    ctrl_params_performance_satz[N, 'RMSE_test'] <- caret::RMSE(Cubist_rules_test_vals, SSES_df_test_OO$SST.resid.SMB)
+    ctrl_params_performance_satz[N, 'MAE_test'] <- hydroGOF::mae(Cubist_rules_test_vals, SSES_df_test_OO$SST.resid.SMB)
+    ctrl_params_performance_satz[N, 'd_test'] <- hydroGOF::d(Cubist_rules_test_vals, SSES_df_test_OO$SST.resid.SMB)
+    ctrl_params_performance_satz[N, 'R_test'] <- cor(Cubist_rules_test_vals, SSES_df_test_OO$SST.resid.SMB)
+    ctrl_params_performance_satz[N, 'rSDs_test'] <- hydroGOF::rSD(Cubist_rules_test_vals, SSES_df_test_OO$SST.resid.SMB)
+    ctrl_params_performance_satz[N, 'm_test'] <- lm(Cubist_rules_test_vals ~ SSES_df_test_OO$SST.resid.SMB)$coefficients[2]
+    
+    cat('Committees:', committees_specific, 'out of 5; Rules:', rules_specific, 'out of 100; RMSE Test:', caret::RMSE(Cubist_rules_test_vals, SSES_df_test_OO$SST.resid.SMB), '\n')
+      
+    rm(Cubist_rules)
+    gc()
+
+    
+  }
+  
+}
+
+```
+
+```{r grid_search_for_committees_and_rules, echo = TRUE}
+set.seed(108)
+too_small <- FALSE
+committees <- seq(from = 1, to = 5)
+rules <- seq(from = 1, to = 100)
+ctrl_params_performance <- expand.grid(rules = rules, committees = committees)
+ctrl_params_performance$RMSE_train <- rep(NA, nrow(ctrl_params_performance))
+ctrl_params_performance$RMSE_test <- rep(NA, nrow(ctrl_params_performance))
+
+ctrl_params_performance$MAE_train <- rep(NA, nrow(ctrl_params_performance))
+ctrl_params_performance$MAE_test <- rep(NA, nrow(ctrl_params_performance))
+
+ctrl_params_performance$d_train <- rep(NA, nrow(ctrl_params_performance))
+ctrl_params_performance$d_test <- rep(NA, nrow(ctrl_params_performance))
+
+ctrl_params_performance$R_train <- rep(NA, nrow(ctrl_params_performance))
+ctrl_params_performance$R_test <- rep(NA, nrow(ctrl_params_performance))
+
+ctrl_params_performance$m_train <- rep(NA, nrow(ctrl_params_performance))
+ctrl_params_performance$m_test <- rep(NA, nrow(ctrl_params_performance))
+
+ctrl_params_performance$rSDs_train <- rep(NA, nrow(ctrl_params_performance))
+ctrl_params_performance$rSDs_test <- rep(NA, nrow(ctrl_params_performance))
+
+
+for (N in 1:nrow(ctrl_params_performance)) {
+  committees_specific <- ctrl_params_performance[N, 'committees']
+  rules_specific <- ctrl_params_performance[N, 'rules']
+
+   
+  Cubist_rules <- Cubist::cubist(x = SSES_df_train_OO[, c('lat', 'month', 'sd11', 'td_resid', 'x2', 'sec_satz', 'ref_SST')], y = SSES_df_train_OO$SST.resid.SMB,
+                           committees = committees_specific, 
+                           control = Cubist::cubistControl(rules = rules_specific,
+                                                           unbiased = FALSE,
+                                                           extrapolation = 100,
+                                                           label = 'SST Residual',
+                                                           seed = 108))
+  
+  file <- paste0('Cubist_Rule_Sets_OO/Cubist_rules=', rules_specific, '_committees=', committees_specific, '_with_lat_and_month.txt')
+  capture.output(summary(Cubist_rules), file = file)
+  
+  rule_summary <- summary(Cubist_rules)
+  
+  node_sizes <- rep(NA, rules_specific)
+  node_sizes <- as.data.frame(node_sizes)
+  mmm <- strsplit(paste(rule_summary), '\n')
+  mmm <- as.vector(unlist(mmm))
+  counter <- 0
+  for (K in 1:length(mmm)) {
+    line_specific <- mmm[K]
+  
+    if (substring(line_specific, 1, 7) == "  Rule ") {
+      cases_in_node <- stringr::str_extract(line_specific, '[0-9]+ cases')
+      cases_in_node <- substring(cases_in_node, 1, stringi::stri_length(cases_in_node) - 6)
+      cases_in_node <- as.numeric(cases_in_node)
+    
+      node_sizes[counter + 1] <- cases_in_node
+      counter <- counter + 1
+    }
+    
+  }
+  
+  if (min(node_sizes) >= 100) {
+
+    N_correction_neighbors <- 8 # Must be between 0 and 9
+
+    # Predict with the new model
+    ## Train Set
+    Cubist_rules_train_vals <- stats::predict(object = Cubist_rules, newdata = SSES_df_train_OO, na.action = na.pass, neighbors = N_correction_neighbors)
+    
+    ## Test Set
+    Cubist_rules_test_vals <- stats::predict(object = Cubist_rules, newdata = SSES_df_test_OO, na.action = na.pass, neighbors = N_correction_neighbors)
+
+    # Evaluate model
+    ## Train Set
+    ctrl_params_performance[N, 'RMSE_train'] <- caret::RMSE(Cubist_rules_train_vals, SSES_df_train_OO$SST.resid.SMB)
+    ctrl_params_performance[N, 'MAE_train'] <- hydroGOF::mae(Cubist_rules_train_vals, SSES_df_train_OO$SST.resid.SMB)
+    ctrl_params_performance[N, 'd_train'] <- hydroGOF::d(Cubist_rules_train_vals, SSES_df_train_OO$SST.resid.SMB)
+    ctrl_params_performance[N, 'R_train'] <- cor(Cubist_rules_train_vals, SSES_df_train_OO$SST.resid.SMB)
+    ctrl_params_performance[N, 'rSDs_train'] <- hydroGOF::rSD(Cubist_rules_train_vals, SSES_df_train_OO$SST.resid.SMB)
+    ctrl_params_performance[N, 'm_train'] <- lm(Cubist_rules_train_vals ~ SSES_df_train_OO$SST.resid.SMB)$coefficients[2]
+    
+    ## Test Set
+    ctrl_params_performance[N, 'RMSE_test'] <- caret::RMSE(Cubist_rules_test_vals, SSES_df_test_OO$SST.resid.SMB)
+    ctrl_params_performance[N, 'MAE_test'] <- hydroGOF::mae(Cubist_rules_test_vals, SSES_df_test_OO$SST.resid.SMB)
+    ctrl_params_performance[N, 'd_test'] <- hydroGOF::d(Cubist_rules_test_vals, SSES_df_test_OO$SST.resid.SMB)
+    ctrl_params_performance[N, 'R_test'] <- cor(Cubist_rules_test_vals, SSES_df_test_OO$SST.resid.SMB)
+    ctrl_params_performance[N, 'rSDs_test'] <- hydroGOF::rSD(Cubist_rules_test_vals, SSES_df_test_OO$SST.resid.SMB)
+    ctrl_params_performance[N, 'm_test'] <- lm(Cubist_rules_test_vals ~ SSES_df_test_OO$SST.resid.SMB)$coefficients[2]
+    
+    cat('Committees:', committees_specific, 'out of 5; Rules:', rules_specific, 'out of 100; RMSE Test:', caret::RMSE(Cubist_rules_test_vals, SSES_df_test_OO$SST.resid.SMB), '\n')
+      
+    rm(Cubist_rules)
+    gc()
+
+    
+  }
+  
+}
+
+```
+
+
+```{r plot_ctrl_params_performance_sec, echo = TRUE}
+
+ggplot2::ggplot() +
+  geom_point(data = ctrl_params_performance, aes(x = rules, y = RMSE_train, col = as.factor(committees))) +
+  xlim(0, 3) +
+  ggtitle('RMSE train')
+
+ggplot2::ggplot() +
+  geom_point(data = ctrl_params_performance, aes(x = rules, y = MAE_train, col = as.factor(committees))) +
+  xlim(0, 3) +
+  ggtitle('MAE train')
+
+ggplot2::ggplot() +
+  geom_point(data = ctrl_params_performance, aes(x = rules, y = d_train, col = as.factor(committees))) +
+  xlim(0, 3) +
+  ggtitle('d train')
+
+ggplot2::ggplot() +
+  geom_point(data = ctrl_params_performance, aes(x = rules, y = R_train, col = as.factor(committees))) +
+  xlim(0, 3) +
+  ggtitle('R train')
+
+ggplot2::ggplot() +
+  geom_point(data = ctrl_params_performance, aes(x = rules, y = m_train, col = as.factor(committees))) +
+  xlim(0, 3) +
+  ggtitle('m train')
+
+ggplot2::ggplot() +
+  geom_point(data = ctrl_params_performance, aes(x = rules, y = rSDs_train, col = as.factor(committees))) +
+  xlim(0, 3) +
+  ggtitle('rSDs train')
+```
+
+```{r plot_ctrl_params_performance_test_sec, echo = TRUE}
+
+ggplot2::ggplot() +
+  geom_point(data = ctrl_params_performance, aes(x = rules, y = RMSE_test, col = as.factor(committees))) +
+  xlim(0, 3) +
+  ggtitle('RMSE Test')
+
+ggplot2::ggplot() +
+  geom_point(data = ctrl_params_performance, aes(x = rules, y = MAE_test, col = as.factor(committees))) +
+  xlim(0, 3) +
+  ggtitle('MAE Test')
+
+ggplot2::ggplot() +
+  geom_point(data = ctrl_params_performance, aes(x = rules, y = d_test, col = as.factor(committees))) +
+  xlim(0, 3) +
+  ggtitle('d test')
+
+ggplot2::ggplot() +
+  geom_point(data = ctrl_params_performance, aes(x = rules, y = R_test, col = as.factor(committees))) +
+  xlim(0, 3) +
+  ggtitle('R test')
+
+ggplot2::ggplot() +
+  geom_point(data = ctrl_params_performance, aes(x = rules, y = m_test, col = as.factor(committees))) +
+  xlim(0, 3) +
+  ggtitle('m test')
+
+ggplot2::ggplot() +
+  geom_point(data = ctrl_params_performance, aes(x = rules, y = rSDs_test, col = as.factor(committees))) +
+  xlim(0, 3) +
+  ggtitle('rSDs test')
+```
+
+
+
+```{r plot_ctrl_params_performance_satz, echo = TRUE}
+
+ggplot2::ggplot() +
+  geom_point(data = ctrl_params_performance_satz, aes(x = rules, y = RMSE_train, col = as.factor(committees))) +
+  xlim(0, 50) +
+  ggtitle('RMSE train')
+
+ggplot2::ggplot() +
+  geom_point(data = ctrl_params_performance_satz, aes(x = rules, y = MAE_train, col = as.factor(committees))) +
+  xlim(0, 50) +
+  ggtitle('MAE train')
+
+ggplot2::ggplot() +
+  geom_point(data = ctrl_params_performance_satz, aes(x = rules, y = d_train, col = as.factor(committees))) +
+  xlim(0, 50) +
+  ggtitle('d train')
+
+ggplot2::ggplot() +
+  geom_point(data = ctrl_params_performance_satz, aes(x = rules, y = R_train, col = as.factor(committees))) +
+  xlim(0, 50) +
+  ggtitle('R train')
+
+ggplot2::ggplot() +
+  geom_point(data = ctrl_params_performance_satz, aes(x = rules, y = m_train, col = as.factor(committees))) +
+  xlim(0, 50) +
+  ggtitle('m train')
+
+ggplot2::ggplot() +
+  geom_point(data = ctrl_params_performance_satz, aes(x = rules, y = rSDs_train, col = as.factor(committees))) +
+  xlim(0, 50) +
+  ggtitle('rSDs train')
+```
+
+```{r plot_ctrl_params_performance_test_satz, echo = TRUE}
+
+ggplot2::ggplot() +
+  geom_point(data = ctrl_params_performance_satz, aes(x = rules, y = RMSE_test, col = as.factor(committees))) +
+  xlim(0, 50) +
+  ggtitle('RMSE Test')
+
+ggplot2::ggplot() +
+  geom_point(data = ctrl_params_performance_satz, aes(x = rules, y = MAE_test, col = as.factor(committees))) +
+  xlim(0, 50) +
+  ggtitle('MAE Test')
+
+ggplot2::ggplot() +
+  geom_point(data = ctrl_params_performance_satz, aes(x = rules, y = d_test, col = as.factor(committees))) +
+  xlim(0, 50) +
+  ggtitle('d test')
+
+ggplot2::ggplot() +
+  geom_point(data = ctrl_params_performance_satz, aes(x = rules, y = R_test, col = as.factor(committees))) +
+  xlim(0, 50) +
+  ggtitle('R test')
+
+ggplot2::ggplot() +
+  geom_point(data = ctrl_params_performance_satz, aes(x = rules, y = m_test, col = as.factor(committees))) +
+  xlim(0, 50) +
+  ggtitle('m test')
+
+ggplot2::ggplot() +
+  geom_point(data = ctrl_params_performance_satz, aes(x = rules, y = rSDs_test, col = as.factor(committees))) +
+  xlim(0, 50) +
+  ggtitle('rSDs test')
+```
+
+
+```{r exploration_of_3_rule_set_Cubist, echo = TRUE}
+Cubist_rules_expl_3 <- Cubist::cubist(x = SSES_df_train_OO[, c('td_resid',
+                                                             'x2',
+                                                             #'abs_satz',
+                                                             'sec_satz',
+                                                             'ref_SST',
+                                                             'lat',
+                                                             'month',
+                                                             'sd11'
+                                                             )],
+                                    y = SSES_df_train_OO$SST.resid.SMB,
+                                    committees = 1,
+                                    control = Cubist::cubistControl(rules = 3,
+                                                                    unbiased = FALSE,
+                                                                    extrapolation = 100,
+                                                                    label = 'SST Residual',
+                                                                    seed = 108))
+
+capture.output(summary(Cubist_rules_expl_3), file = '3_rule_sets_Cubist_trimmed.txt')
+
+# Join train and test sets together
+SSES_df_temp_OO_b <- rbind(SSES_df_train_OO, SSES_df_test_OO)
+
+SSES_df_temp_OO_b$predicted_resid <- predict(object = Cubist_rules_expl_3, newdata = SSES_df_temp_OO_b, neighors = 8)
+
+# Assign rule numbers
+SSES_df_temp_OO_b$rule_numb <- rep(NA, nrow(SSES_df_temp_OO_b))
+
+SSES_df_temp_OO_b$rule_numb[SSES_df_temp_OO_b$td_resid > -0.0323415 & SSES_df_temp_OO_b$sec_satz <= 1.35894] <- 1
+
+SSES_df_temp_OO_b$rule_numb[is.na(SSES_df_temp_OO_b$rule_numb) & SSES_df_temp_OO_b$sec_satz > 1.35894] <- 2
+
+SSES_df_temp_OO_b$rule_numb[is.na(SSES_df_temp_OO_b$rule_numb) & SSES_df_temp_OO_b$td_resid <= -0.0323415] <- 3
+
+# Break back up into train and test sets
+SSES_df_train_OO <- SSES_df_temp_OO_b[1:nrow(SSES_df_train_OO), ]
+SSES_df_test_OO <- SSES_df_temp_OO_b[(nrow(SSES_df_train_OO) + 1):nrow(SSES_df_temp_OO_b), ]
+
+table(SSES_df_train_OO$rule_numb, useNA = 'always')
+
+SSES_df_train_OO %>%
+  dplyr::group_by(rule_numb) %>%
+  dplyr::summarise(med = median(SST.resid.SMB), MAD = mad(SST.resid.SMB))
+
+
+ggplot2::ggplot() +
+  geom_histogram(data = SSES_df_train_OO[SSES_df_train_OO$rule_numb == 1, ], aes(x = SST.resid.SMB), col = 'blue', fill = 'blue', alpha = 0.4) +
+  geom_histogram(data = SSES_df_train_OO[SSES_df_train_OO$rule_numb == 2, ], aes(x = SST.resid.SMB), col = 'green', fill = 'green', alpha = 0.4) +
+  geom_histogram(data = SSES_df_train_OO[SSES_df_train_OO$rule_numb == 3, ], aes(x = SST.resid.SMB), col = 'red', fill = 'red', alpha = 0.4)
+
+```
+
+
+```{r diagnostic_plots_OO_3, echo=TRUE}
+dotplot(Cubist_rules_expl_3, what = 'splits')
+dotplot(Cubist_rules_expl_3, what = 'coefs')
+```
+
+
+```{r predicted_and_actual_residuals_OO_3, echo=TRUE}
+# Use the tree to predict
+N_correction_neighbors <- 0 # Must be between 0 and 9
+
+# Train set
+Cubist_rules_train_vals <- stats::predict(object = Cubist_rules_expl_3,
+                                          newdata = SSES_df_train_OO,
+                                          na.action = na.pass,
+                                          neighbors = N_correction_neighbors)
+
+# Test set
+Cubist_rules_test_vals <- stats::predict(object = Cubist_rules_expl_3,
+                                         newdata = SSES_df_test_OO,
+                                         na.action = na.pass,
+                                         neighbors = N_correction_neighbors)
+
+
+# Plot
+ccc <- RColorBrewer::brewer.pal(n = 9, 'YlOrRd')
+ccc <- ccc[3:9]
+breaks <- c(0, 10, 25, 50, 100, 500, 1000, 2500, 5000, 10000, Inf)
+
+yyy <- data.frame(Y = Cubist_rules_test_vals, X = SSES_df_test_OO$SST.resid.SMB)
+
+ccc <- colorRampPalette(ccc)(length(breaks) - 1)
+
+loess_Cubist <- loess(data = yyy, Y ~ X, span = 0.4)
+
+uuu <- data.frame(X = seq(from = min(yyy$X), to = max(yyy$X), by = .1), Y = predict(newdata = seq(from = min(yyy$X), to = max(yyy$X), by = .1), object = loess_RF))
+
+residual_fit_Cubist <- lm(data = yyy, Y ~ X)
+residual_fit_Cubist
+
+iii <- data.frame(X = seq(from = min(yyy$X), to = max(yyy$X), by = .1), Y = residual_fit_Cubist$coefficients[1] + residual_fit_Cubist$coefficients[2] * seq(from = min(yyy$X), to = max(yyy$X), by = .1))
+
+ggplot2::ggplot() +
+  geom_bin2d(data = yyy, aes(X, Y, fill = cut(..count.., c(0, 10, 25, 50, 100, 500, 1000, 2500, 5000, 10000, Inf))), bins = 75) +
+  scale_fill_manual(values = ccc, '# of Retrievals') +
+  geom_abline(slope = 1, intercept = 0, color = 'black') +
+  geom_line(data = uuu, aes(X, Y), color = 'blue') +
+  geom_line(data = iii, aes(X, Y), color = 'green') +
+  labs(x = 'Actual Residual (deg C)', y = 'Predicted Residual (deg C)')
+
+```
+
+The statistics here are suggestions from Willmott 1995...
+
+```{r statistics_for_model_evaluation_train_set_OO_3, echo=TRUE}
+# 1-D Statistics
+# Stats for actual residuals
+summary(SSES_df_train_OO$SST.resid.SMB)
+sd(SSES_df_train_OO$SST.resid.SMB)
+
+# Just of Predictions
+summary(Cubist_rules_train_vals)
+sd(Cubist_rules_train_vals)
+
+# 2-D Statistics
+# Base statistics summary of Train Model Residuals
+train_model_resids <- Cubist_rules_train_vals - SSES_df_train_OO$SST.resid.SMB
+summary(train_model_resids)
+sd(train_model_resids)
+
+# Measures of error/accuracy
+regression_error_stats(Cubist_rules_train_vals, SSES_df_train_OO$SST.resid.SMB)
+
+```
+
+
+```{r statistics_for_model_evaluation_test_set_OO_3, echo=TRUE}
+# 1-D Statistics
+# Stats for actual residuals
+summary(SSES_df_test_OO$SST.resid.SMB)
+sd(SSES_df_test_OO$SST.resid.SMB)
+
+# Just of Predictions
+summary(Cubist_rules_test_vals)
+sd(Cubist_rules_test_vals)
+
+test_model_resids <- Cubist_rules_test_vals - SSES_df_test_OO$SST.resid.SMB
+
+# 2-D Statistics
+# Base statistics summary of Train Model Residuals
+summary(test_model_resids)
+sd(test_model_resids)
+
+# Measures of error/accuracy
+regression_error_stats(Cubist_rules_test_vals, SSES_df_test_OO$SST.resid.SMB)
+
+```
+
+
+
+```{r}
+qqq <- dplyr::tbl_df(SSES_df_train_OO) %>%
+  dplyr::filter(rule_numb == 1) %>%
+  dplyr::select(lon, predicted_resid, td_resid, x2, sec_satz, ref_SST, lat, month, sd11, SST.resid.SMB)
+
+median(qqq$predicted_resid)
+mad(qqq$predicted_resid)
+
+median(qqq$predicted_resid - qqq$SST.resid.SMB)
+mad(qqq$predicted_resid - qqq$SST.resid.SMB)
+caret::RMSE(qqq$predicted_resid, qqq$SST.resid.SMB)
+
+
+plot(qqq, pch = '.')
+
+ggplot2::ggplot() + 
+  geom_point(data = qqq, aes(x = lon, y = lat), pch = '.')
+```
+
+```{r}
+www <- dplyr::tbl_df(SSES_df_train_OO) %>%
+  dplyr::filter(rule_numb == 2) %>%
+  dplyr::select(lon, predicted_resid, td_resid, x2, sec_satz, ref_SST, lat, month, sd11, SST.resid.SMB)
+
+
+median(www$predicted_resid)
+mad(www$predicted_resid)
+
+median(www$predicted_resid - www$SST.resid.SMB)
+mad(www$predicted_resid - www$SST.resid.SMB)
+caret::RMSE(www$predicted_resid, www$SST.resid.SMB)
+
+
+plot(www, pch =  '.')
+
+ggplot2::ggplot() + 
+  geom_point(data = www, aes(x = lon, y = lat), pch = '.')
+```
+
+```{r}
+eee <- dplyr::tbl_df(SSES_df_train_OO) %>%
+  dplyr::filter(rule_numb == 3) %>%
+  dplyr::select(lon, predicted_resid, td_resid, x2, sec_satz, ref_SST, lat, month, sd11, SST.resid.SMB)
+
+median(eee$predicted_resid)
+mad(eee$predicted_resid)
+
+median(eee$predicted_resid - eee$SST.resid.SMB)
+mad(eee$predicted_resid - eee$SST.resid.SMB)
+caret::RMSE(eee$predicted_resid, eee$SST.resid.SMB)
+
+plot(eee, pch = '.')
+
+ggplot2::ggplot() + 
+  geom_point(data = eee, aes(x = lon, y = lat), pch = '.')
+```
+
+```{r diagnostic_plot_OO_td_resid_sec_satz_resid_rules_3_rules, echo=TRUE}
+blues_palette <- rev(RColorBrewer::brewer.pal(7, 'Blues'))
+
+reds_palette <- RColorBrewer::brewer.pal(4, 'Reds')
+
+ggplot2::ggplot() +
+  geom_point(aes(x = td_resid, y = sec_satz, pch = '.', col = cut(SST.resid.SMB, c(-Inf, -6, -5, -4, -3, -2, -1, -0.5, 0.5, 1, 2, 3, Inf))), data = SSES_df_temp_OO) +
+  scale_color_manual('SST.resid.SMB', values = c(blues_palette, '#ffffff', reds_palette)) +
+  ggplot2::geom_segment(aes(x = -0.0323415, xend = -0.0323415, y = -Inf, yend = 1.35894)) + # Rule 1
+  ggplot2::geom_segment(aes(x = -Inf, xend = Inf, y = 1.35894, yend = 1.35894)) + # Rule 2
+  ggplot2::geom_segment(aes(x = -0.0323415, xend = -0.0323415, y = Inf, yend = Inf)) # Rule 3
+
+```
+
+
+
+```{r}
+require(scatterplot3d)
+
+tt1 <- data.frame(x = SSES_df_temp_OO$td_resid, y = SSES_df_temp_OO$x2, z = SSES_df_temp_OO$sec_satz, color = ifelse(SSES_df_temp_OO$SST.resid.SMB < -.5, 'blue', ifelse(SSES_df_temp_OO$SST.resid.SMB > .5, 'red', 'green')))
+
+scatterplot3d::scatterplot3d(x = tt1$x, tt1$y, tt1$z, tt1$color)
+
+require(rgl)
+rgl::plot3d(x = tt1$x, y = tt1$y, z = tt1$z, col = tt1$color)
+
+# WWW - Rule set 2
+tt2 <- data.frame(x = www$td_resid, y = www$x2, z = www$sec_satz, color = ifelse(www$SST.resid.SMB < -1, 'blue', ifelse(www$SST.resid.SMB > 1, 'red', 'green')), SST.resid.SMB = www$SST.resid.SMB)
+
+ppp <- scatterplot3d::scatterplot3d(x = tt2$x, tt2$y, tt2$z, tt2$color)
+#ppp$plane3d(lm(tt2$SST.resid.SMB ~ tt2$x + tt2$y + tt2$z))
+
+rgl::plot3d(x = tt2$x, y = tt2$y, z = tt2$z, col = tt2$color)
+
+```
+
+
+
 
