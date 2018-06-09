@@ -1,0 +1,1489 @@
+---
+title: "Cubist Exploration - Global"
+author: "Chirag Kumar and Guillermo Podesta"
+output:
+  html_notebook:
+    toc: True
+    theme: united
+---
+
+# Prep Workspace
+```{r prep_workspace_SST, include=FALSE}
+# Import necessary packages
+require(ggplot2)
+require(dplyr)
+require(RColorBrewer)
+require(circular)
+require(ggmap)
+require(raster)
+require(rasterVis)
+require(caret)
+require(partykit)
+require(randomForest)
+require(stringr)
+require(stringi)
+require(raster)
+require(sp)
+require(rgdal)
+require(rasterVis)
+require(rpart)
+require(rpart.plot)
+require(scales)
+require(gplots)
+require(maps)
+
+ggplot <- function(...) {ggplot2::ggplot(...) + theme_bw()}
+
+# Define secant function
+secant.deg <- function(x) {1 / (cos(circular::rad(x)))}
+
+
+# Measures of accuracy/error function
+regression_error_stats <- function(predicted, observed) {
+  # Compute the error measures
+  R_cor <- cor(predicted, observed)
+  RMSE <- caret::RMSE(predicted, observed)
+  MAE <- hydroGOF::mae(predicted, observed)
+  d_willmott <- hydroGOF::d(predicted, observed)
+  NSE_efficiency <- hydroGOF::NSE(predicted, observed)
+  ratio_sds <- hydroGOF::rSD(predicted, observed)
+    
+  # Turn all the error stats into one dataframe to return
+  error_stats <- list('R' = R_cor,
+                      'RMSE' = RMSE,
+                      'MAE' = MAE,
+                      'd' = d_willmott,
+                      'NSE' = NSE_efficiency,
+                      'ratio_SDs' = ratio_sds)
+  
+  #error_stats <- c(R_cor, RMSE, MAE, d_willmott, NSE_efficiency, ratio_sds)
+  #error_stats <- as.data.frame(error_stats)
+  #error_stats <- t(error_stats)
+  #rownames(error_stats) <- 'Stats'
+  #colnames(error_stats) <- c('R', 'RMSE', 'MAE', 'd', 'NSE', 'ratio_SDs')
+    
+  return(error_stats)
+}
+
+
+entropy <- function(features, rule_numb) {
+  rule_numb <- as.factor(rule_numb)
+  N_rules <- length(levels(rule_numb))
+  N_features <- ncol(features)
+  centroids <- data.frame(matrix(NA, N_rules, N_features), row.names = levels(rule_numb))
+  colnames(centroids) <- names(features)
+  
+  for (i in 1:N_rules) {
+    temp <- features[rule_numb == 1, ]
+    centroids[i, ] <- colMeans(temp)
+  }
+  
+  entropy = 0
+  for (i in 1:nrow(features)) {
+    entropy = entropy + dist(rbind(features[i, ], centroids[rule_numb[i], ]))
+  }
+  
+  return(entropy)
+}
+
+# Source own functions
+# Define direwctory where functions are for each operating system
+
+if (Sys.info()["sysname"] == 'Windows') {
+  fun.dir <- 'D:/matchups/r-projects/Matchup_R_Scripts/Functions/'
+} else if (Sys.info()["sysname"] == 'Linux') {
+  fun.dir <- '/home/ckk/Projects/Matchup_R_Scripts/Functions/'
+}
+
+fun.file <- paste0(fun.dir, 'common_functions.R')
+
+source(file = fun.file,
+  local = FALSE, echo = FALSE, verbose = FALSE)
+rm(fun.dir, fun.file)
+
+
+# Load data
+# For 787
+linux_dir <- '~/Projects/Matchup_R_Scripts/Results/objects/'
+# For Laptop
+#linux_dir <- '~/Projects/Matchup_R_Scripts/'
+linux_file <- 'MODIS_Aqua_GSFC_ALL_Class_6.4.1_ao_2017_04_12_with_ancillary.Rdata'
+AQUA_file <- paste0(linux_dir, linux_file)
+
+if (!file.exists(AQUA_file)) {
+    stop('Input file does not exist')
+  } else {
+    load(AQUA_file, verbose = TRUE)
+    AQUA <- MODIS_Aqua_GSFC_ALL_Class_6.4.1_ao_2017_04_12
+  }
+
+rm(linux_dir, linux_file, AQUA_file)
+rm(MODIS_Aqua_GSFC_ALL_Class_6.4.1_ao_2017_04_12)
+
+set.seed(108)
+```
+
+```{r prep_data, echo=TRUE}
+# Turn POSIXct objects to characters bc dplyr doesn't support POSIXct
+AQUA$sat.timedate <- as.character(AQUA$sat.timedate)
+AQUA$buoy.timedate <- as.character(AQUA$buoy.timedate)
+
+# Apply basic filtering
+AQUA <- dplyr::tbl_df(AQUA) %>%
+  dplyr::filter(solz >= 90) %>%
+  dplyr::filter(qsst == 0 | qsst == 1 | qsst == 2) # 1130520 Matchups
+
+# Now grab only variables that may be used to determine retrieval accuracy and make some new variables (i.e. x1, x2, x3)
+# Create df of features
+orig <- dplyr::tbl_df(AQUA) %>%
+  dplyr::mutate(T_11 = cen.11000,
+    T_12 = cen.12000,
+    band.diff = T_11 - T_12,
+    ref_SST = cen.ref.type.1.SST,
+    x2 = band.diff * ref_SST,
+    x3 = ((secant.deg(satz) - 1) * band.diff),
+    lat = buoy.lat,
+    lon = buoy.lon,
+    month = lubridate::month(as.POSIXct(buoy.timedate)),
+    sd11 = sd.11000,
+    sd12 = sd.12000,
+    range11 = max.11000 - min.11000,
+    range12 = max.12000 - min.12000,
+    diff.med.min11 = med.11000 - min.11000,
+    diff.med.min12 = med.12000 - min.12000,
+    qsst = qsst,
+    buoy.sst = buoy.sst,
+    cell5deg = cell5deg,
+    buoy.timedate = buoy.timedate,
+    td_estimate = cen.ref.type.1.SST - cen.11000,
+    cen.sst = cen.sst,
+    pseudo.resid.SMR = cen.sst - cen.ref.type.1.SST,
+    td_actual = buoy.sst - T_11,
+    abs_satz = abs(satz),
+    sec_satz = secant.deg(satz),
+    SST.resid.SMB = cen.sst - (buoy.sst - 0.17)) %>% # SMB = sat minus buoy - also debias buoy.sst by turning buoy.sst into a skin measurement
+  dplyr::select(T_11, band.diff, x2, x3, td_estimate, td_actual, ref_SST, satz, sec_satz, lon, lat, month, sd11,
+                qsst, buoy.sst, cell5deg, cen.sst, SST.resid.SMB)
+
+```
+
+```{r create_temp_SSES_dataframe, echo=TRUE}
+set.seed(108)
+index <- sample(1:nrow(orig), 50000, replace = FALSE)
+uuu <- orig[index, ]
+
+td_loess <- loess(td_actual ~ x2, data = uuu, span = 0.4)
+orig$td_resid <- orig$td_estimate - stats::predict(td_loess, newdata = orig$x2)
+
+# Some td_resid may be NA because of domain restrictions on loess - filter them out
+orig <- dplyr::tbl_df(orig) %>%
+  dplyr::filter(!is.na(td_resid))
+orig <- as.data.frame(orig)
+
+# Subset the data such that we are looking at retrievals only within the Nino 3.4 zone - add Northeast zone
+orig <- orig %>% 
+  dplyr::mutate(N34 = ifelse(lat >= -5 & lat <= 5 & lon >= -170 & lon <= -120, TRUE, FALSE)) %>%
+  dplyr::mutate(NE = ifelse(lat >= 35 & lat <= 41 & lon >= -70 & lon <= -50, TRUE, FALSE)) %>%
+  dplyr::mutate(MA = ifelse(lat >= 27 & lat <= 32 & lon <= -45 & lon >= -60, TRUE, FALSE))
+
+set.seed(108)
+index <- sample(1:nrow(orig), .6 * nrow(orig), replace = FALSE)
+orig_train <- orig[index, ]
+orig_test <- orig[-index, ]
+
+set.seed(108)
+index <- sample(1:nrow(orig), 300000, replace = FALSE)
+orig2 <- orig[index, ]
+
+set.seed(108)
+index <- sample(1:nrow(orig2), 220000, replace = FALSE)
+orig2_train <- orig2[index, ]
+orig2_test <- orig2[-index, ]
+
+```
+
+# Explore Data
+```{r correlogram_of_features, echo=TRUE}
+# Take the correlation matrix
+cors_mat_f <- as.matrix(cor(orig2[, c('td_resid', 'sec_satz', 'x2', 'ref_SST', 'sd11', 'month', 'lat', 'SST.resid.SMB')]))
+
+# Format the data for the plot
+xval <- formatC(cors_mat_f, format = "f", digits = 2)
+
+blues_palette <- rev(RColorBrewer::brewer.pal(9, 'Blues'))
+blues_palette <- blues_palette[1:5]
+blues_palette <- colorRampPalette(blues_palette)(5)
+
+reds_palette <- RColorBrewer::brewer.pal(9, 'Reds')
+reds_palette <- reds_palette[1:5]
+reds_palette <- colorRampPalette(reds_palette)(5)
+
+palette_med <- c((blues_palette), '#D3D3D3', (reds_palette))
+
+pal <- colorRampPalette(palette_med)
+
+ # Plot the matrix
+corrgram <- gplots::heatmap.2(cors_mat_f,
+                              Rowv = FALSE, Colv = FALSE,
+                              dendrogram = "none",
+                              main = "Correlogram",
+                              xlab = "Columns", ylab = "Rows",
+                              col = pal,
+                              tracecol = "#303030", trace = "none",
+                              cellnote = xval, notecol = "black", notecex = 0.8,
+                              keysize = 1.5, margins = c(5, 5))
+
+```
+
+
+```{r pairwise_plot_of_features, echo=TRUE}
+# Take random sample
+cors_mat_f <- orig2[, c('td_resid', 'sec_satz', 'x2', 'ref_SST', 'sd11', 'month', 'lat', 'SST.resid.SMB')]
+index <- sample(1:nrow(cors_mat_f), 5000, replace = FALSE)
+
+ttt <- as.data.frame(cors_mat_f)[index, ]
+
+plot(ttt, pch = '.')
+
+```
+
+# 2 Feature Cubist Tree
+
+```{r Cubist_2_global, echo=TRUE}
+Cubist_2_global <- Cubist::cubist(x = orig2_train[, c('td_resid',
+                                                             #'x2',
+                                                             #'abs_satz',
+                                                             'sec_satz'
+                                                             #'ref_SST',
+                                                             #'lat',
+                                                             #'month',
+                                                             #'sd11'
+                                                             )],
+                                    y = orig2_train$SST.resid.SMB,
+                                    committees = 1,
+                                    control = Cubist::cubistControl(rules = 100,
+                                                                    unbiased = FALSE,
+                                                                    extrapolation = 100,
+                                                                    label = 'SST Residual',
+                                                                    seed = 108))
+
+capture.output(summary(Cubist_2_global), file = 'td_resid_and_sec_satz_global.txt')
+
+summary(Cubist_2_global)
+
+```
+
+```{r assign_rule_numbs_global_2_features}
+# Join train and test sets together
+orig2_b <- rbind(orig2_train, orig2_test)
+
+orig2_b$predicted_resid <- predict(object = Cubist_2_global, newdata = orig2_b, neighors = 8)
+
+# Assign rule numbers
+orig2_b$rule_numb_2f <- rep(NA, nrow(orig2_b))
+
+orig2_b$rule_numb_2f[orig2_b$td_resid > 0.5158148 & orig2_b$sec_satz <= 1.447937] <- 1
+
+orig2_b$rule_numb_2f[orig2_b$td_resid > 2.038076 & orig2_b$sec_satz > 1.447937] <- 2
+
+orig2_b$rule_numb_2f[orig2_b$td_resid > 0.5158148 & orig2_b$td_resid <= 2.038076 & orig2_b$sec_satz > 1.447937] <- 3
+
+orig2_b$rule_numb_2f[orig2_b$td_resid > -0.2797511 & orig2_b$td_resid <= 0.5158148 & orig2_b$sec_satz <= 2.035131] <- 4
+
+orig2_b$rule_numb_2f[orig2_b$td_resid <= -0.2797511 & orig2_b$sec_satz <= 2.035131] <- 5
+
+orig2_b$rule_numb_2f[orig2_b$td_resid <= 0.5158148 & orig2_b$sec_satz > 2.035131] <- 6
+
+# Break back up into train and test sets
+orig2_train <- orig2_b[1:nrow(orig2_train), ]
+orig2_test <- orig2_b[(nrow(orig2_train) + 1):nrow(orig2_b), ]
+
+table(orig2_train$rule_numb_2f, useNA = 'always')
+orig2_train %>%
+  dplyr::group_by(rule_numb_2f) %>%
+  dplyr::summarise(N = length(SST.resid.SMB), med = median(SST.resid.SMB), mean = mean(SST.resid.SMB), MAD = mad(SST.resid.SMB))
+
+```
+
+
+```{r diagnostic_plot_global_td_resid_sec_satz_resid_rules_6_rules, echo=TRUE}
+blues_palette <- rev(RColorBrewer::brewer.pal(7, 'Blues'))
+
+reds_palette <- RColorBrewer::brewer.pal(4, 'Reds')
+
+ggplot2::ggplot() +
+  geom_point(aes(x = td_resid, y = sec_satz, pch = '.', col = cut(SST.resid.SMB, c(-Inf, -6, -5, -4, -3, -2, -1, -0.5, 0.5, 1, 2, 3, Inf))), data = orig2_train) +
+  scale_color_manual('SST.resid.SMB', values = c(blues_palette, '#ffffff', reds_palette)) +
+  ggplot2::geom_segment(aes(x = 0.5158148, xend = 0.5158148, y = -Inf, yend = 1.447937)) + # Rule 1
+  ggplot2::geom_segment(aes(x = 0.5158148, xend = Inf, y = 1.447937, yend = 1.447937)) +  # Rule 1
+  annotate('text', x = 3, y = 1.25, label = '1', size = 8) +
+  ggplot2::geom_segment(aes(x = 2.038076, xend = 2.038076, y = 1.447937, yend = Inf)) + # Rule 2
+  annotate('text', x = 3, y = 2, label = '2', size = 8) +
+  ggplot2::geom_segment(aes(x = 0.5158148, xend = 0.5158148, y = 1.0, yend = Inf)) +
+  annotate('text', x = 1, y = 1.75, label = '3', size = 8) +
+  ggplot2::geom_segment(aes(x = -0.2797511, xend = -0.2797511, y = -Inf, yend = 2.035131)) +
+  ggplot2::geom_segment(aes(x = -0.2797511, xend = 0.5158148, y = 2.035131, yend = 2.035131)) + # Rule 4
+  annotate('text', x = -0, y = 1.5, label = '4', size = 8) +
+  ggplot2::geom_segment(aes(x = -Inf, xend = -0.2797511, y = 2.035131, yend = 2.035131)) + # Rule 5
+  annotate('text', x = -2, y = 1.5, label = '5', size = 8) +
+  annotate('text', x = -2, y = 2.2, label = '6', size = 8)
+```
+
+# Global Unpruned Tree
+```{r Cubist_global_unpruned, echo=TRUE}
+Cubist_global_unpruned <- Cubist::cubist(x = orig_train[, c('td_resid',
+                                                             'x2',
+                                                             'sec_satz',
+                                                             'ref_SST',
+                                                             'lat',
+                                                             'month',
+                                                             'sd11'
+                                                             )],
+                                    y = orig_train$SST.resid.SMB,
+                                    committees = 1,
+                                    control = Cubist::cubistControl(rules = 750,
+                                                                    unbiased = FALSE,
+                                                                    extrapolation = 100,
+                                                                    label = 'SST Residual',
+                                                                    seed = 108))
+
+capture.output(summary(Cubist_global_unpruned), file = 'Cubist_global_unpruned.txt')
+
+summary(Cubist_global_unpruned)
+
+```
+
+```{r predicted_and_actual_residuals_global, echo=TRUE}
+# Use the tree to predict
+N_correction_neighbors <- 8 # Must be between 0 and 9
+
+# Train set
+Cubist_rules_train_vals <- stats::predict(object = Cubist_global_unpruned,
+                                          newdata = orig_train,
+                                          na.action = na.pass,
+                                          neighbors = N_correction_neighbors)
+
+# Test set
+Cubist_rules_test_vals <- stats::predict(object = Cubist_global_unpruned,
+                                         newdata = orig_test,
+                                         na.action = na.pass,
+                                         neighbors = N_correction_neighbors)
+
+
+# Plot
+ccc <- RColorBrewer::brewer.pal(n = 9, 'YlOrRd')
+ccc <- ccc[3:9]
+ccc <- colorRampPalette(ccc)(length(breaks) - 1)
+breaks <- c(0, 10, 25, 50, 100, 500, 1000, 2500, 5000, 10000, Inf)
+
+yyy <- data.frame(Y = Cubist_rules_test_vals, X = orig_test$SST.resid.SMB)
+
+index <- sample(1:nrow(yyy), 100000, replace = FALSE)
+zzz <- yyy[index, ]
+loess_Cubist <- loess(data = zzz, Y ~ X, span = 0.4)
+
+uuu <- data.frame(X = seq(from = min(yyy$X), to = max(yyy$X), by = .1), Y = predict(newdata = seq(from = min(yyy$X), to = max(yyy$X), by = .1), object = loess_Cubist))
+
+residual_fit_Cubist <- lm(data = yyy, Y ~ X)
+residual_fit_Cubist
+
+iii <- data.frame(X = seq(from = min(yyy$X), to = max(yyy$X), by = .1), Y = residual_fit_Cubist$coefficients[1] + residual_fit_Cubist$coefficients[2] * seq(from = min(yyy$X), to = max(yyy$X), by = .1))
+
+ggplot2::ggplot() +
+  geom_bin2d(data = yyy, aes(X, Y, fill = cut(..count.., c(0, 10, 25, 50, 100, 500, 1000, 2500, 5000, 10000, Inf))), bins = 75) +
+  scale_fill_manual(values = ccc, '# of Retrievals') +
+  geom_abline(slope = 1, intercept = 0, color = 'black') +
+  geom_line(data = uuu, aes(X, Y), color = 'blue') +
+  geom_line(data = iii, aes(X, Y), color = 'green') +
+  labs(x = 'Actual Residual (deg C)', y = 'Predicted Residual (deg C)')
+
+```
+
+The statistics here are suggestions from Willmott 1995...
+
+```{r statistics_for_model_evaluation_train_set_global, echo=TRUE}
+# 1-D Statistics
+# Stats for actual residuals
+summary(orig_train$SST.resid.SMB)
+sd(orig_train$SST.resid.SMB)
+
+# Just of Predictions
+summary(Cubist_rules_train_vals)
+sd(Cubist_rules_train_vals)
+
+# 2-D Statistics
+# Base statistics summary of Train Model Residuals
+train_model_resids <- Cubist_rules_train_vals - orig_train$SST.resid.SMB
+summary(train_model_resids)
+sd(train_model_resids)
+
+# Measures of error/accuracy
+regression_error_stats(Cubist_rules_train_vals, orig_train$SST.resid.SMB)
+
+```
+
+
+```{r statistics_for_model_evaluation_test_set_OO_big, echo=TRUE}
+# 1-D Statistics
+# Stats for actual residuals
+summary(orig_test$SST.resid.SMB)
+sd(orig_test$SST.resid.SMB)
+
+# Just of Predictions
+summary(Cubist_rules_test_vals)
+sd(Cubist_rules_test_vals)
+
+test_model_resids <- Cubist_rules_test_vals - orig_test$SST.resid.SMB
+
+# 2-D Statistics
+# Base statistics summary of Train Model Residuals
+summary(test_model_resids)
+sd(test_model_resids)
+
+# Measures of error/accuracy
+regression_error_stats(Cubist_rules_test_vals, orig_test$SST.resid.SMB)
+
+```
+
+# Cubist Global Pruned
+
+
+```{r grid_search_for_committees_and_rules, echo = TRUE}
+set.seed(108)
+too_small <- FALSE
+committees <- seq(from = 1, to = 5)
+rules <- c(1, seq(from = 5, to = 100, by = 5))
+ctrl_params_performance <- expand.grid(rules = rules, committees = committees)
+ctrl_params_performance$RMSE_train <- rep(NA, nrow(ctrl_params_performance))
+ctrl_params_performance$RMSE_test <- rep(NA, nrow(ctrl_params_performance))
+
+ctrl_params_performance$MAE_train <- rep(NA, nrow(ctrl_params_performance))
+ctrl_params_performance$MAE_test <- rep(NA, nrow(ctrl_params_performance))
+
+ctrl_params_performance$d_train <- rep(NA, nrow(ctrl_params_performance))
+ctrl_params_performance$d_test <- rep(NA, nrow(ctrl_params_performance))
+
+ctrl_params_performance$R_train <- rep(NA, nrow(ctrl_params_performance))
+ctrl_params_performance$R_test <- rep(NA, nrow(ctrl_params_performance))
+
+ctrl_params_performance$m_train <- rep(NA, nrow(ctrl_params_performance))
+ctrl_params_performance$m_test <- rep(NA, nrow(ctrl_params_performance))
+
+ctrl_params_performance$rSDs_train <- rep(NA, nrow(ctrl_params_performance))
+ctrl_params_performance$rSDs_test <- rep(NA, nrow(ctrl_params_performance))
+
+
+for (N in 1:nrow(ctrl_params_performance)) {
+  committees_specific <- ctrl_params_performance[N, 'committees']
+  rules_specific <- ctrl_params_performance[N, 'rules']
+   
+  Cubist_rules <- Cubist::cubist(x = orig_train[, c('lat', 'month', 'sd11', 'td_resid', 'x2', 'sec_satz', 'ref_SST')], y = orig_train$SST.resid.SMB,
+                           committees = committees_specific, 
+                           control = Cubist::cubistControl(rules = rules_specific,
+                                                           unbiased = FALSE,
+                                                           extrapolation = 100,
+                                                           label = 'SST Residual',
+                                                           seed = 108))
+  
+  file <- paste0('Cubist_Rule_Sets_Global/Cubist_rules=', rules_specific, '_committees=', committees_specific, '_with_lat_and_month.txt')
+  capture.output(summary(Cubist_rules), file = file)
+  
+  rule_summary <- summary(Cubist_rules)
+  
+  node_sizes <- rep(NA, rules_specific)
+  node_sizes <- as.data.frame(node_sizes)
+  mmm <- strsplit(paste(rule_summary), '\n')
+  mmm <- as.vector(unlist(mmm))
+  counter <- 0
+  for (K in 1:length(mmm)) {
+    line_specific <- mmm[K]
+  
+    if (substring(line_specific, 1, 7) == "  Rule ") {
+      cases_in_node <- stringr::str_extract(line_specific, '[0-9]+ cases')
+      cases_in_node <- substring(cases_in_node, 1, stringi::stri_length(cases_in_node) - 6)
+      cases_in_node <- as.numeric(cases_in_node)
+    
+      node_sizes[counter + 1] <- cases_in_node
+      counter <- counter + 1
+    }
+    
+  }
+  
+  if (min(node_sizes) >= 100) {
+
+    N_correction_neighbors <- 8 # Must be between 0 and 9
+
+    # Predict with the new model
+    ## Train Set
+    Cubist_rules_train_vals <- stats::predict(object = Cubist_rules, newdata = orig_train, na.action = na.pass, neighbors = 0)
+    
+    ## Test Set
+    Cubist_rules_test_vals <- stats::predict(object = Cubist_rules, newdata = orig_test, na.action = na.pass, neighbors = 0)
+
+    # Evaluate model
+    ## Train Set
+    ctrl_params_performance[N, 'RMSE_train'] <- caret::RMSE(Cubist_rules_train_vals, orig_train$SST.resid.SMB)
+    ctrl_params_performance[N, 'MAE_train'] <- hydroGOF::mae(Cubist_rules_train_vals, orig_train$SST.resid.SMB)
+    ctrl_params_performance[N, 'd_train'] <- hydroGOF::d(Cubist_rules_train_vals, orig_train$SST.resid.SMB)
+    ctrl_params_performance[N, 'R_train'] <- cor(Cubist_rules_train_vals, orig_train$SST.resid.SMB)
+    ctrl_params_performance[N, 'rSDs_train'] <- hydroGOF::rSD(Cubist_rules_train_vals, orig_train$SST.resid.SMB)
+    ctrl_params_performance[N, 'm_train'] <- lm(Cubist_rules_train_vals ~ orig_train$SST.resid.SMB)$coefficients[2]
+    
+    ## Test Set
+    ctrl_params_performance[N, 'RMSE_test'] <- caret::RMSE(Cubist_rules_test_vals, orig_test$SST.resid.SMB)
+    ctrl_params_performance[N, 'MAE_test'] <- hydroGOF::mae(Cubist_rules_test_vals, orig_test$SST.resid.SMB)
+    ctrl_params_performance[N, 'd_test'] <- hydroGOF::d(Cubist_rules_test_vals, orig_test$SST.resid.SMB)
+    ctrl_params_performance[N, 'R_test'] <- cor(Cubist_rules_test_vals, orig_test$SST.resid.SMB)
+    ctrl_params_performance[N, 'rSDs_test'] <- hydroGOF::rSD(Cubist_rules_test_vals, orig_test$SST.resid.SMB)
+    ctrl_params_performance[N, 'm_test'] <- lm(Cubist_rules_test_vals ~ orig_test$SST.resid.SMB)$coefficients[2]
+    
+    cat('Committees:', committees_specific, 'out of 5; Rules:', rules_specific, 'out of 200; RMSE Test:', caret::RMSE(Cubist_rules_test_vals, orig_test$SST.resid.SMB), '\n')
+      
+    rm(Cubist_rules)
+    gc()
+  }
+}
+
+```
+
+
+```{r plot_ctrl_params_performance, echo = TRUE}
+
+ggplot2::ggplot() +
+  geom_point(data = ctrl_params_performance, aes(x = rules, y = RMSE_train, col = as.factor(committees))) +
+  ggtitle('RMSE train')
+
+ggplot2::ggplot() +
+  geom_point(data = ctrl_params_performance, aes(x = rules, y = MAE_train, col = as.factor(committees))) +
+  ggtitle('MAE train')
+
+ggplot2::ggplot() +
+  geom_point(data = ctrl_params_performance, aes(x = rules, y = d_train, col = as.factor(committees))) +
+  ggtitle('d train')
+
+ggplot2::ggplot() +
+  geom_point(data = ctrl_params_performance, aes(x = rules, y = R_train, col = as.factor(committees))) +
+  ggtitle('R train')
+
+ggplot2::ggplot() +
+  geom_point(data = ctrl_params_performance, aes(x = rules, y = m_train, col = as.factor(committees))) +
+  ggtitle('m train')
+
+ggplot2::ggplot() +
+  geom_point(data = ctrl_params_performance, aes(x = rules, y = rSDs_train, col = as.factor(committees))) +
+  ggtitle('rSDs train')
+```
+
+```{r plot_ctrl_params_performance_test, echo = TRUE}
+
+ggplot2::ggplot() +
+  geom_point(data = ctrl_params_performance, aes(x = rules, y = RMSE_test, col = as.factor(committees))) +
+  ggtitle('RMSE Test')
+
+ggplot2::ggplot() +
+  geom_point(data = ctrl_params_performance, aes(x = rules, y = MAE_test, col = as.factor(committees))) +
+  ggtitle('MAE Test')
+
+ggplot2::ggplot() +
+  geom_point(data = ctrl_params_performance, aes(x = rules, y = d_test, col = as.factor(committees))) +
+  ggtitle('d test')
+
+ggplot2::ggplot() +
+  geom_point(data = ctrl_params_performance, aes(x = rules, y = R_test, col = as.factor(committees))) +
+  ggtitle('R test')
+
+ggplot2::ggplot() +
+  geom_point(data = ctrl_params_performance, aes(x = rules, y = m_test, col = as.factor(committees))) +
+  ggtitle('m test')
+
+ggplot2::ggplot() +
+  geom_point(data = ctrl_params_performance, aes(x = rules, y = rSDs_test, col = as.factor(committees))) +
+  ggtitle('rSDs test')
+```
+
+```{r grid_search_for_neighbors_and_rules, echo = TRUE}
+set.seed(108)
+too_small <- FALSE
+neighbors <- seq(from = 0, to = 9)
+rules <- c(1, seq(from = 5, to = 100, by = 5))
+ctrl_params_performance_n <- expand.grid(rules = rules, neighbors = neighbors)
+ctrl_params_performance_n$RMSE_train <- rep(NA, nrow(ctrl_params_performance_n))
+ctrl_params_performance_n$RMSE_test <- rep(NA, nrow(ctrl_params_performance_n))
+
+ctrl_params_performance_n$MAE_train <- rep(NA, nrow(ctrl_params_performance_n))
+ctrl_params_performance_n$MAE_test <- rep(NA, nrow(ctrl_params_performance_n))
+
+ctrl_params_performance_n$d_train <- rep(NA, nrow(ctrl_params_performance_n))
+ctrl_params_performance_n$d_test <- rep(NA, nrow(ctrl_params_performance_n))
+
+ctrl_params_performance_n$R_train <- rep(NA, nrow(ctrl_params_performance_n))
+ctrl_params_performance_n$R_test <- rep(NA, nrow(ctrl_params_performance_n))
+
+ctrl_params_performance_n$m_train <- rep(NA, nrow(ctrl_params_performance_n))
+ctrl_params_performance_n$m_test <- rep(NA, nrow(ctrl_params_performance_n))
+
+ctrl_params_performance_n$rSDs_train <- rep(NA, nrow(ctrl_params_performance_n))
+ctrl_params_performance_n$rSDs_test <- rep(NA, nrow(ctrl_params_performance_n))
+
+
+for (N in 1:length(rules)) {
+  rules_specific <- rules[N]
+   
+  Cubist_rules <- Cubist::cubist(x = orig_train[, c('lat', 'month', 'sd11', 'td_resid', 'x2', 'sec_satz', 'ref_SST')], y = orig_train$SST.resid.SMB,
+                           committees = 1, 
+                           control = Cubist::cubistControl(rules = rules_specific,
+                                                           unbiased = FALSE,
+                                                           extrapolation = 100,
+                                                           label = 'SST Residual',
+                                                           seed = 108))
+  
+  #file <- paste0('Cubist_Rule_Sets_Global/Cubist_rules=', rules_specific, '_committees=', committees_specific, '_with_lat_and_month.txt')
+  #capture.output(summary(Cubist_rules), file = file)
+  
+  rule_summary <- summary(Cubist_rules)
+  
+  node_sizes <- rep(NA, rules_specific)
+  node_sizes <- as.data.frame(node_sizes)
+  mmm <- strsplit(paste(rule_summary), '\n')
+  mmm <- as.vector(unlist(mmm))
+  counter <- 0
+  for (K in 1:length(mmm)) {
+    line_specific <- mmm[K]
+  
+    if (substring(line_specific, 1, 7) == "  Rule ") {
+      cases_in_node <- stringr::str_extract(line_specific, '[0-9]+ cases')
+      cases_in_node <- substring(cases_in_node, 1, stringi::stri_length(cases_in_node) - 6)
+      cases_in_node <- as.numeric(cases_in_node)
+    
+      node_sizes[counter + 1] <- cases_in_node
+      counter <- counter + 1
+    }
+    
+  }
+  
+  if (min(node_sizes) >= 100) {
+
+    for (N_correction_neighbors in neighbors) {
+      # Predict with the new model
+      ## Train Set
+      Cubist_rules_train_vals <- stats::predict(object = Cubist_rules, newdata = orig_train, na.action = na.pass, neighbors = N_correction_neighbors)
+    
+      ## Test Set
+      Cubist_rules_test_vals <- stats::predict(object = Cubist_rules, newdata = orig_test, na.action = na.pass, neighbors = N_correction_neighbors)
+
+      # Evaluate model
+      ## Train Set
+      temp <- ctrl_params_performance_n$rules == rules_specific & ctrl_params_performance_n$neighbors == N_correction_neighbors
+      
+      ctrl_params_performance_n[temp, 'RMSE_train'] <- caret::RMSE(Cubist_rules_train_vals, orig_train$SST.resid.SMB)
+      ctrl_params_performance_n[temp, 'MAE_train'] <- hydroGOF::mae(Cubist_rules_train_vals, orig_train$SST.resid.SMB)
+      ctrl_params_performance_n[temp, 'd_train'] <- hydroGOF::d(Cubist_rules_train_vals, orig_train$SST.resid.SMB)
+      ctrl_params_performance_n[temp, 'R_train'] <- cor(Cubist_rules_train_vals, orig_train$SST.resid.SMB)
+      ctrl_params_performance_n[temp, 'rSDs_train'] <- hydroGOF::rSD(Cubist_rules_train_vals, orig_train$SST.resid.SMB)
+      ctrl_params_performance_n[temp, 'm_train'] <- lm(Cubist_rules_train_vals ~ orig_train$SST.resid.SMB)$coefficients[2]
+    
+      ## Test Set
+      ctrl_params_performance_n[temp, 'RMSE_test'] <- caret::RMSE(Cubist_rules_test_vals, orig_test$SST.resid.SMB)
+      ctrl_params_performance_n[temp, 'MAE_test'] <- hydroGOF::mae(Cubist_rules_test_vals, orig_test$SST.resid.SMB)
+      ctrl_params_performance_n[temp, 'd_test'] <- hydroGOF::d(Cubist_rules_test_vals, orig_test$SST.resid.SMB)
+      ctrl_params_performance_n[temp, 'R_test'] <- cor(Cubist_rules_test_vals, orig_test$SST.resid.SMB)
+      ctrl_params_performance_n[temp, 'rSDs_test'] <- hydroGOF::rSD(Cubist_rules_test_vals, orig_test$SST.resid.SMB)
+      ctrl_params_performance_n[temp, 'm_test'] <- lm(Cubist_rules_test_vals ~ orig_test$SST.resid.SMB)$coefficients[2]
+    
+      cat('Neighbors:', N_correction_neighbors, 'out of 9; Rules:', rules_specific, 'out of 100; RMSE Test:', caret::RMSE(Cubist_rules_test_vals, orig_test$SST.resid.SMB), '\n')
+      
+    }
+    rm(Cubist_rules)
+    gc()
+  }
+}
+
+```
+
+```{r plot_ctrl_params_performance_neighbors, echo = TRUE}
+
+ggplot2::ggplot() +
+  geom_point(data = ctrl_params_performance_n, aes(x = rules, y = RMSE_train, col = as.factor(neighbors))) +
+  ggtitle('RMSE train')
+
+ggplot2::ggplot() +
+  geom_point(data = ctrl_params_performance_n, aes(x = rules, y = MAE_train, col = as.factor(neighbors))) +
+  ggtitle('MAE train')
+
+ggplot2::ggplot() +
+  geom_point(data = ctrl_params_performance_n, aes(x = rules, y = d_train, col = as.factor(neighbors))) +
+  ggtitle('d train')
+
+ggplot2::ggplot() +
+  geom_point(data = ctrl_params_performance_n, aes(x = rules, y = R_train, col = as.factor(neighbors))) +
+  ggtitle('R train')
+
+ggplot2::ggplot() +
+  geom_point(data = ctrl_params_performance_n, aes(x = rules, y = m_train, col = as.factor(neighbors))) +
+  ggtitle('m train')
+
+ggplot2::ggplot() +
+  geom_point(data = ctrl_params_performance_n, aes(x = rules, y = rSDs_train, col = as.factor(neighbors))) +
+  ggtitle('rSDs train')
+```
+
+```{r plot_ctrl_params_performance_test_neighbors, echo = TRUE}
+
+ggplot2::ggplot() +
+  geom_point(data = ctrl_params_performance_n, aes(x = rules, y = RMSE_test, col = as.factor(neighbors))) +
+  ggtitle('RMSE Test')
+
+ggplot2::ggplot() +
+  geom_point(data = ctrl_params_performance_n, aes(x = rules, y = MAE_test, col = as.factor(neighbors))) +
+  ggtitle('MAE Test')
+
+ggplot2::ggplot() +
+  geom_point(data = ctrl_params_performance_n, aes(x = rules, y = d_test, col = as.factor(neighbors))) +
+  ggtitle('d test')
+
+ggplot2::ggplot() +
+  geom_point(data = ctrl_params_performance_n, aes(x = rules, y = R_test, col = as.factor(neighbors))) +
+  ggtitle('R test')
+
+ggplot2::ggplot() +
+  geom_point(data = ctrl_params_performance_n, aes(x = rules, y = m_test, col = as.factor(neighbors))) +
+  ggtitle('m test')
+
+ggplot2::ggplot() +
+  geom_point(data = ctrl_params_performance_n, aes(x = rules, y = rSDs_test, col = as.factor(neighbors))) +
+  ggtitle('rSDs test')
+```
+
+```{r Cubist_model}
+Cubist_rules_p <- Cubist::cubist(x = orig_train[, c('td_resid',
+                                                     'x2',
+                                                     'sec_satz',
+                                                     'ref_SST',
+                                                     'sd11',
+                                                     'lat',
+                                                     'month')],
+                                  y = orig_train$SST.resid.SMB,
+                                  committees = 1,
+                                  control = Cubist::cubistControl(rules = 13,
+                                                                  unbiased = FALSE,
+                                                                  extrapolation = 100,
+                                                                  label = 'SST Residual',
+                                                                  seed = 108))
+
+summary(Cubist_rules_p)
+
+file <- paste0('Cubist_Rule_Sets_Global/Cubist_rules=13_committees=1_with_lat_and_month_pruned.txt')
+capture.output(summary(Cubist_rules_p), file = file)
+```
+
+```{r plot_Cubist_object}
+dotplot(Cubist_rules_p, 'splits')
+dotplot(Cubist_rules_p, 'coefs')
+```
+
+
+```{r predicted_and_actual_residuals_p, echo=TRUE}
+# Use the tree to predict
+N_correction_neighbors <- 9 # Must be between 0 and 9
+
+# Train set
+Cubist_rules_train_vals <- stats::predict(object = Cubist_rules_p,
+                                          newdata = orig_train,
+                                          na.action = na.pass,
+                                          neighbors = N_correction_neighbors)
+
+# Test set
+Cubist_rules_test_vals <- stats::predict(object = Cubist_rules_p,
+                                         newdata = orig_test,
+                                         na.action = na.pass,
+                                         neighbors = N_correction_neighbors)
+
+# Plot
+ccc <- RColorBrewer::brewer.pal(n = 9, 'YlOrRd')
+ccc <- ccc[3:9]
+breaks <- c(0, 10, 25, 50, 100, 500, 1000, 2500, 5000, 10000, Inf)
+
+yyy <- data.frame(Y = Cubist_rules_test_vals, X = orig_test$SST.resid.SMB)
+
+ccc <- colorRampPalette(ccc)(length(breaks) - 1)
+
+ggplot2::ggplot(data = yyy, aes(X, Y, fill = cut(..count.., c(0, 10, 25, 50, 100, 500, 1000, 2500, 5000, 10000, Inf)))) +
+  geom_bin2d(bins = 75) +
+  scale_fill_manual(values = ccc, '# of Retrievals') +
+  geom_abline(slope = 1, intercept = 0, color = 'black') +
+  labs(x = 'Actual Residual (deg C)', y = 'Predicted Residual (deg C)')
+
+residual_fit_cubist <- lm(Y ~ X, data = yyy)
+residual_fit_cubist
+```
+
+The statistics here are suggestions from Willmott 1995...
+
+```{r statistics_for_model_evaluation_train_set_p, echo=TRUE}
+# 1-D Statistics
+# Stats for actual residuals
+summary(orig_train$SST.resid.SMB)
+sd(orig_train$SST.resid.SMB)
+
+# Just of Predictions
+summary(Cubist_rules_train_vals)
+sd(Cubist_rules_train_vals)
+
+# 2-D Statistics
+# Base statistics summary of Train Model Residuals
+train_model_resids <- Cubist_rules_train_vals - orig_train$SST.resid.SMB
+summary(train_model_resids)
+sd(train_model_resids)
+
+# Measures of error/accuracy
+regression_error_stats(Cubist_rules_train_vals, orig_train$SST.resid.SMB)
+
+```
+
+```{r statistics_for_model_evaluation_test_set_p, echo=TRUE}
+# 1-D Statistics
+# Stats for actual residuals
+summary(orig_test$SST.resid.SMB)
+sd(orig_test$SST.resid.SMB)
+
+# Just of Predictions
+summary(Cubist_rules_test_vals)
+sd(Cubist_rules_test_vals)
+
+test_model_resids <- Cubist_rules_test_vals - orig_test$SST.resid.SMB
+
+# 2-D Statistics
+# Base statistics summary of Train Model Residuals
+summary(test_model_resids)
+sd(test_model_resids)
+
+# Measures of error/accuracy
+regression_error_stats(Cubist_rules_test_vals, orig_test$SST.resid.SMB)
+
+```
+
+```{r Cubist_variable_importance_p, echo=TRUE}
+
+variable_names_long <- c('Except\nResidual Temperature Deficit Estimate',
+                        'Except\nScaled Channel Difference',
+                        'Except\nSec Satellite Zenith Angle',
+                        'Except\nSD of T_11',
+                        'Except\nReference SST',
+                        'Except\nLatitude',
+                        'Except\nMonth')
+
+variable_names_abbrev <- c('td_resid',
+                           'x2',
+                           'sec_satz',
+                           'sd11',
+                           'ref_SST',
+                           'lat',
+                           'month')
+
+empty <- c(0, 0, 0, 0, 0, 0, 0)
+MAE_without <- data.frame(variable_names_long = variable_names_long, variable_names_abbrev = variable_names_abbrev, MAE = empty)
+
+for (variable_num in 1:nrow(MAE_without)) {
+  iii <- c(1, 2, 3, 4, 5)
+  iii <- iii[!iii %in% variable_num]
+  variables_temp <- variable_names_abbrev[iii]
+  ppp <- orig_train[, c(variables_temp, 'SST.resid.SMB')]
+  
+  Cubist_var_imp <- Cubist::cubist(x = ppp[, variables_temp], y = ppp$SST.resid.SMB,
+                                   committees = 1, 
+                                   control = Cubist::cubistControl(rules = 15,
+                                                                   unbiased = FALSE,
+                                                                   extrapolation = 100,
+                                                                   label = 'SST Residual',
+                                                                   seed = 108))
+    
+  # Create test set predictions
+  Cubist_predictions_test_temp <- stats::predict(object = Cubist_var_imp, na.action = na.pass, neighbors = 9, newdata = orig_test)
+  
+  # Now compute RMSE
+  MAE_temp <- hydroGOF::mae(Cubist_predictions_test_temp, orig_test$SST.resid.SMB)
+  
+  MAE_without[variable_num, 'MAE'] <- MAE_temp
+
+}
+
+MAE_without$MAE_incr <- MAE_without$MAE - 0.2635617
+
+MAE_without$variable_names_long <- reorder(MAE_without$variable_names_long, -MAE_without$MAE)
+
+ggplot2::ggplot(data = MAE_without, aes(x = variable_names_long, y = MAE_incr)) +
+  geom_bar(stat = 'identity') +
+  theme(axis.text.x = element_text(angle = 45, hjust = 0.5, vjust = 0.5)) +
+  labs(x = 'Feature', y = 'Increase in MAE (deg C)')
+  #ggsave('variable_importance_MAE_Cubist.pdf', device = 'pdf', width = 8, height = 6, units = 'in') +
+  #ggsave('variable_importance_MAE_Cubist.png', device = 'png', width = 8, height = 6, units = 'in')
+```
+
+
+```{r assign_rule_numbers}
+# Join train and test sets together
+orig_b <- rbind(orig_train, orig_test)
+
+orig_b$predicted_resid <- predict(object = Cubist_rules_p, newdata = orig_b, neighors = 9)
+
+# Assign rule numbers for 3 rule tree
+orig_b$rule_numb <- rep(NA, nrow(orig_b))
+
+orig_b$rule_numb[orig_b$td_resid > 0.514213 & orig_b$sec_satz <= 1.509738] <- 1
+
+orig_b$rule_numb[orig_b$td_resid > 0.514213 & orig_b$lat > -1.59 & orig_b$lat <= 22.29] <- 2
+
+orig_b$rule_numb[orig_b$td_resid > 0.514213 & orig_b$sec_satz > 1.509738 & orig_b$sd11 > 0.1634 & orig_b$lat <= -1.59] <- 3
+
+orig_b$rule_numb[orig_b$td_resid > 0.514213 & orig_b$x2 <= 22.49875 & orig_b$sec_satz > 1.509738 & orig_b$lat <= 22.29] <- 4
+
+orig_b$rule_numb[orig_b$td_resid > 0.514213 & orig_b$x2 <= 24.93811 & orig_b$sec_satz > 1.509738 & orig_b$lat > 22.29] <- 5
+
+orig_b$rule_numb[orig_b$x2 > 58.69276] <- 6
+
+orig_b$rule_numb[orig_b$x2 > 24.93811 & orig_b$sec_satz > 1.509738 & orig_b$lat > 22.29] <- 7
+
+orig_b$rule_numb[orig_b$x2 > 22.49875 & orig_b$sec_satz > 1.509738 & orig_b$sd11 <= 0.1634] <- 8
+
+orig_b$rule_numb[orig_b$td_resid <= 0.514213 & orig_b$x2 <= 58.69276 & orig_b$sec_satz <= 2.035131 & orig_b$ref_SST > 25.03 & orig_b$lat <= 18.89] <- 9
+
+orig_b$rule_numb[orig_b$td_resid <= 0.514213 & orig_b$x2 <= 58.69276 & orig_b$sec_satz <= 2.035131 & orig_b$ref_SST > 25.03 & orig_b$lat > 18.89] <- 10
+
+orig_b$rule_numb[orig_b$td_resid <= 0.514213 & orig_b$sec_satz <= 2.035131 & orig_b$ref_SST <= 25.03 & orig_b$lat <= 33.17] <- 11
+
+orig_b$rule_numb[orig_b$td_resid <= 0.514213 & orig_b$sec_satz <= 2.035131 & orig_b$ref_SST <= 25.03 & orig_b$lat > 33.17] <- 12
+
+orig_b$rule_numb[orig_b$td_resid <= 0.514213 & orig_b$sec_satz > 2.035131] <- 13
+
+# Break back up into train and test sets
+orig_train <- orig_b[1:nrow(orig_train), ]
+orig_test <- orig_b[(nrow(orig_train) + 1):nrow(orig_b), ]
+
+table(orig_train$rule_numb, useNA = 'always')
+tt1 <- orig_train %>%
+  dplyr::group_by(rule_numb) %>%
+  dplyr::summarise(N = length(SST.resid.SMB), mean = mean(SST.resid.SMB), med = median(SST.resid.SMB), MAD = mad(SST.resid.SMB)) %>%
+  dplyr::arrange(desc(med))
+
+tt1
+```
+
+
+```{r fit_dt_to_rules_ctree}
+rule_dt <- partykit::ctree(as.factor(rule_numb) ~ td_resid + x2 + sec_satz + ref_SST + sd11 + lat + month,
+                        data = orig_train,
+                        minbucket = 5,
+                        mincrit = 0.95,
+                        maxdepth = 9)
+
+plot(rule_dt)
+
+rule_predictions_train <- stats::predict(rule_dt, newdata = orig_train, na.action = na.pass, type = 'response')
+rule_predictions_train_cm <- caret::confusionMatrix(data = rule_predictions_train, reference = orig_train$rule_numb)
+rule_predictions_train_cm
+
+rule_predictions_test <- stats::predict(rule_dt, newdata = orig_test, na.action = na.pass, type = 'response')
+rule_predictions_test_cm <- caret::confusionMatrix(data = rule_predictions_test, reference = orig_test$rule_numb)
+rule_predictions_test_cm
+
+```
+
+```{r fit_dt_to_rules}
+rule_dt <- rpart::rpart(as.factor(rule_numb) ~ td_resid + x2 + sec_satz + ref_SST + sd11 + lat + month,
+                        data = orig_train,
+                        control = rpart::rpart.control(minbucket = 1, maxdepth = 11, cp = 0.0))
+
+plot(rule_dt)
+rpart.plot::prp(rule_dt, uniform = TRUE, main = 'Rule Sets')
+plot(partykit::as.party(rule_dt))
+
+rule_predictions_train <- stats::predict(rule_dt, newdata = orig_train, na.action = na.pass)
+rule_predictions_train_cm <- caret::confusionMatrix(data = rule_predictions_train, reference = orig_train$rule_numb)
+rule_predictions_train_cm
+
+rule_predictions_test <- stats::predict(rule_dt, newdata = orig_test, na.action = na.pass)
+rule_predictions_test_cm <- caret::confusionMatrix(data = rule_predictions_test, reference = orig_test$rule_numb)
+rule_predictions_test_cm
+
+```
+
+```{r}
+tt1 <- dplyr::tbl_df(orig_train) %>%
+  dplyr::select(cell5deg, rule_numb, SST.resid.SMB) %>%
+  dplyr::group_by(cell5deg) %>%
+  dplyr::summarise(total_num = n())
+
+tt1
+
+tt2 <- dplyr::tbl_df(orig_train) %>%
+  dplyr::select(cell5deg, rule_numb, SST.resid.SMB) %>%
+  dplyr::group_by(cell5deg, rule_numb) %>%
+  dplyr::summarise(number_by_rule = n()) %>%
+  dplyr::arrange(cell5deg, rule_numb)
+
+tt2
+```
+
+```{r joins}
+ij12 <- inner_join(tt1, tt2)
+
+sj12 <- semi_join(tt1, tt2)
+
+lj12 <- left_join(tt1, tt2)
+
+
+ij21 <- inner_join(tt2, tt1)
+
+sj21 <- semi_join(tt2, tt1)
+
+lj21 <- left_join(tt2, tt1)
+```
+
+```{r join_explorations}
+lj12
+
+rule_prop_geo <- dplyr::tbl_df(lj12) %>%
+  dplyr::filter(total_num >= 100) %>%
+  dplyr::filter(number_by_rule >= 100) %>%
+  dplyr::mutate(percent_rule = (number_by_rule / total_num) * 100)
+
+rule_prop_geo
+```
+
+
+```{r}
+require(ggridges)
+
+eee <- transform(orig_train, Species_num = as.numeric(rule_numb))
+
+ggplot(eee, aes(x = SST.resid.SMB, y = Species_num, group = Species_num)) + 
+  geom_density_ridges() + 
+  xlim(-3, 2) +
+  geom_vline(aes(xintercept = 0), col = 'tomato')
+```
+
+
+```{r plot_grid}
+
+crs.string <- "+proj=longlat +datum=WGS84 +no_defs +ellps=WGS84 +towgs84=0,0,0"
+
+grid5deg <- raster::raster(ncol = 72, nrow = 36,
+  xmn = -180, xmx = 180,
+  ymn = -90, ymx = 90,
+  crs = crs.string)
+
+# --- Write cell numbers as value for the grids.
+# --- Cell 1 is the upper left corner and numbers go
+# --- across the top line through its end, then
+# --- start again in the second line, and so forth.
+
+raster::values(grid5deg) <- 1:raster::ncell(grid5deg) # Cell numbers for 5 deg grid
+
+res(grid5deg)
+cellStats(grid5deg, 'max')
+getValues(grid5deg, row=1, nrow=2)
+cells <- cellFromRowColCombine(grid5deg, 1:2, 1:2)
+colFromX(grid5deg, 1)
+rowFromY(grid5deg, 3)
+coords.5 <- xyFromCell(grid5deg, 1:ncol(grid5deg))
+
+# --- Build a SpatialPoints object with lons and lats of matchups
+
+matchup.coords <- as.matrix(cbind(lon = orig[, 'lon'],
+  lat = orig[, 'lat']))
+
+pts <- sp::SpatialPoints(coords = matchup.coords,
+  proj4string = sp::CRS(crs.string))
+
+```
+
+```{r cells_by_most_prevalent}
+getmode <- function(v, ...) {
+   uniqv <- unique(v)
+   uniqv[which.max(tabulate(match(v, uniqv)))]
+}
+
+ee1 <- data.frame(lon = orig_train$lon, lat = orig_train$lat)
+
+rr1 <- raster::rasterize(ee1, grid5deg, orig_train$rule_numb, fun = getmode)
+
+plot(rr1)
+maps::map("world", add = TRUE)
+```
+
+
+
+```{r}
+rule_prop_geo_1 <- rule_prop_geo %>% dplyr::filter(rule_numb == 1)
+
+crs.string <- "+proj=longlat +datum=WGS84 +no_defs +ellps=WGS84 +towgs84=0,0,0"
+
+rule_1_raster <- raster::raster(ncol = 72, nrow = 36,
+  xmn = -180, xmx = 180,
+  ymn = -90, ymx = 90,
+  crs = crs.string)
+
+rule_1_raster[] <- NA_real_
+rule_1_raster[rule_prop_geo_1$cell5deg] <- rule_prop_geo_1$percent_rule
+
+plot(rule_1_raster)
+maps::map("world", add = TRUE)
+```
+
+
+```{r}
+rule_prop_geo_2 <- rule_prop_geo %>% dplyr::filter(rule_numb == 2)
+
+crs.string <- "+proj=longlat +datum=WGS84 +no_defs +ellps=WGS84 +towgs84=0,0,0"
+
+rule_2_raster <- raster::raster(ncol = 72, nrow = 36,
+  xmn = -180, xmx = 180,
+  ymn = -90, ymx = 90,
+  crs = crs.string)
+
+rule_2_raster[] <- NA_real_
+rule_2_raster[rule_prop_geo_2$cell5deg] <- rule_prop_geo_2$percent_rule
+
+plot(rule_2_raster)
+maps::map("world", add = TRUE)
+```
+
+```{r}
+rule_prop_geo_3 <- rule_prop_geo %>% dplyr::filter(rule_numb == 3)
+
+crs.string <- "+proj=longlat +datum=WGS84 +no_defs +ellps=WGS84 +towgs84=0,0,0"
+
+rule_3_raster <- raster::raster(ncol = 72, nrow = 36,
+  xmn = -180, xmx = 180,
+  ymn = -90, ymx = 90,
+  crs = crs.string)
+
+rule_3_raster[] <- NA_real_
+rule_3_raster[rule_prop_geo_3$cell5deg] <- rule_prop_geo_3$percent_rule
+
+plot(rule_3_raster)
+maps::map("world", add = TRUE)
+```
+
+```{r}
+rule_prop_geo_4 <- rule_prop_geo %>% dplyr::filter(rule_numb == 4)
+
+crs.string <- "+proj=longlat +datum=WGS84 +no_defs +ellps=WGS84 +towgs84=0,0,0"
+
+rule_4_raster <- raster::raster(ncol = 72, nrow = 36,
+  xmn = -180, xmx = 180,
+  ymn = -90, ymx = 90,
+  crs = crs.string)
+
+rule_4_raster[] <- NA_real_
+rule_4_raster[rule_prop_geo_4$cell5deg] <- rule_prop_geo_4$percent_rule
+
+plot(rule_4_raster)
+maps::map("world", add = TRUE)
+```
+
+```{r}
+rule_prop_geo_5 <- rule_prop_geo %>% dplyr::filter(rule_numb == 5)
+
+crs.string <- "+proj=longlat +datum=WGS84 +no_defs +ellps=WGS84 +towgs84=0,0,0"
+
+rule_5_raster <- raster::raster(ncol = 72, nrow = 36,
+  xmn = -180, xmx = 180,
+  ymn = -90, ymx = 90,
+  crs = crs.string)
+
+rule_5_raster[] <- NA_real_
+rule_5_raster[rule_prop_geo_5$cell5deg] <- rule_prop_geo_5$percent_rule
+
+plot(rule_5_raster)
+maps::map("world", add = TRUE)
+```
+
+```{r}
+rule_prop_geo_6 <- rule_prop_geo %>% dplyr::filter(rule_numb == 6)
+
+crs.string <- "+proj=longlat +datum=WGS84 +no_defs +ellps=WGS84 +towgs84=0,0,0"
+
+rule_6_raster <- raster::raster(ncol = 72, nrow = 36,
+  xmn = -180, xmx = 180,
+  ymn = -90, ymx = 90,
+  crs = crs.string)
+
+rule_6_raster[] <- NA_real_
+rule_6_raster[rule_prop_geo_6$cell5deg] <- rule_prop_geo_6$percent_rule
+
+plot(rule_6_raster)
+maps::map("world", add = TRUE)
+```
+
+```{r}
+rule_prop_geo_7 <- rule_prop_geo %>% dplyr::filter(rule_numb == 7)
+
+crs.string <- "+proj=longlat +datum=WGS84 +no_defs +ellps=WGS84 +towgs84=0,0,0"
+
+rule_7_raster <- raster::raster(ncol = 72, nrow = 36,
+  xmn = -180, xmx = 180,
+  ymn = -90, ymx = 90,
+  crs = crs.string)
+
+rule_7_raster[] <- NA_real_
+rule_7_raster[rule_prop_geo_7$cell5deg] <- rule_prop_geo_7$percent_rule
+
+plot(rule_7_raster)
+maps::map("world", add = TRUE)
+```
+
+```{r}
+rule_prop_geo_8 <- rule_prop_geo %>% dplyr::filter(rule_numb == 8)
+
+crs.string <- "+proj=longlat +datum=WGS84 +no_defs +ellps=WGS84 +towgs84=0,0,0"
+
+rule_8_raster <- raster::raster(ncol = 72, nrow = 36,
+  xmn = -180, xmx = 180,
+  ymn = -90, ymx = 90,
+  crs = crs.string)
+
+rule_8_raster[] <- NA_real_
+rule_8_raster[rule_prop_geo_8$cell5deg] <- rule_prop_geo_8$percent_rule
+
+plot(rule_8_raster)
+maps::map("world", add = TRUE)
+```
+
+
+
+```{r}
+rule_prop_geo_9 <- rule_prop_geo %>% dplyr::filter(rule_numb == 9)
+
+crs.string <- "+proj=longlat +datum=WGS84 +no_defs +ellps=WGS84 +towgs84=0,0,0"
+
+rule_9_raster <- raster::raster(ncol = 72, nrow = 36,
+  xmn = -180, xmx = 180,
+  ymn = -90, ymx = 90,
+  crs = crs.string)
+
+rule_9_raster[] <- NA_real_
+rule_9_raster[rule_prop_geo_9$cell5deg] <- rule_prop_geo_9$percent_rule
+
+plot(rule_9_raster)
+maps::map("world", add = TRUE)
+```
+
+
+```{r}
+rule_prop_geo_10 <- rule_prop_geo %>% dplyr::filter(rule_numb == 10)
+
+crs.string <- "+proj=longlat +datum=WGS84 +no_defs +ellps=WGS84 +towgs84=0,0,0"
+
+rule_10_raster <- raster::raster(ncol = 72, nrow = 36,
+  xmn = -180, xmx = 180,
+  ymn = -90, ymx = 90,
+  crs = crs.string)
+
+rule_10_raster[] <- NA_real_
+rule_10_raster[rule_prop_geo_10$cell5deg] <- rule_prop_geo_10$percent_rule
+
+plot(rule_10_raster)
+maps::map("world", add = TRUE)
+```
+
+
+
+```{r}
+rule_prop_geo_11 <- rule_prop_geo %>% dplyr::filter(rule_numb == 11)
+
+crs.string <- "+proj=longlat +datum=WGS84 +no_defs +ellps=WGS84 +towgs84=0,0,0"
+
+rule_11_raster <- raster::raster(ncol = 72, nrow = 36,
+  xmn = -180, xmx = 180,
+  ymn = -90, ymx = 90,
+  crs = crs.string)
+
+rule_11_raster[] <- NA_real_
+rule_11_raster[rule_prop_geo_11$cell5deg] <- rule_prop_geo_11$percent_rule
+
+plot(rule_11_raster)
+maps::map("world", add = TRUE)
+```
+
+```{r}
+rule_prop_geo_12 <- rule_prop_geo %>% dplyr::filter(rule_numb == 12)
+
+crs.string <- "+proj=longlat +datum=WGS84 +no_defs +ellps=WGS84 +towgs84=0,0,0"
+
+rule_12_raster <- raster::raster(ncol = 72, nrow = 36,
+  xmn = -180, xmx = 180,
+  ymn = -90, ymx = 90,
+  crs = crs.string)
+
+rule_12_raster[] <- NA_real_
+rule_12_raster[rule_prop_geo_12$cell5deg] <- rule_prop_geo_12$percent_rule
+
+plot(rule_12_raster)
+maps::map("world", add = TRUE)
+
+```
+
+```{r}
+rule_prop_geo_13 <- rule_prop_geo %>% dplyr::filter(rule_numb == 13)
+
+crs.string <- "+proj=longlat +datum=WGS84 +no_defs +ellps=WGS84 +towgs84=0,0,0"
+
+rule_13_raster <- raster::raster(ncol = 72, nrow = 36,
+  xmn = -180, xmx = 180,
+  ymn = -90, ymx = 90,
+  crs = crs.string)
+
+rule_13_raster[] <- NA_real_
+rule_13_raster[rule_prop_geo_13$cell5deg] <- rule_prop_geo_13$percent_rule
+
+plot(rule_13_raster)
+maps::map("world", add = TRUE)
+```
+```{r}
+s <- stack(rule_1_raster,
+           rule_2_raster,
+           rule_3_raster,
+           rule_4_raster,
+           rule_5_raster,
+           rule_6_raster,
+           rule_7_raster,
+           rule_8_raster,
+           rule_9_raster,
+           rule_10_raster,
+           rule_11_raster,
+           rule_12_raster,
+           rule_13_raster)
+
+levelplot(s)
+
+
+levelplot(s, 
+          margin=FALSE,                       
+          colorkey=list(
+            space='bottom',                   
+            labels=list(at=-5:5, font=4),
+            axis.line=list(col='black'),
+            width=0.75
+          ),    
+          par.settings=list(
+            strip.border=list(col='transparent'),
+            strip.background=list(col='transparent'),
+            axis.line=list(col='transparent')
+          ),
+          scales=list(draw=FALSE),            
+          col.regions=viridis,                   
+          at=seq(-5, 5, len=101),
+          names.attr=rep('', nlayers(s)))
+```
+
+
+
+```{r}
+dplyr::tbl_df(orig_train) %>%
+  dplyr::group_by(rule_numb) %>%
+  dplyr::summarise(mode_geo = names(table(cell5deg))[table(cell5deg) == max(table(cell5deg))], mean_geo = mean(cell5deg), med_geo = median(cell5deg))
+  
+ggplot2::ggplot(data = orig_train) +
+  geom_histogram(aes(x = SST.resid.SMB)) +
+  facet_wrap(~(rule_numb), nrow = 3, ncol = 5)
+
+ggplot2::ggplot(data = orig_train, aes(x = as.factor(rule_numb), y = SST.resid.SMB)) +
+  geom_boxplot() +
+  coord_flip()
+```
+
+
+# Random Forest Global
+```{r train_rf}
+rf_global <- randomForest::randomForest(SST.resid.SMB ~ td_resid + x2 + sec_satz + ref_SST + sd11 + lat + month,
+                                        data = orig_train,
+                                        ntree = 300,
+                                        nodesize = 100,
+                                        mtry = 4)
+
+```
+
+```{r plot_rf}
+randomForest::varImpPlot(rf_global, type = 2)
+
+plot(rf_global)
+```
+
+
+```{r predicted_and_actual_residuals_rf, echo=TRUE}
+# Use the tree to predict
+
+# Train set
+rf_rules_train_vals <- stats::predict(object = rf_global,
+                                          newdata = orig_train,
+                                          na.action = na.pass)
+
+# Test set
+rf_rules_test_vals <- stats::predict(object = rf_global,
+                                         newdata = orig_test,
+                                         na.action = na.pass)
+
+# Plot
+ccc <- RColorBrewer::brewer.pal(n = 9, 'YlOrRd')
+ccc <- ccc[3:9]
+breaks <- c(0, 10, 25, 50, 100, 500, 1000, 2500, 5000, 10000, Inf)
+
+yyy <- data.frame(Y = rf_rules_test_vals, X = orig_test$SST.resid.SMB)
+
+ccc <- colorRampPalette(ccc)(length(breaks) - 1)
+
+ggplot2::ggplot(data = yyy, aes(X, Y, fill = cut(..count.., c(0, 10, 25, 50, 100, 500, 1000, 2500, 5000, 10000, Inf)))) +
+  geom_bin2d(bins = 75) +
+  scale_fill_manual(values = ccc, '# of Retrievals') +
+  geom_abline(slope = 1, intercept = 0, color = 'black') +
+  labs(x = 'Actual Residual (deg C)', y = 'Predicted Residual (deg C)')
+
+residual_fit_rf <- lm(Y ~ X, data = yyy)
+residual_fit_rf
+```
+
+The statistics here are suggestions from Willmott 1995...
+
+```{r statistics_for_model_evaluation_train_set_rf, echo=TRUE}
+# 1-D Statistics
+# Stats for actual residuals
+summary(orig_train$SST.resid.SMB)
+sd(orig_train$SST.resid.SMB)
+
+# Just of Predictions
+summary(rf_rules_train_vals)
+sd(rf_rules_train_vals)
+
+# 2-D Statistics
+# Base statistics summary of Train Model Residuals
+train_model_resids <- rf_rules_train_vals - orig_train$SST.resid.SMB
+summary(train_model_resids)
+sd(train_model_resids)
+
+# Measures of error/accuracy
+regression_error_stats(rf_rules_train_vals, orig_train$SST.resid.SMB)
+
+```
+
+```{r statistics_for_model_evaluation_test_set_rf, echo=TRUE}
+# 1-D Statistics
+# Stats for actual residuals
+summary(orig_test$SST.resid.SMB)
+sd(orig_test$SST.resid.SMB)
+
+# Just of Predictions
+summary(Cubist_rules_test_vals)
+sd(Cubist_rules_test_vals)
+
+test_model_resids <- rf_rules_test_vals - orig_test$SST.resid.SMB
+
+# 2-D Statistics
+# Base statistics summary of Train Model Residuals
+summary(test_model_resids)
+sd(test_model_resids)
+
+# Measures of error/accuracy
+regression_error_stats(rf_rules_test_vals, orig_test$SST.resid.SMB)
+
+```
