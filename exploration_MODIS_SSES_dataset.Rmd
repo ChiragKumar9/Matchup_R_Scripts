@@ -238,16 +238,30 @@ qq1[qqq$cell5deg] <- qqq$N
 
 raster::values(grid5deg) <- qq1
 
+myTheme=rasterTheme(region = c('white', colorRampPalette(brewer.pal('Greens', n=9)[3:9])(7)))
+
+myColorkey <- list(at = c(1, 10, 100, 250, 500, 1000, 2000, 5000, Inf),
+                   labels = list(at = c(1, 10, 100, 250, 500, 1000, 2000, 5000, Inf)),
+                   title = 'N of Matchups',
+                   row = 3,
+                   column = 1,
+                   vjust = 2)
+
+#p  <- rasterVis::levelplot(grid5deg, margin = FALSE, par.settings = myTheme, colorkey = myColorkey) 
+
 p <- rasterVis::levelplot(grid5deg, margin = FALSE,
-  #at = c(-Inf, seq(from = -0.4, to = 0.4, by = 0.1), Inf), # For med
-  at = c(1, 100, 250, 500, 1000, 2000, 5000, 10000, Inf), # For N
-  col.regions = (RColorBrewer::brewer.pal(9, 'OrRd')))
+  at = c(1, 10, 100, 250, 500, 1000, 2000, 5000, Inf), # For N
+  labels = list(at = c(1, 10, 100, 250, 500, 1000, 2000, 5000, Inf)),
+  col.regions = (RColorBrewer::brewer.pal(9, 'Greens')),
+  colorkey = myColorkey)
 
 world.map <- rgdal::readOGR("/home/ckk/Projects/Matchup_R_Scripts", layer = "ne_110m_land", verbose = TRUE)
 
-p <- p + layer(sp.lines(world.map, lwd = .75, fill = 'grey70', col = 'yellow'))
+p <- p + layer(sp.lines(world.map, lwd = .75, fill = 'white', col = 'grey50'))
 
+pdf('~/Projects/Matchup_R_Scripts/total_geographic_distribution.pdf')
 p
+dev.off()
 
 ```
 

@@ -191,8 +191,8 @@ uuu <- data.frame(temp_deficit_est = temp_deficit_est, product = (orig$band.diff
 
 # Take a sample of uuu bc loess requires lots of memory - for testing purposes
 set.seed(108)
-index <- sample(1:nrow(uuu), 100000, replace = FALSE)
-uuu <- uuu[index, ]
+#index <- sample(1:nrow(uuu), 100000, replace = FALSE)
+#uuu <- uuu[index, ]
 
 # --- Create a raster object with 5-degree pixels
 
@@ -225,8 +225,8 @@ ccc <- RColorBrewer::brewer.pal(n = 9, 'YlOrRd')
 ccc <- ccc[3:9]
 ccc <- colorRampPalette(ccc)(10)
 
-breaks <- c(0, 6.25, 12.5, 25, 50, 100, 250, 500, 1000, Inf)
-#breaks <- breaks * 20
+breaks <- c(0, 50/20, 150/20, 250/20, 1000/20, 5000/20, Inf)
+breaks <- breaks * 20
 
 # Add loess and linear fits
 Xs <- data.frame(Xs = seq(from = 0, to = 140, by = .31115/5.555))
@@ -246,9 +246,10 @@ rasterVis::gplot(cell5deg) +
   labs(x = 'Scaled Channel Difference (deg C)', y = 'Temperature Deficit (deg C)', fill = '# of Retrievals') +
   coord_fixed(ratio = 2.4) +
   xlim(-2, 122) +
-  ylim(-.1, 22)
-  #ggsave('x2_vs_TD_loess_and_linear.pdf', device = 'pdf', width = 8, height = 6, units = 'in') +
-  #ggsave('x2_vs_TD_loess_and_linear.png', device = 'png', width = 8, height = 6, units = 'in')
+  ylim(-.1, 22) +
+  theme_bw() +
+  ggsave('x2_vs_TD_loess_and_linear.pdf', device = 'pdf', width = 8, height = 6, units = 'in') +
+  ggsave('x2_vs_TD_loess_and_linear.png', device = 'png', width = 8, height = 6, units = 'in')
 
 ggplot2::ggplot() +
   geom_point(pch = '.', data = uuu, aes(product, temp_deficit)) +
@@ -302,7 +303,8 @@ uuu <- data.frame(temp_deficit_est = temp_deficit_est, product = (orig$band.diff
                   temp_deficit = temp_deficit,
                   x3 = orig$x3,
                   sec_satz = secant.deg(orig$satz),
-                  SST.resid.SMB = orig$SST.resid.SMB)
+                  SST.resid.SMB = orig$SST.resid.SMB,
+                  sec_satz = orig$sec_satz)
 
 # Take a sample of uuu bc loess requires lots of memory - for testing purposes
 set.seed(42)
@@ -329,6 +331,7 @@ raster::xyFromCell(object =  grid5deg, cell = 2500, spatial = FALSE)
 
 pts <- data.frame(product = uuu$product, temp_deficit = uuu$temp_deficit)
 SST.resid.SMB <- uuu$SST.resid.SMB
+sec_satz <- uuu$sec_satz
 
 cell5deg <- raster::rasterize(pts, grid5deg, SST.resid.SMB, fun = median) # fun can be median, IQR, or count_good_residuals
 
@@ -351,8 +354,43 @@ rasterVis::gplot(cell5deg) +
   xlim(-2, 122) +
   ylim(-.1, 22) +
   theme(legend.key = element_blank(), legend.key.size = unit(12, "point")) +
-  ggsave('x2_vs_TD_raster_median.pdf', device = 'pdf', width = 8, height = 6, units = 'in') +
-  ggsave('x2_vs_TD_raster_median.png', device = 'png', width = 8, height = 6, units = 'in')
+  ggsave('x2_vs_TD_raster_median_fine.pdf', device = 'pdf', width = 8, height = 6, units = 'in') +
+  ggsave('x2_vs_TD_raster_median_fine.png', device = 'png', width = 8, height = 6, units = 'in')
+
+rasterVis::gplot(cell5deg) + ggplot2::geom_raster(aes(fill = value)) + scale_fill_gradientn(colours = c('blue', 'white', 'red'), breaks = c(-7, 0, 6), labels = format(c('-7', '0', '6'))) + theme_bw() + theme(legend.key = element_blank(), legend.key.size = unit(12, "point"))
+
+
+blues_palette <- rev(RColorBrewer::brewer.pal(9, 'Blues'))
+blues_palette <- blues_palette[1:7]
+blues_palette <- colorRampPalette(blues_palette)(4)
+
+reds_palette <- RColorBrewer::brewer.pal(9, 'Reds')
+reds_palette <- reds_palette[2:5]
+reds_palette <- colorRampPalette(reds_palette)(3)
+
+palette_med <- c((blues_palette), '#ffffff', (reds_palette))
+
+breaks_med <- c(-Inf, -3, -2, -1, -0.2, 0.2, 1, 2, Inf)
+
+Xs <- data.frame(Xs = seq(from = 0, to = 140, by = .31115/5.555))
+loess_estimates <- predict(td_loess, newdata = Xs$Xs)
+
+rasterVis::gplot(cell5deg) + 
+  ggplot2::geom_raster(aes(fill = (cut(value, breaks_med)))) +
+  #geom_line(aes(x = Xs, y = lm_estimates), color = '#008000') +
+  #geom_line(aes(x = Xs, y = loess_estimates), color = 'purple') +
+  #geom_line(aes(x = Xs, y = loess_estimates + 0.514), color = 'purple') +
+  scale_fill_manual(values = palette_med) +
+  labs(x = 'Scaled Channel Difference (deg C)', y = 'Temperature Deficit (deg C)', fill = 'Median\nResidual\n(deg C)') +
+  coord_fixed(ratio = 2.4) +
+  xlim(-2, 122) +
+  ylim(-.1, 22) +
+  theme(legend.key = element_blank(), legend.key.size = unit(12, "point")) +
+  theme_bw() +
+  ggsave('x2_vs_TD_raster_median_course.pdf', device = 'pdf', width = 8, height = 6, units = 'in') +
+  ggsave('x2_vs_TD_raster_median_course.png', device = 'png', width = 8, height = 6, units = 'in')
+
+
 ```
 
 
@@ -390,25 +428,25 @@ raster::xyFromCell(object =  grid5deg, cell = 2500, spatial = FALSE)
 pts <- data.frame(product = uuu$product, temp_deficit = uuu$temp_deficit)
 SST.resid.SMB <- uuu$SST.resid.SMB
 
-cell5deg <- raster::rasterize(pts, grid5deg, SST.resid.SMB, fun = IQR) # fun can be median, IQR, or count_good_residuals
+cell5deg <- raster::rasterize(pts, grid5deg, SST.resid.SMB, fun = mad) # fun can be median, IQR, or count_good_residuals
 
-breaks_IQR <- c(seq(from = 0, to = 1.5, by = 0.15), Inf)
+breaks_IQR <- c(seq(from = 0, to = 1.2, by = 0.3), Inf)
 
-palette_IQR <- RColorBrewer::brewer.pal(9, 'Reds')
+palette_IQR <- RColorBrewer::brewer.pal(9, 'Greens')[3:9]
 #palette_IQR <- palette_IQR[5:9]
 palette_IQR <- colorRampPalette(palette_IQR)(length(breaks_IQR) - 1)
 
 rasterVis::gplot(cell5deg) + 
   ggplot2::geom_raster(aes(fill = (cut(value, breaks_IQR)))) +
   scale_fill_manual(values = palette_IQR) +
-  #scale_fill_gradientn(colours = palette) +
-  labs(x = 'Scaled Channel Difference (deg C)', y = 'Temperature Deficit (deg C)', fill = 'IQR of\nResiduals (deg C)') +
+  labs(x = 'Scaled Channel Difference (deg C)', y = 'Temperature Deficit (deg C)', fill = 'MAD of\nResiduals\n(deg C)') +
   coord_fixed(ratio = 2.4) +
   xlim(-2, 122) +
   ylim(-.1, 22) +
   theme(legend.key = element_blank(), legend.key.size = unit(12, "point")) +
-  ggsave('x2_vs_TD_raster_IQR.pdf', device = 'pdf', width = 8, height = 6, units = 'in') +
-  ggsave('x2_vs_TD_raster_IQR.png', device = 'png', width = 8, height = 6, units = 'in')
+  theme_bw() +
+  ggsave('x2_vs_TD_raster_MAD.pdf', device = 'pdf', width = 8, height = 6, units = 'in') +
+  ggsave('x2_vs_TD_raster_MAD.png', device = 'png', width = 8, height = 6, units = 'in')
 ```
 
 
@@ -1290,5 +1328,4 @@ ggplot2::ggplot(data = RMSE_without, aes(x = variable_names_long, y = RMSE_incr)
   ggsave('variable_importance_RMSE_Cubist.pdf', device = 'pdf', width = 8, height = 6, units = 'in') +
   ggsave('variable_importance_RMSE_Cubist.png', device = 'png', width = 8, height = 6, units = 'in')
 ```
-
 
