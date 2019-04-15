@@ -1,0 +1,2447 @@
+---
+title: "Decision Tree Estimates of SSES for the MODIS Matchup Database"
+author: "Chirag Kumar and Guillermo Podesta"
+output:
+  html_document:
+    df_print: paged
+    toc: yes
+  html_notebook:
+    theme: united
+    toc: yes
+---
+
+In this notebook, we develop a set of variables for the development of Single Sensor Error Statistics (SSES) for MODIS
+11 and 12 um SST retrievals, create a Machine Learning model that can estimate MODIS SSESs, and interpret the final
+model for geophysical insight.
+
+# Prep Workspace and Data
+We use MODIS matchups from 2002 - 2016 that have been read in through a previous script. Here we simply load
+the matchups, any required packages, and define necessary functions.
+
+```{r prep_workspace, include=FALSE}
+# Import necessary packages
+require(ggplot2)
+require(dplyr)
+require(RColorBrewer)
+require(circular)
+require(ggmap)
+require(raster)
+require(sfsmisc)
+require(rasterVis)
+require(rgdal)
+require(rpart)
+require(rpart.plot)
+require(caret)
+require(evtree)
+require(partykit)
+require(randomForest)
+require(RWeka)
+require(DMwR)
+require(wesanderson)
+require(C50)
+require(gbm)
+require(MASS)
+require(reshape2)
+require(directlabels)
+
+ggplot <- function(...) {ggplot2::ggplot(...) + theme_bw()}
+
+# Define secant function
+secant.deg <- function(x) {1 / (cos(circular::rad(x)))}
+
+# Source own functions
+# Define direwctory where functions are for each operating system
+
+if (Sys.info()["sysname"] == 'Windows') {
+  fun.dir <- 'D:/matchups/r-projects/Matchup_R_Scripts/Functions/'
+} else if (Sys.info()["sysname"] == 'Linux') {
+  fun.dir <- '/home/ckk/Projects/Matchup_R_Scripts/Functions/'
+}
+
+fun.file <- paste0(fun.dir, 'common_functions.R')
+
+source(file = fun.file,
+  local = FALSE, echo = FALSE, verbose = FALSE)
+rm(fun.dir, fun.file)
+
+
+# Measures of accuracy/error function
+regression_error_stats <- function(predicted, observed) {
+  # Compute the error measures
+  R_cor <- cor(predicted, observed)
+  RMSE <- caret::RMSE(predicted, observed)
+  MAE <- hydroGOF::mae(predicted, observed)
+  d_willmott <- hydroGOF::d(predicted, observed)
+  NSE_efficiency <- hydroGOF::NSE(predicted, observed)
+  ratio_sds <- hydroGOF::rSD(predicted, observed)
+    
+  # Turn all the error stats into one dataframe to return
+  error_stats <- list('R' = R_cor,
+                      'RMSE' = RMSE,
+                      'MAE' = MAE,
+                      'd' = d_willmott,
+                      'NSE' = NSE_efficiency,
+                      'ratio_SDs' = ratio_sds)
+    
+  return(error_stats)
+}
+
+# Load data
+# For 787
+linux_dir <- '~/Projects/Matchup_R_Scripts/Results/objects/'
+# For Laptop
+#linux_dir <- '~/Projects/Matchup_R_Scripts/'
+linux_file <- 'MODIS_Aqua_GSFC_ALL_Class_6.4.1_ao_2017_04_12_with_ancillary.Rdata'
+AQUA_file <- paste0(linux_dir, linux_file)
+
+if (!file.exists(AQUA_file)) {
+    stop('Input file does not exist')
+  } else {
+    load(AQUA_file, verbose = TRUE)
+    AQUA <- MODIS_Aqua_GSFC_ALL_Class_6.4.1_ao_2017_04_12
+  }
+
+rm(linux_dir, linux_file, AQUA_file)
+rm(MODIS_Aqua_GSFC_ALL_Class_6.4.1_ao_2017_04_12)
+
+set.seed(42)
+```
+
+The matchup file read in at a previous step is not filtered and contains too many variables. For the purpose of 
+this analysis, we use only nighttime matchups with a quality of 0, 1, or 2 and only keep variables from the infrared
+channels we use.
+
+```{r prep_data, echo=TRUE}
+# Turn POSIXct objects to characters bc dplyr doesn't support POSIXct
+AQUA$sat.timedate <- as.character(AQUA$sat.timedate)
+AQUA$buoy.timedate <- as.character(AQUA$buoy.timedate)
+
+# Apply basic filtering
+AQUA <- dplyr::tbl_df(AQUA) %>%
+  dplyr::filter(solz >= 90) %>%
+  dplyr::filter(qsst == 0 | qsst == 1 | qsst == 2)
+
+# Now grab only variables that may be used to determine retrieval accuracy and make some new variables (i.e. x1, x2, x3)
+# Create df of features
+orig <- dplyr::tbl_df(AQUA) %>%
+  dplyr::mutate(T_11 = cen.11000,
+    T_12 = cen.12000,
+    band.diff = T_11 - T_12,
+    ref_SST = cen.ref.type.1.SST,
+    x2 = band.diff * ref_SST,
+    x3 = ((secant.deg(satz) - 1) * band.diff),
+    lat = buoy.lat,
+    lon = buoy.lon,
+    sd11 = sd.11000,
+    sd12 = sd.12000,
+    range11 = max.11000 - min.11000,
+    range12 = max.12000 - min.12000,
+    diff.med.min11 = med.11000 - min.11000,
+    diff.med.min12 = med.12000 - min.12000,
+    qsst = qsst,
+    buoy.sst = buoy.sst,
+    cell5deg = cell5deg,
+    buoy.timedate = buoy.timedate,
+    td_estimate = cen.ref.type.1.SST - T_11,
+    td_actual = buoy.sst - T_11,
+    SST.resid.SMB = cen.sst - (buoy.sst - 0.17)) %>% # SMB = sat minus buoy - also debias buoy.sst by turning buoy.sst into a skin measurement
+  dplyr::select(T_11, T_12, band.diff, ref_SST, x2, x3, satz, lon, lat, sd11, sd12, range11, range12, diff.med.min11, diff.med.min12,
+    qsst, buoy.sst, cell5deg, buoy.timedate, td_estimate, td_actual, SST.resid.SMB)
+
+```
+
+After the series of filters that we have applied, we are left with `r nrow(orig)` matchups, ranging from
+`r min(orig$buoy.timedate)` to `r max(orig$buoy.timedate)`
+
+
+```{r N_of_matchups_by_location_raster, echo=TRUE}
+# --- These numbers may help perform statistics for the matchups
+# --- (e.g., number of matchups per cell, etc.).
+
+# --- Create a raster object with 5-degree pixels
+
+crs.string <- "+proj=longlat +datum=WGS84 +no_defs +ellps=WGS84 +towgs84=0,0,0"
+
+grid5deg <- raster::raster(ncol = 72, nrow = 36,
+  xmn = -180, xmx = 180,
+  ymn = -90, ymx = 90,
+  crs = crs.string)
+
+# --- Write cell numbers as value for the grids.
+# --- Cell 1 is the upper left corner and numbers go
+# --- across the top line through its end, then
+# --- start again in the second line, and so forth.
+
+raster::values(grid5deg) <- 1:raster::ncell(grid5deg) # Cell numbers for 5 deg grid
+
+raster::cellFromRowCol(object = grid5deg, rownr = 2, colnr = 72)
+
+raster::xyFromCell(object =  grid5deg, cell = 2592, spatial=FALSE)
+
+qqq <- dplyr::tbl_df(orig) %>%
+  dplyr::group_by(cell5deg) %>%
+  dplyr::summarise(N = n(), med = median(SST.resid.SMB), IQR = IQR(SST.resid.SMB))
+
+qq1 <- rep(NA, (72*36))
+qq1[qqq$cell5deg] <- qqq$N
+
+raster::values(grid5deg) <- qq1
+
+myTheme=rasterTheme(region = c('white', colorRampPalette(brewer.pal('Greens', n=9)[3:9])(7)))
+
+myColorkey <- list(at = c(1, 10, 100, 250, 500, 1000, 2000, 5000, Inf),
+                   labels = list(at = c(1, 10, 100, 250, 500, 1000, 2000, 5000, Inf)),
+                   title = 'N of Matchups',
+                   row = 3,
+                   column = 1,
+                   vjust = 2)
+
+#p  <- rasterVis::levelplot(grid5deg, margin = FALSE, par.settings = myTheme, colorkey = myColorkey) 
+
+p <- rasterVis::levelplot(grid5deg, margin = FALSE,
+  at = c(1, 10, 100, 250, 500, 1000, 2000, 5000, Inf), # For N
+  labels = list(at = c(1, 10, 100, 250, 500, 1000, 2000, 5000, Inf)),
+  col.regions = (RColorBrewer::brewer.pal(9, 'Greens')),
+  colorkey = myColorkey)
+
+world.map <- rgdal::readOGR("/home/ckk/Projects/Matchup_R_Scripts", layer = "ne_110m_land", verbose = TRUE)
+
+p <- p + layer(sp.lines(world.map, lwd = .75, fill = 'white', col = 'grey50'))
+
+pdf('~/Projects/Matchup_R_Scripts/total_geographic_distribution.pdf')
+p
+dev.off()
+
+```
+
+The matchups have wide global distribution.
+
+
+```{r residuals_vs_buoy_SST, echo = TRUE}
+
+cols <- RColorBrewer::brewer.pal(n = 9, 'YlOrRd')
+cols <- cols[2:9]
+
+ggplot2::ggplot(data = orig, mapping = aes(x = buoy.sst, y = SST.resid.SMB,
+  fill = cut(..count.., c(0, 50, 100, 250, 500, 1000, 2500, 5000, Inf)))) +
+  geom_bin2d(bins = 75) +
+  scale_fill_manual(values = cols, '# of retrievals') +
+  geom_abline(slope = 0, intercept = 0, col = 'black')
+
+```
+The matchups also exhibit a wide distribution of SSTs and residuals.
+
+# Variable Set Development
+## NLSST Exploration
+The development of accurate, precise, and interpretable Machine Learning models requires a robust feature set
+that address all aspects of the SST retrieval process. We begin by exploring the Atmospheric Correction itself.
+The NLSST algorithm makes a key assumption that the Scaled Channel Difference (SCD) is proportionally to the
+Temperature Deficit (TD). The validity of this assumption is tested.
+
+
+```{r product_temp_deficit, echo=TRUE}
+# --- These numbers may help perform statistics for the matchups
+# --- (e.g., number of matchups per cell, etc.).
+
+temp_deficit_est <- orig$ref_SST - orig$T_11
+temp_deficit <- orig$buoy.sst - orig$T_11
+
+uuu <- data.frame(temp_deficit_est = temp_deficit_est, product = (orig$band.diff * orig$ref_SST),
+                  temp_deficit = temp_deficit,
+                  SST.resid.SMB = orig$SST.resid.SMB)
+
+# Take a sample of uuu bc loess requires lots of memory - for testing purposes
+#index <- sample(1:nrow(uuu), 50000, replace = FALSE)
+#uuu <- uuu[index, ]
+
+# --- Create a raster object with 5-degree pixels
+
+grid5deg <- raster::raster(ncol = 20, nrow = 20,
+  xmn = min(uuu$product) - 0.1, xmx = max(uuu$product) + 0.1,
+  ymn = min(uuu$temp_deficit) - 0.1, ymx = max(uuu$temp_deficit) + 0.1)
+  #crs = crs.string)
+
+# --- Write cell numbers as value for the grids.
+# --- Cell 1 is the upper left corner and numbers go
+# --- across the top line through its end, then
+# --- start again in the second line, and so forth.
+
+raster::values(grid5deg) <- 1:raster::ncell(grid5deg) # Cell numbers for 5 deg grid
+
+raster::cellFromRowCol(object = grid5deg, rownr = 2, colnr = 20)
+
+raster::xyFromCell(object =  grid5deg, cell = 800, spatial = FALSE)
+
+pts <- data.frame(product = uuu$product, temp_deficit = uuu$temp_deficit)
+SST.resid.SMB <- uuu$SST.resid.SMB
+
+count_resids <- function(residuals, ...) {
+  return(length(residuals))
+}
+
+cell5deg <- raster::rasterize(pts, grid5deg, SST.resid.SMB, fun = count_resids)
+
+ccc <- RColorBrewer::brewer.pal(n = 9, 'YlOrRd')
+ccc <- ccc[3:9]
+ccc <- colorRampPalette(ccc)(10)
+
+breaks <- c(0, 50/20, 150/20, 250/20, 1000/20, 5000/20, Inf)
+breaks <- breaks * 20
+
+# Add loess and linear fits
+Xs <- data.frame(Xs = seq(from = 0, to = 140, by = .3505))
+
+td_lm <- lm(uuu$temp_deficit ~ uuu$product)
+lm_estimates <- td_lm$coefficients[1] + (td_lm$coefficients[2] * Xs)
+lm_estimates <- as.vector(lm_estimates$Xs)
+
+td_loess <- loess(temp_deficit ~ product, data = uuu, span = 0.4)
+loess_estimates <- predict(td_loess, newdata = Xs$Xs)
+
+rasterVis::gplot(cell5deg) + 
+  ggplot2::geom_raster(aes(fill = (cut(value, breaks)))) +
+  scale_fill_manual(values = ccc) +
+  geom_line(aes(x = Xs, y = lm_estimates), color = 'green') +
+  geom_line(aes(x = Xs, y = loess_estimates), color = 'blue') +
+  #scale_fill_gradientn(colours = palette) +
+  labs(x = '(T_11 - T_12) * Reference SST', y = 'Temperature Deficit', fill = '# of Retrievals') +
+  coord_fixed(ratio = 2.4) +
+  xlim(-2, 122) +
+  ylim(-.1, 22) + 
+  ggsave('x2_vs_TD_loess_and_linear.svg', device = 'svg', width = 8, height = 6, units = 'in')
+```
+
+At lower SSTs, there is a strong linear correlation between the product and the temperature deficit,
+indicating that at low SSTs, the NLSST atmospheric correction works very well.
+
+We also see that at higher SSTs, there is a breakdown of the linear correlation between the temperature
+deficit and product used in the NLSST algorithm (x2).
+
+
+The lack of linearity at high SCDs discussed above correlates to an increase in retrievals with negative residuals at higher
+SCDs. However, the band difference alone is not enough for us to precisely estimate the SST residual.
+
+
+```{r binning_retrievals_band_diff_temp_def_residual_a_la_raster_median, echo=TRUE}
+# --- These numbers may help perform statistics for the matchups
+# --- (e.g., number of matchups per cell, etc.).
+
+temp_deficit_est <- orig$ref_SST - orig$T_11
+temp_deficit <- orig$buoy.sst - orig$T_11
+
+uuu <- data.frame(temp_deficit_est = temp_deficit_est, product = (orig$band.diff * orig$ref_SST),
+                  temp_deficit = temp_deficit,
+                  SST.resid.SMB = orig$SST.resid.SMB)
+
+# Take a sample of uuu bc loess requires lots of memory - for testing purposes
+#index <- sample(1:nrow(uuu), 50000, replace = FALSE)
+#uuu <- uuu[index, ]
+
+# --- Create a raster object with 5-degree pixels
+
+grid5deg <- raster::raster(ncol = 50, nrow = 50,
+  xmn = min(uuu$product) - 0.1, xmx = max(uuu$product) + 0.1,
+  ymn = min(uuu$temp_deficit) - 0.1, ymx = max(uuu$temp_deficit) + 0.1)
+  #crs = crs.string)
+
+# --- Write cell numbers as value for the grids.
+# --- Cell 1 is the upper left corner and numbers go
+# --- across the top line through its end, then
+# --- start again in the second line, and so forth.
+
+raster::values(grid5deg) <- 1:raster::ncell(grid5deg) # Cell numbers for 5 deg grid
+
+raster::cellFromRowCol(object = grid5deg, rownr = 2, colnr = 50)
+
+raster::xyFromCell(object =  grid5deg, cell = 2500, spatial = FALSE)
+
+pts <- data.frame(product = uuu$product, temp_deficit = uuu$temp_deficit)
+SST.resid.SMB <- uuu$SST.resid.SMB
+sec_satz <- uuu$sec_satz
+
+cell5deg <- raster::rasterize(pts, grid5deg, SST.resid.SMB, fun = median) # fun can be median, IQR, or count_good_residuals
+
+blues_palette <- rev(RColorBrewer::brewer.pal(9, 'Blues'))
+blues_palette <- blues_palette[1:7]
+blues_palette <- colorRampPalette(blues_palette)(4)
+
+reds_palette <- RColorBrewer::brewer.pal(9, 'Reds')
+reds_palette <- reds_palette[2:5]
+reds_palette <- colorRampPalette(reds_palette)(3)
+
+palette_med <- c((blues_palette), '#ffffff', (reds_palette))
+
+breaks_med <- c(-Inf, -3, -2, -1, -0.2, 0.2, 1, 2, Inf)
+
+Xs <- data.frame(Xs = seq(from = 0, to = 140, by = .31115/5.555))
+loess_estimates <- predict(td_loess, newdata = Xs$Xs)
+
+rasterVis::gplot(cell5deg) + 
+  ggplot2::geom_raster(aes(fill = (cut(value, breaks_med)))) +
+  #geom_line(aes(x = Xs, y = lm_estimates), color = '#008000') +
+  #geom_line(aes(x = Xs, y = loess_estimates), color = 'purple') +
+  #geom_line(aes(x = Xs, y = loess_estimates + 0.514), color = 'purple') +
+  scale_fill_manual(values = palette_med) +
+  labs(x = 'Scaled Channel Difference (deg C)', y = 'Temperature Deficit (deg C)', fill = 'Median\nResidual\n(deg C)') +
+  coord_fixed(ratio = 2.4) +
+  xlim(-2, 122) +
+  ylim(-.1, 22) +
+  theme(legend.key = element_blank(), legend.key.size = unit(12, "point")) +
+  theme_bw() +
+  ggsave('x2_vs_TD_raster_median_course.pdf', device = 'pdf', width = 8, height = 6, units = 'in') +
+  ggsave('x2_vs_TD_raster_median_course.png', device = 'png', width = 8, height = 6, units = 'in')
+
+
+```
+
+The point that the SCD and TD are alone not enough to precisely estimate the SST residual is exhibited by the
+increase in variability (deeper green in the following figure) also at high values of the SCD.
+
+```{r binning_retrievals_band_diff_temp_def_residual_a_la_raster_IQR, echo=TRUE}
+# --- These numbers may help perform statistics for the matchups
+# --- (e.g., number of matchups per cell, etc.).
+
+temp_deficit_est <- orig$ref_SST - orig$T_11
+temp_deficit <- orig$buoy.sst - orig$T_11
+
+uuu <- data.frame(temp_deficit_est = temp_deficit_est, product = (orig$band.diff * orig$ref_SST),
+                  temp_deficit = temp_deficit,
+                  x3 = orig$x3,
+                  sec_satz = secant.deg(orig$satz),
+                  SST.resid.SMB = orig$SST.resid.SMB)
+
+# --- Create a raster object with 5-degree pixels
+
+grid5deg <- raster::raster(ncol = 50, nrow = 50,
+  xmn = min(uuu$product) - 0.1, xmx = max(uuu$product) + 0.1,
+  ymn = min(uuu$temp_deficit) - 0.1, ymx = max(uuu$temp_deficit) + 0.1)
+  #crs = crs.string)
+
+# --- Write cell numbers as value for the grids.
+# --- Cell 1 is the upper left corner and numbers go
+# --- across the top line through its end, then
+# --- start again in the second line, and so forth.
+
+raster::values(grid5deg) <- 1:raster::ncell(grid5deg) # Cell numbers for 5 deg grid
+
+raster::cellFromRowCol(object = grid5deg, rownr = 2, colnr = 50)
+
+raster::xyFromCell(object =  grid5deg, cell = 2500, spatial = FALSE)
+
+pts <- data.frame(product = uuu$product, temp_deficit = uuu$temp_deficit)
+SST.resid.SMB <- uuu$SST.resid.SMB
+
+cell5deg <- raster::rasterize(pts, grid5deg, SST.resid.SMB, fun = mad) # fun can be median, IQR, or count_good_residuals
+
+breaks_IQR <- c(seq(from = 0, to = 1.2, by = 0.3), Inf)
+
+palette_IQR <- RColorBrewer::brewer.pal(9, 'Greens')[3:9]
+#palette_IQR <- palette_IQR[5:9]
+palette_IQR <- colorRampPalette(palette_IQR)(length(breaks_IQR) - 1)
+
+rasterVis::gplot(cell5deg) + 
+  ggplot2::geom_raster(aes(fill = (cut(value, breaks_IQR)))) +
+  scale_fill_manual(values = palette_IQR) +
+  labs(x = 'Scaled Channel Difference (deg C)', y = 'Temperature Deficit (deg C)', fill = 'MAD of\nResiduals\n(deg C)') +
+  coord_fixed(ratio = 2.4) +
+  xlim(-2, 122) +
+  ylim(-.1, 22) +
+  theme(legend.key = element_blank(), legend.key.size = unit(12, "point")) +
+  theme_bw() +
+  ggsave('x2_vs_TD_raster_MAD.pdf', device = 'pdf', width = 8, height = 6, units = 'in') +
+  ggsave('x2_vs_TD_raster_MAD.png', device = 'png', width = 8, height = 6, units = 'in')
+```
+
+This motivates the need for additional variables in estimating the SST residual. Morever, this physically signifies that
+among high SCD retrievals, there is not a uniformity in them all having the same negative SST residual. This indicates 
+that there are yet different effects going on at high SCD retrievals. Thus, a set of additional variables is required
+to isolate and study these effects to ultimately estimate the SST residual.
+
+First, though, we "linearize" the TD as a function of the SCD as this (a) facilitates visualization and (b) will aid
+the Machine Learning algorithms as they will then not have to build redundant "staircases" to segment the chunks of
+the space that are associated with varying types of SST residuals and can rather use single sets of horizontal lines.
+
+```{r create_td_resid_variable, echo=TRUE}
+set.seed(108)
+index <- sample(1:nrow(orig), 50000, replace = FALSE)
+uuu <- orig[index, ]
+
+td_loess <- loess(td_actual ~ x2, data = orig, span = 0.4) # Can use data = uuu for faster running
+orig$td_resid <- orig$td_estimate - stats::predict(td_loess, newdata = orig$x2)
+
+orig$month <- lubridate::month(as.POSIXct(orig$buoy.timedate))
+orig$sec_satz <- secant.deg(orig$satz)
+
+# Some td_resid may be NA because of domain restrictions on loess - filter them out
+orig <- dplyr::tbl_df(orig) %>%
+  dplyr::filter(!is.na(td_resid))
+orig <- as.data.frame(orig)
+```
+
+## Additional Variables
+A variety of other variables are explored through their correlograms and pairwise plots. These features are drawn from
+the literature and previous explorations by the authors.
+
+```{r correlogram_of_features, echo=TRUE}
+# Take the correlation matrix
+cors_mat_f <- as.matrix(cor(orig[, c('td_resid', 'sec_satz', 'x2', 'ref_SST', 'sd11', 'month', 'lat', 'SST.resid.SMB')]))
+
+# Format the data for the plot
+xval <- formatC(cors_mat_f, format = "f", digits = 2)
+
+blues_palette <- rev(RColorBrewer::brewer.pal(9, 'Blues'))
+blues_palette <- blues_palette[1:5]
+blues_palette <- colorRampPalette(blues_palette)(5)
+
+reds_palette <- RColorBrewer::brewer.pal(9, 'Reds')
+reds_palette <- reds_palette[1:5]
+reds_palette <- colorRampPalette(reds_palette)(5)
+
+palette_med <- c((blues_palette), '#D3D3D3', (reds_palette))
+
+pal <- colorRampPalette(palette_med)
+
+ # Plot the matrix
+corrgram <- gplots::heatmap.2(cors_mat_f,
+                              Rowv = FALSE, Colv = FALSE,
+                              dendrogram = "none",
+                              main = "Correlogram",
+                              xlab = "Columns", ylab = "Rows",
+                              col = pal,
+                              tracecol = "#303030", trace = "none",
+                              cellnote = xval, notecol = "black", notecex = 0.8,
+                              keysize = 1.5, margins = c(5, 5))
+
+```
+
+
+```{r pairwise_plot_of_features, echo=TRUE}
+# Take random sample
+cors_mat_f <- orig[, c('td_resid', 'sec_satz', 'x2', 'ref_SST', 'sd11', 'month', 'lat', 'SST.resid.SMB')]
+index <- sample(1:nrow(cors_mat_f), 5000, replace = FALSE)
+
+ttt <- as.data.frame(cors_mat_f)[index, ]
+
+plot(ttt, pch = '.')
+
+```
+
+The final variable set is a TD estimate ((T_11 - REF_SST) - Loess(SCD)), SCD, REF_SST, SD11, SEC_SATZ, MONTH, and LAT.
+These seven variables fall into three distinct categories: (a) inherent assumptions in AC (TD estimate residual & SCD),
+(b) aspects of the MODIS retrieval process (REF_SST, SD11, & SEC_SATZ), and (c) climate variability (MONTH & LAT).
+
+With a final variable set, we now move to fitting the Machine Learning models.
+
+# Decision Trees
+
+We select Decision Trees (DTs) as our algorithm of choice because of their high efficiency yet interpretable
+nature. This allows not only for a high-performing but also understandable model that can be further analyzed
+for possible physical insight. To both train and test our Decision Tree algorithms, we require dividing
+the data into train and test/validation sets. We randomly partition the data into 60% train and 40% test sets.
+
+
+```{r create_train_test_set, echo=TRUE}
+# Divide data into training and validation sets
+prop_train <- .6
+len_train <- floor(prop_train * nrow(orig))
+index <- sample(1:nrow(orig), len_train, replace = FALSE)
+
+orig_train <- orig[index, ]
+orig_test <- orig[-index, ]
+```
+
+Within Decision Trees, we are interested in two algorithms: Random Forests (RF), frequently considered the 
+"golden-standard" of applying Machine Learning to Remote Sensing data, and Cubist, which seems to have significant
+applicability to this problem but has never before been applied to SST data. Additionally, RF is rather difficult
+to interpret while conersely Cubist is simpler as it is one learning model that divides the space into homogenous
+"rule sets" and then fits linear regression equations to predict the SST residual to each rule set. The MAD of
+residuals within each rule set serves as a measure of uncertainty for the original SST
+
+## Random Forest
+### Model Parametrization
+The RF model has 3 parameters: the number of trees (ntree), the number of variables to be tried at each split (mtry),
+and the minimum size of a terminal node (nodesize). We self-impose that nodesize = 100 because previous studies have
+shown that at about 100 retrievals the SST matchups show stable statistics and sampling effects are minimal.
+
+We use the "elbow-plot" methodology to determine optimal values of the other variables. While somewhat subjective,
+this method allows the final discretion to come down to the user and hence puts greater emphasis on computational
+time.
+
+
+```{r grid_search_for_committees_and_rules_RF, echo = TRUE}
+set.seed(108)
+mtry <- seq(from = 1, to = 7)
+ctrl_params_performance_rf <- expand.grid(mtry = mtry)
+ctrl_params_performance_rf$RMSE_train <- rep(NA, nrow(ctrl_params_performance_rf))
+ctrl_params_performance_rf$RMSE_test <- rep(NA, nrow(ctrl_params_performance_rf))
+
+ctrl_params_performance_rf$MAE_train <- rep(NA, nrow(ctrl_params_performance_rf))
+ctrl_params_performance_rf$MAE_test <- rep(NA, nrow(ctrl_params_performance_rf))
+
+ctrl_params_performance_rf$d_train <- rep(NA, nrow(ctrl_params_performance_rf))
+ctrl_params_performance_rf$d_test <- rep(NA, nrow(ctrl_params_performance_rf))
+
+ctrl_params_performance_rf$R_train <- rep(NA, nrow(ctrl_params_performance_rf))
+ctrl_params_performance_rf$R_test <- rep(NA, nrow(ctrl_params_performance_rf))
+
+ctrl_params_performance_rf$m_train <- rep(NA, nrow(ctrl_params_performance_rf))
+ctrl_params_performance_rf$m_test <- rep(NA, nrow(ctrl_params_performance_rf))
+
+ctrl_params_performance_rf$rSDs_train <- rep(NA, nrow(ctrl_params_performance_rf))
+ctrl_params_performance_rf$rSDs_test <- rep(NA, nrow(ctrl_params_performance_rf))
+
+
+for (N in 1:nrow(ctrl_params_performance_rf)) {
+
+    rf_tune <- randomForest::randomForest(SST.resid.SMB ~ td_resid + x2 + sec_satz + ref_SST + sd11 + lat + month,
+                                        data = orig_train,
+                                        ntree = 250, # Set the number of trees to a rule-of-thumb value and then tune from there (next step)
+                                        nodesize = 100,
+                                        mtry = ctrl_params_performance_rf[N, 'mtry'])
+
+    # Predict with the new model
+    ## Train Set
+    RF_rules_train_vals <- stats::predict(object = rf_tune, newdata = orig_train, na.action = na.pass)
+    
+    ## Test Set
+    RF_rules_test_vals <- stats::predict(object = rf_tune, newdata = orig_test, na.action = na.pass)
+
+    # Evaluate model
+    ## Train Set
+    ctrl_params_performance_rf[N, 'RMSE_train'] <- caret::RMSE(RF_rules_train_vals, orig_train$SST.resid.SMB)
+    ctrl_params_performance_rf[N, 'MAE_train'] <- hydroGOF::mae(RF_rules_train_vals, orig_train$SST.resid.SMB)
+    ctrl_params_performance_rf[N, 'd_train'] <- hydroGOF::d(RF_rules_train_vals, orig_train$SST.resid.SMB)
+    ctrl_params_performance_rf[N, 'R_train'] <- cor(RF_rules_train_vals, orig_train$SST.resid.SMB)
+    ctrl_params_performance_rf[N, 'rSDs_train'] <- hydroGOF::rSD(RF_rules_train_vals, orig_train$SST.resid.SMB)
+    ctrl_params_performance_rf[N, 'm_train'] <- lm(RF_rules_train_vals ~ orig_train$SST.resid.SMB)$coefficients[2]
+    
+    ## Test Set
+    ctrl_params_performance_rf[N, 'RMSE_test'] <- caret::RMSE(RF_rules_test_vals, orig_test$SST.resid.SMB)
+    ctrl_params_performance_rf[N, 'MAE_test'] <- hydroGOF::mae(RF_rules_test_vals, orig_test$SST.resid.SMB)
+    ctrl_params_performance_rf[N, 'd_test'] <- hydroGOF::d(RF_rules_test_vals, orig_test$SST.resid.SMB)
+    ctrl_params_performance_rf[N, 'R_test'] <- cor(RF_rules_test_vals, orig_test$SST.resid.SMB)
+    ctrl_params_performance_rf[N, 'rSDs_test'] <- hydroGOF::rSD(RF_rules_test_vals, orig_test$SST.resid.SMB)
+    ctrl_params_performance_rf[N, 'm_test'] <- lm(RF_rules_test_vals ~ orig_test$SST.resid.SMB)$coefficients[2]
+    
+    cat('mtry:', ctrl_params_performance_rf[N, 'mtry'], 'out of 7; RMSE Test:', caret::RMSE(RF_rules_test_vals, orig_test$SST.resid.SMB), '\n')
+      
+    rm(rf_tune)
+    gc()
+  
+}
+
+```
+
+Plot the results of above to make an elbow-plot
+
+```{r plot_ctrl_params_performance_RF, echo = TRUE}
+
+ggplot2::ggplot() +
+  geom_point(data = ctrl_params_performance_rf, aes(x = mtry, y = RMSE_train)) +
+  ggtitle('RMSE train')
+
+ggplot2::ggplot() +
+  geom_point(data = ctrl_params_performance_rf, aes(x = mtry, y = MAE_train)) +
+  ggtitle('MAE train')
+
+ggplot2::ggplot() +
+  geom_point(data = ctrl_params_performance_rf, aes(x = mtry, y = d_train)) +
+  ggtitle('d train')
+
+ggplot2::ggplot() +
+  geom_point(data = ctrl_params_performance_rf, aes(x = mtry, y = R_train)) +
+  ggtitle('R train')
+
+ggplot2::ggplot() +
+  geom_point(data = ctrl_params_performance_rf, aes(x = mtry, y = m_train)) +
+  ggtitle('m train')
+
+ggplot2::ggplot() +
+  geom_point(data = ctrl_params_performance_rf, aes(x = mtry, y = rSDs_train)) +
+  ggtitle('rSDs train')
+```
+
+```{r plot_ctrl_params_performance_test_RF, echo = TRUE}
+
+ggplot2::ggplot() +
+  geom_point(data = ctrl_params_performance_rf, aes(x = mtry, y = RMSE_test)) +
+  ggtitle('RMSE Test')
+
+ggplot2::ggplot() +
+  geom_point(data = ctrl_params_performance_rf, aes(x = mtry, y = MAE_test)) +
+  ggtitle('MAE Test')
+
+ggplot2::ggplot() +
+  geom_point(data = ctrl_params_performance_rf, aes(x = mtry, y = d_test)) +
+  ggtitle('d test')
+
+ggplot2::ggplot() +
+  geom_point(data = ctrl_params_performance_rf, aes(x = mtry, y = R_test)) +
+  ggtitle('R test')
+
+ggplot2::ggplot() +
+  geom_point(data = ctrl_params_performance_rf, aes(x = mtry, y = m_test)) +
+  ggtitle('m test')
+
+ggplot2::ggplot() +
+  geom_point(data = ctrl_params_performance_rf, aes(x = mtry, y = rSDs_test)) +
+  ggtitle('rSDs test')
+```
+
+After identifying the optimal mtry (in this case 4), look for the optimal number of trees.
+
+```{r}
+rf_tree <- randomForest::randomForest(SST.resid.SMB ~ td_resid + x2 + sec_satz + ref_SST + sd11 + lat + month,
+                                        data = orig_train,
+                                        ntree = 50,
+                                        nodesize = 100,
+                                        mtry = 4)
+
+plot(rf_tree)
+```
+
+We choose 50 even though the elbow a little earlier because the model trains very quickly and this is
+OOB performance which seems to underestimate the true error.
+
+### Model Fitting
+
+```{r train_rf}
+rf_global <- randomForest::randomForest(SST.resid.SMB ~ td_resid + x2 + sec_satz + ref_SST + sd11 + lat + month,
+                                        data = orig_train,
+                                        ntree = 50,
+                                        nodesize = 100,
+                                        mtry = 4)
+
+```
+
+### Model Performance
+
+We plot the RF-predicted and actual SST residuals.
+
+```{r predicted_and_actual_residuals_rf, echo=TRUE}
+# Use the tree to predict
+
+# Train set
+rf_rules_train_vals <- stats::predict(object = rf_global,
+                                          newdata = orig_train,
+                                          na.action = na.pass)
+
+# Test set
+rf_rules_test_vals <- stats::predict(object = rf_global,
+                                         newdata = orig_test,
+                                         na.action = na.pass)
+
+# Plot
+ccc <- RColorBrewer::brewer.pal(n = 9, 'YlOrRd')
+ccc <- ccc[3:9]
+breaks <- c(0, 10, 25, 50, 100, 500, 1000, 2500, 5000, 10000, Inf)
+ccc <- colorRampPalette(ccc)(length(breaks) - 1)
+
+yy2 <- data.frame(Y = rf_rules_test_vals, X = orig_test$SST.resid.SMB)
+residual_fit_rf <- lm(Y ~ X, data = yy2)
+residual_fit_rf
+slope_fit <- data.frame(residual_fit_rf$coefficients)[2, 1]
+int_fit <- data.frame(residual_fit_rf$coefficients)[1, 1]
+
+X_vals <- data.frame(X = seq(from = -7, to = 7, by = 0.001))
+
+residual_fit_rf_loess <- loess(Y ~ X, data = yy2, span = 0.5, degree = 1)
+loess_estimates_rf <- predict(residual_fit_rf_loess, newdata = X_vals$X)
+loess_df_rf <- data.frame(x = X_vals$X, y = loess_estimates_rf)
+
+ggplot2::ggplot() +
+  geom_bin2d(data = yy2, aes(X, Y, fill = cut(..count.., c(0, 10, 50, 100, 500, 1000, 5000, Inf))), bins = 75) +
+  scale_fill_manual(values = ccc, 'No. of Retrievals') +
+  geom_abline(slope = 1, intercept = 0, color = 'black') +
+  geom_abline(slope = slope_fit, intercept = int_fit, color = '#008000') +
+  geom_line(data = loess_df_rf, aes(x = x, y = y), color = 'blue') +
+  labs(x = 'Observed SST Residual (deg C)', y = 'RF Predicted SST Residual (deg C)') +
+  ggtitle('Observed and Predicted SST Residuals from the Random Forest Model') +
+  theme_bw() +
+  xlim(-6, 6) +
+  ylim(-6, 6) +
+  ggsave('RF_residual_predictions_3_fits.pdf', device = 'pdf', width = 8, height = 6, units = 'in')
+
+```
+
+We follow the guidelines in Willmott et al 1985 as guidance for what numerical statistics to use
+to evaluate the model performance.
+
+```{r statistics_for_model_evaluation_train_set_rf, echo=TRUE}
+# 1-D Statistics
+# Stats for actual residuals
+summary(orig_train$SST.resid.SMB)
+sd(orig_train$SST.resid.SMB)
+
+# Just of Predictions
+summary(rf_rules_train_vals)
+sd(rf_rules_train_vals)
+
+# 2-D Statistics
+# Base statistics summary of Train Model Residuals
+train_model_resids <- rf_rules_train_vals - orig_train$SST.resid.SMB
+summary(train_model_resids)
+sd(train_model_resids)
+
+# Measures of error/accuracy
+regression_error_stats(rf_rules_train_vals, orig_train$SST.resid.SMB)
+
+```
+
+```{r statistics_for_model_evaluation_test_set_rf, echo=TRUE}
+# 1-D Statistics
+# Stats for actual residuals
+summary(orig_test$SST.resid.SMB)
+sd(orig_test$SST.resid.SMB)
+
+# Just of Predictions
+summary(Cubist_rules_test_vals)
+sd(Cubist_rules_test_vals)
+
+test_model_resids <- rf_rules_test_vals - orig_test$SST.resid.SMB
+
+# 2-D Statistics
+# Base statistics summary of Train Model Residuals
+summary(test_model_resids)
+sd(test_model_resids)
+
+# Measures of error/accuracy
+regression_error_stats(rf_rules_test_vals, orig_test$SST.resid.SMB)
+
+```
+
+### Model Diagnostics
+
+```{r plot_rf}
+randomForest::varImpPlot(rf_global, type = 2)
+
+plot(rf_global)
+```
+
+## Cubist
+
+The Cubist model has 3 parameters that we can optimize: the number of rule sets and the number of committees,
+and the number of nearest neighbors (from 1 to 9 as allowed by Cubist) used in nearest neighbor smoothing.
+We explore various numbers of committees but are really only interested in the instance when committees is
+set to 1 for interpretability.
+
+We self-impose that the tree must not be unbiased (i.e., linear regression equations are fit to the median
+rather than the mean of SST residuals by rule set), and that extrapolation beyond domain boundaries must be
+100%.
+
+This leaves just two parameters to be tuned: the number of rules and the number of nearest neighbors. We again
+self-impose that each rule set must have a minimum number of retrievals equal to 100 and that they cannot
+overlap. Cubist naturally allows for overlapping rule sets but this makes interpretability difficult.
+
+We again use the elbow-plot methodology.
+
+### Model Parametrization
+
+```{r grid_search_for_committees_and_rules_Cubist, echo = TRUE}
+set.seed(108)
+too_small <- FALSE
+committees <- seq(from = 1, to = 5)
+rules <- seq(from = 1, to = 50)
+ctrl_params_performance_cubist <- expand.grid(rules = rules, committees = committees)
+ctrl_params_performance_cubist$RMSE_train <- rep(NA, nrow(ctrl_params_performance_cubist))
+ctrl_params_performance_cubist$RMSE_test <- rep(NA, nrow(ctrl_params_performance_cubist))
+
+ctrl_params_performance_cubist$MAE_train <- rep(NA, nrow(ctrl_params_performance_cubist))
+ctrl_params_performance_cubist$MAE_test <- rep(NA, nrow(ctrl_params_performance_cubist))
+
+ctrl_params_performance_cubist$d_train <- rep(NA, nrow(ctrl_params_performance_cubist))
+ctrl_params_performance_cubist$d_test <- rep(NA, nrow(ctrl_params_performance_cubist))
+
+ctrl_params_performance_cubist$R_train <- rep(NA, nrow(ctrl_params_performance_cubist))
+ctrl_params_performance_cubist$R_test <- rep(NA, nrow(ctrl_params_performance_cubist))
+
+ctrl_params_performance_cubist$m_train <- rep(NA, nrow(ctrl_params_performance_cubist))
+ctrl_params_performance_cubist$m_test <- rep(NA, nrow(ctrl_params_performance_cubist))
+
+ctrl_params_performance_cubist$rSDs_train <- rep(NA, nrow(ctrl_params_performance_cubist))
+ctrl_params_performance_cubist$rSDs_test <- rep(NA, nrow(ctrl_params_performance_cubist))
+
+
+for (N in 1:nrow(ctrl_params_performance_cubist)) {
+  committees_specific <- ctrl_params_performance_cubist[N, 'committees']
+  rules_specific <- ctrl_params_performance_cubist[N, 'rules']
+
+   
+  Cubist_rules <- Cubist::cubist(x = orig_train[, c('lat', 'month', 'sd11', 'td_resid', 'x2', 'sec_satz', 'ref_SST')], y = orig_train$SST.resid.SMB,
+                           committees = committees_specific, 
+                           control = Cubist::cubistControl(rules = rules_specific,
+                                                           unbiased = FALSE,
+                                                           extrapolation = 100,
+                                                           label = 'SST Residual',
+                                                           seed = 108))
+  
+  file <- paste0('Cubist_Rule_Sets/Cubist_rules=', rules_specific, '_committees=', committees_specific)
+  capture.output(summary(Cubist_rules), file = file)
+  
+  rule_summary <- summary(Cubist_rules)
+  
+  node_sizes <- rep(NA, rules_specific)
+  node_sizes <- as.data.frame(node_sizes)
+  mmm <- strsplit(paste(rule_summary), '\n')
+  mmm <- as.vector(unlist(mmm))
+  counter <- 0
+  for (K in 1:length(mmm)) {
+    line_specific <- mmm[K]
+  
+    if (substring(line_specific, 1, 7) == "  Rule ") {
+      cases_in_node <- stringr::str_extract(line_specific, '[0-9]+ cases')
+      cases_in_node <- substring(cases_in_node, 1, stringi::stri_length(cases_in_node) - 6)
+      cases_in_node <- as.numeric(cases_in_node)
+    
+      node_sizes[counter + 1] <- cases_in_node
+      counter <- counter + 1
+    }
+    
+  }
+  
+  if (min(node_sizes) >= 100) {
+
+    N_correction_neighbors <- 9
+
+    # Predict with the new model
+    ## Train Set
+    Cubist_rules_train_vals <- stats::predict(object = Cubist_rules, newdata = orig_train, na.action = na.pass, neighbors = N_correction_neighbors)
+    
+    ## Test Set
+    Cubist_rules_test_vals <- stats::predict(object = Cubist_rules, newdata = orig_test, na.action = na.pass, neighbors = N_correction_neighbors)
+
+    # Evaluate model
+    ## Train Set
+    ctrl_params_performance_cubist[N, 'RMSE_train'] <- caret::RMSE(Cubist_rules_train_vals, orig_train$SST.resid.SMB)
+    ctrl_params_performance_cubist[N, 'MAE_train'] <- hydroGOF::mae(Cubist_rules_train_vals, orig_train$SST.resid.SMB)
+    ctrl_params_performance_cubist[N, 'd_train'] <- hydroGOF::d(Cubist_rules_train_vals, orig_train$SST.resid.SMB)
+    ctrl_params_performance_cubist[N, 'R_train'] <- cor(Cubist_rules_train_vals, orig_train$SST.resid.SMB)
+    ctrl_params_performance_cubist[N, 'rSDs_train'] <- hydroGOF::rSD(Cubist_rules_train_vals, orig_train$SST.resid.SMB)
+    ctrl_params_performance_cubist[N, 'm_train'] <- lm(Cubist_rules_train_vals ~ orig_train$SST.resid.SMB)$coefficients[2]
+    
+    ## Test Set
+    ctrl_params_performance_cubist[N, 'RMSE_test'] <- caret::RMSE(Cubist_rules_test_vals, orig_test$SST.resid.SMB)
+    ctrl_params_performance_cubist[N, 'MAE_test'] <- hydroGOF::mae(Cubist_rules_test_vals, orig_test$SST.resid.SMB)
+    ctrl_params_performance_cubist[N, 'd_test'] <- hydroGOF::d(Cubist_rules_test_vals, orig_test$SST.resid.SMB)
+    ctrl_params_performance_cubist[N, 'R_test'] <- cor(Cubist_rules_test_vals, orig_test$SST.resid.SMB)
+    ctrl_params_performance_cubist[N, 'rSDs_test'] <- hydroGOF::rSD(Cubist_rules_test_vals, orig_test$SST.resid.SMB)
+    ctrl_params_performance_cubist[N, 'm_test'] <- lm(Cubist_rules_test_vals ~ orig_test$SST.resid.SMB)$coefficients[2]
+    
+    cat('Committees:', committees_specific, 'out of 5; Rules:', rules_specific, 'out of 50; RMSE Test:', caret::RMSE(Cubist_rules_test_vals, orig_test$SST.resid.SMB), '\n')
+      
+    rm(Cubist_rules)
+    gc()
+
+    
+  }
+  
+}
+
+```
+
+Plot the results of above to make an elbow-plot
+
+```{r plot_ctrl_params_performance_Cubist, echo = TRUE}
+
+ggplot2::ggplot() +
+  geom_point(data = ctrl_params_performance_cubist, aes(x = rules, y = RMSE_train, col = as.factor(committees))) +
+  xlim(0, 3) +
+  ggtitle('RMSE train')
+
+ggplot2::ggplot() +
+  geom_point(data = ctrl_params_performance_cubist, aes(x = rules, y = MAE_train, col = as.factor(committees))) +
+  xlim(0, 3) +
+  ggtitle('MAE train')
+
+ggplot2::ggplot() +
+  geom_point(data = ctrl_params_performance_cubist, aes(x = rules, y = d_train, col = as.factor(committees))) +
+  xlim(0, 3) +
+  ggtitle('d train')
+
+ggplot2::ggplot() +
+  geom_point(data = ctrl_params_performance_cubist, aes(x = rules, y = R_train, col = as.factor(committees))) +
+  xlim(0, 3) +
+  ggtitle('R train')
+
+ggplot2::ggplot() +
+  geom_point(data = ctrl_params_performance_cubist, aes(x = rules, y = m_train, col = as.factor(committees))) +
+  xlim(0, 3) +
+  ggtitle('m train')
+
+ggplot2::ggplot() +
+  geom_point(data = ctrl_params_performance_cubist, aes(x = rules, y = rSDs_train, col = as.factor(committees))) +
+  xlim(0, 3) +
+  ggtitle('rSDs train')
+```
+
+```{r plot_ctrl_params_performance_test_Cubist, echo = TRUE}
+
+ggplot2::ggplot() +
+  geom_point(data = ctrl_params_performance_cubist, aes(x = rules, y = RMSE_test, col = as.factor(committees))) +
+  xlim(0, 3) +
+  ggtitle('RMSE Test')
+
+ggplot2::ggplot() +
+  geom_point(data = ctrl_params_performance_cubist, aes(x = rules, y = MAE_test, col = as.factor(committees))) +
+  xlim(0, 3) +
+  ggtitle('MAE Test')
+
+ggplot2::ggplot() +
+  geom_point(data = ctrl_params_performance_cubist, aes(x = rules, y = d_test, col = as.factor(committees))) +
+  xlim(0, 3) +
+  ggtitle('d test')
+
+ggplot2::ggplot() +
+  geom_point(data = ctrl_params_performance_cubist, aes(x = rules, y = R_test, col = as.factor(committees))) +
+  xlim(0, 3) +
+  ggtitle('R test')
+
+ggplot2::ggplot() +
+  geom_point(data = ctrl_params_performance_cubist, aes(x = rules, y = m_test, col = as.factor(committees))) +
+  xlim(0, 3) +
+  ggtitle('m test')
+
+ggplot2::ggplot() +
+  geom_point(data = ctrl_params_performance_cubist, aes(x = rules, y = rSDs_test, col = as.factor(committees))) +
+  xlim(0, 3) +
+  ggtitle('rSDs test')
+```
+
+Testing overlap between rule sets can only be done manually by inspecting the rule sets.
+
+Our inspections, yields a model with 8 rule sets and no committees.
+
+After the optimal number of rule sets and commitees is identified, we further observe number of nearest neighbors
+that improves model performance the most.
+
+This yields 9 nearest neighbors.
+
+### Model Fitting
+
+
+```{r Cubist_model}
+Cubist_rules <- Cubist::cubist(x = orig_train[, c('td_resid',
+                                                     'x2',
+                                                     'sec_satz',
+                                                     'ref_SST',
+                                                     'sd11',
+                                                     'lat',
+                                                     'month')],
+                                  y = orig_train$SST.resid.SMB,
+                                  committees = 1,
+                                  control = Cubist::cubistControl(rules = 8,
+                                                                  unbiased = FALSE,
+                                                                  extrapolation = 100,
+                                                                  label = 'SST Residual',
+                                                                  seed = 108))
+
+summary(Cubist_rules)
+
+file <- paste0('Cubist_Rule_Sets_Global/Cubist_rules=8_committees=1_final.txt')
+capture.output(summary(Cubist_rules), file = file)
+```
+
+### Model Performance
+
+
+```{r predicted_and_actual_residuals_p, echo=TRUE}
+# Use the tree to predict
+N_correction_neighbors <- 9 # Must be between 0 and 9
+
+# Train set
+Cubist_rules_train_vals <- stats::predict(object = Cubist_rules,
+                                          newdata = orig_train,
+                                          na.action = na.pass,
+                                          neighbors = N_correction_neighbors)
+
+# Test set
+Cubist_rules_test_vals <- stats::predict(object = Cubist_rules,
+                                         newdata = orig_test,
+                                         na.action = na.pass,
+                                         neighbors = N_correction_neighbors)
+
+# Plot
+ccc <- RColorBrewer::brewer.pal(n = 9, 'YlOrRd')
+ccc <- ccc[3:9]
+breaks <- c(0, 10, 25, 50, 100, 500, 1000, 2500, 5000, 10000, Inf)
+
+yy1 <- data.frame(Y = Cubist_rules_test_vals, X = orig_test$SST.resid.SMB)
+
+ccc <- colorRampPalette(ccc)(length(breaks) - 1)
+
+residual_fit_cubist <- lm(Y ~ X, data = yy1)
+residual_fit_cubist
+slope_fit = as.data.frame(residual_fit_cubist$coefficients)[2, 1]
+int_fit = as.data.frame(residual_fit_cubist$coefficients)[1, 1]
+
+X_vals <- data.frame(X = seq(from = -7, to = 7, by = 0.001))
+
+residual_fit_Cubist_loess <- loess(Y ~ X, data = yy1, span = 0.5, degree = 1)
+loess_estimates_Cubist <- predict(residual_fit_Cubist_loess, newdata = X_vals$X)
+loess_df_Cubist <- data.frame(x = X_vals$X, y = loess_estimates_Cubist)
+
+ggplot2::ggplot() +
+  geom_bin2d(data = yy1, aes(X, Y, fill = cut(..count.., c(0, 10, 50, 100, 500, 1000, 5000, Inf))), bins = 75) +
+  scale_fill_manual(values = ccc, 'No. of Retrievals') +
+  geom_abline(slope = 1, intercept = 0, color = 'black') +
+  geom_abline(slope = slope_fit, intercept = int_fit, color = '#008000') +
+  geom_line(data = loess_df_Cubist, aes(x = x, y = y), color = 'blue') +
+  labs(x = 'Observed SST Residual (deg C)', y = 'Cubist Predicted SST Residual (deg C)') +
+  ggtitle('Observed and Predicted SST Residuals from the Cubist Model') +
+  theme_bw() +
+  xlim(-6, 6) +
+  ylim(-6, 6) +
+  ggsave('Cubist_residual_predictions_3fits_8rules.pdf', device = 'pdf', width = 8, height = 6, units = 'in')
+
+```
+
+The statistics here are suggestions from Willmott 1995...
+
+```{r statistics_for_model_evaluation_train_set_p, echo=TRUE}
+# 1-D Statistics
+# Stats for actual residuals
+summary(orig_train$SST.resid.SMB)
+sd(orig_train$SST.resid.SMB)
+
+# Just of Predictions
+summary(Cubist_rules_train_vals)
+sd(Cubist_rules_train_vals)
+
+# 2-D Statistics
+# Base statistics summary of Train Model Residuals
+train_model_resids <- Cubist_rules_train_vals - orig_train$SST.resid.SMB
+summary(train_model_resids)
+sd(train_model_resids)
+
+# Measures of error/accuracy
+regression_error_stats(Cubist_rules_train_vals, orig_train$SST.resid.SMB)
+
+```
+
+```{r statistics_for_model_evaluation_test_set_p, echo=TRUE}
+# 1-D Statistics
+# Stats for actual residuals
+summary(orig_test$SST.resid.SMB)
+sd(orig_test$SST.resid.SMB)
+
+# Just of Predictions
+summary(Cubist_rules_test_vals)
+sd(Cubist_rules_test_vals)
+
+test_model_resids <- Cubist_rules_test_vals - orig_test$SST.resid.SMB
+
+# 2-D Statistics
+# Base statistics summary of Train Model Residuals
+summary(test_model_resids)
+sd(test_model_resids)
+
+# Measures of error/accuracy
+regression_error_stats(Cubist_rules_test_vals, orig_test$SST.resid.SMB)
+
+```
+
+
+```{r assign_rule_numbers}
+# Join train and test sets together
+orig_b <- rbind(orig_train, orig_test)
+
+orig_b$predicted_resid <- predict(object = Cubist_rules_p, newdata = orig_b, neighors = 9)
+
+# Assign rule numbers for 3 rule tree
+orig_b$rule_numb <- rep(NA, nrow(orig_b))
+
+orig_b$rule_numb[orig_b$td_resid > 0.514213 & orig_b$sec_satz <= 1.509738] <- 1
+
+orig_b$rule_numb[orig_b$td_resid > 0.514213 & orig_b$sec_satz > 1.509738 & orig_b$lat <= 22.29] <- 2
+
+orig_b$rule_numb[orig_b$x2 > 58.69276] <- 3
+
+orig_b$rule_numb[orig_b$x2 > 24.93811 & orig_b$sec_satz > 1.509738 & orig_b$lat > 22.29] <- 4
+
+orig_b$rule_numb[orig_b$x2 <= 24.93811 & orig_b$sec_satz > 1.509738 & orig_b$lat > 22.29] <- 5
+
+orig_b$rule_numb[orig_b$td_resid <= 0.514213 & orig_b$x2 <= 58.69276 & orig_b$sec_satz <= 2.035131 & orig_b$ref_SST > 25.03] <- 6
+
+orig_b$rule_numb[orig_b$td_resid <= 0.514213 & orig_b$sec_satz <= 2.035131 & orig_b$ref_SST <= 25.03] <- 7
+
+orig_b$rule_numb[orig_b$td_resid <= 0.514213 & orig_b$sec_satz > 2.035131] <- 8
+
+# Break back up into train and test sets
+orig_train <- orig_b[1:nrow(orig_train), ]
+orig_test <- orig_b[(nrow(orig_train) + 1):nrow(orig_b), ]
+
+table(orig_train$rule_numb, useNA = 'always')
+
+```
+
+
+```{r distribution_of_rule_sets}
+require(ggridges)
+
+eee <- transform(orig_train, rule_set_num = as.numeric(rule_numb))
+
+ggplot(eee, aes(x = SST.resid.SMB, y = rule_set_num, group = rule_set_num, alpha = 0.2)) + 
+  geom_density_ridges() + 
+  xlim(-4, 2) +
+  #geom_vline(aes(xintercept = 0), col = 'tomato') +
+  theme_bw() +
+  xlab('Observed SST Residual') +
+  #ylab('Rule Set Number') +
+  #ggtitle('SST Residuals by Cubist Rule Set') +
+  scale_y_continuous(breaks = c(seq(from = 1, to = 8, by = 1))) +
+  
+  annotate('text', x = -2.9, y = 1.7, label = 'Rule Set 1: 28,626 Matchups') +
+  ggplot2::geom_segment(aes(x = -1.320, xend = -1.320, y = 1, yend = 1.6), color = '#029121') +
+  ggplot2::geom_segment(aes(x = -1.320 - 1.060, xend = -1.320 - 1.060, y = 1, yend = 1.35), color = '#022a91') +
+  ggplot2::geom_segment(aes(x = -1.320 + 1.060, xend = -1.320 + 1.060, y = 1, yend = 1.525), color = '#022a91') +
+  
+  annotate('text', x = -2.9, y = 2.4, label = 'Rule Set 2: 65,099 Matchups') +
+  ggplot2::geom_segment(aes(x = -0.6, xend = -0.6, y = 2, yend = 3), color = '#029121') +
+  ggplot2::geom_segment(aes(x = -0.6 - .623, xend = -0.6 - .623, y = 2, yend = 2.5), color = '#022a91') +
+  ggplot2::geom_segment(aes(x = -0.6 + .623, xend = -0.6 + .623, y = 2, yend = 2.725), color = '#022a91') +
+  
+  annotate('text', x = -2.9, y = 3.4, label = 'Rule Set 3: 37,282 Matchups') +
+  ggplot2::geom_segment(aes(x = -.345, xend = -.345, y = 3, yend = 3.915), color = '#029121') +
+  ggplot2::geom_segment(aes(x = -.345 - .726, xend = -.345 - .726, y = 3, yend = 3.47), color = '#022a91') +
+  ggplot2::geom_segment(aes(x = -.345 + .726, xend = -.345 + .726, y = 3, yend = 3.525), color = '#022a91') +
+  
+  annotate('text', x = -2.9, y = 4.4, label = 'Rule Set 4: 32,581 Matchups') +
+  ggplot2::geom_segment(aes(x = -.485, xend = -.485, y = 4, yend = 5), color = '#029121') +
+  ggplot2::geom_segment(aes(x = -.485 - .638, xend = -.485 - .638, y = 4, yend = 4.5), color = '#022a91') +
+  ggplot2::geom_segment(aes(x = -.485 + .638, xend = -.485 + .638, y = 4, yend = 4.525), color = '#022a91') +
+  
+  annotate('text', x = -2.9, y = 5.4, label = 'Rule Set 5: 31,664 Matchups') +
+  ggplot2::geom_segment(aes(x = -0.430, xend = -0.430, y = 5, yend = 6.1), color = '#029121') +
+  ggplot2::geom_segment(aes(x = -0.430 - .607, xend = -0.430 - .607, y = 5, yend = 5.45), color = '#022a91') +
+  ggplot2::geom_segment(aes(x = -0.430 + .607, xend = -0.430 + .607, y = 5, yend = 5.575), color = '#022a91') +
+  
+  annotate('text', x = -2.85, y = 6.4, label = 'Rule Set 6: 200,412 Matchups') +
+  ggplot2::geom_segment(aes(x = -0.1, xend = -0.1, y = 6, yend = 7.55), color = '#029121') +
+  ggplot2::geom_segment(aes(x = -0.1 - .408, xend = -0.1 - .408, y = 6, yend = 6.8), color = '#022a91') +
+  ggplot2::geom_segment(aes(x = -0.1 + .408, xend = -0.1 + .408, y = 6, yend = 7), color = '#022a91') +
+  
+  annotate('text', x = -2.85, y = 7.4, label = 'Rule Set 7: 275,348 Matchups') +
+  ggplot2::geom_segment(aes(x = 0.015, xend = 0.015, y = 7, yend = 8.775), color = '#029121') +
+  ggplot2::geom_segment(aes(x = 0.015 - .356, xend = 0.015 - .356, y = 7, yend = 7.9), color = '#022a91') +
+  ggplot2::geom_segment(aes(x = 0.015 + .356, xend = 0.015 + .356, y = 7, yend = 8.0), color = '#022a91') +
+  
+  annotate('text', x = -2.95, y = 8.4, label = 'Rule Set 8: 7,291 Matchups', size = 4) +
+  ggplot2::geom_segment(aes(x = .435, xend = .435, y = 8, yend = 9.05), color = '#029121') +
+  ggplot2::geom_segment(aes(x = .435 - .615, xend = .435 - .615, y = 8, yend = 8.73), color = '#022a91') +
+  ggplot2::geom_segment(aes(x = .435 + .615, xend = .435 + .615, y = 8, yend = 8.525), color = '#022a91') +
+  
+  ggplot2::geom_vline(aes(xintercept = 0), col = 'red') +
+  ggsave('SST.resid.SMB_distribution_by_rule_set.pdf', device = 'pdf', width = 8, height = 6, units = 'in') +
+  ggsave('SST.resid.SMB_distribution_by_rule_set.png', device = 'png', width = 8, height = 6, units = 'in')
+```
+
+### Model Diagnostics
+
+```{r plot_Cubist_object}
+dotplot(Cubist_rules, 'splits')
+dotplot(Cubist_rules, 'coefs')
+```
+
+```{r Cubist_variable_importance_p, echo=TRUE}
+
+variable_names_long <- c('Except\nResidual Temperature Deficit Estimate',
+                        'Except\nScaled Channel Difference',
+                        'Except\nSec Satellite Zenith Angle',
+                        'Except\nSD of T_11',
+                        'Except\nReference SST',
+                        'Except\nLatitude',
+                        'Except\nMonth')
+
+variable_names_abbrev <- c('td_resid',
+                           'x2',
+                           'sec_satz',
+                           'sd11',
+                           'ref_SST',
+                           'lat',
+                           'month')
+
+empty <- c(0, 0, 0, 0, 0, 0, 0)
+MAE_without <- data.frame(variable_names_long = variable_names_long, variable_names_abbrev = variable_names_abbrev, MAE = empty)
+
+for (variable_num in 1:nrow(MAE_without)) {
+  iii <- c(1, 2, 3, 4, 5)
+  iii <- iii[!iii %in% variable_num]
+  variables_temp <- variable_names_abbrev[iii]
+  ppp <- orig_train[, c(variables_temp, 'SST.resid.SMB')]
+  
+  Cubist_var_imp <- Cubist::cubist(x = ppp[, variables_temp], y = ppp$SST.resid.SMB,
+                                   committees = 1, 
+                                   control = Cubist::cubistControl(rules = 15,
+                                                                   unbiased = FALSE,
+                                                                   extrapolation = 100,
+                                                                   label = 'SST Residual',
+                                                                   seed = 108))
+    
+  # Create test set predictions
+  Cubist_predictions_test_temp <- stats::predict(object = Cubist_var_imp, na.action = na.pass, neighbors = 9, newdata = orig_test)
+  
+  # Now compute RMSE
+  MAE_temp <- hydroGOF::mae(Cubist_predictions_test_temp, orig_test$SST.resid.SMB)
+  
+  MAE_without[variable_num, 'MAE'] <- MAE_temp
+
+}
+
+MAE_without$MAE_incr <- MAE_without$MAE - 0.2635617
+
+MAE_without$variable_names_long <- reorder(MAE_without$variable_names_long, -MAE_without$MAE)
+
+ggplot2::ggplot(data = MAE_without, aes(x = variable_names_long, y = MAE_incr)) +
+  geom_bar(stat = 'identity') +
+  theme(axis.text.x = element_text(angle = 45, hjust = 0.5, vjust = 0.5)) +
+  labs(x = 'Feature', y = 'Increase in MAE (deg C)')
+  #ggsave('variable_importance_MAE_Cubist.pdf', device = 'pdf', width = 8, height = 6, units = 'in') +
+  #ggsave('variable_importance_MAE_Cubist.png', device = 'png', width = 8, height = 6, units = 'in')
+```
+
+## Comparison of Random Forest and Cubist Models
+
+
+
+```{r}
+rf_cubist_test_df <- data.frame(rf_preds = rf_rules_test_vals,
+                                cubist_preds = Cubist_rules_test_vals,
+                                diff = rf_rules_test_vals - Cubist_rules_test_vals,
+                                actual = orig_test$SST.resid.SMB)
+
+
+X_vals <- data.frame(X = seq(from = -7, to = 7, by = 0.001))
+
+residual_fit_diff_loess <- loess(rf_preds ~ cubist_preds, data = rf_cubist_test_df, span = 0.4)
+loess_estimates_diff <- predict(residual_fit_diff_loess, newdata = X_vals$X)
+loess_df_diff <- data.frame(x = X_vals$X, y = loess_estimates_diff)
+
+#residual_fit_diff_lm <- lm(diff ~ actual, data = rf_cubist_test_df)
+#lm_estimates <- predict(residual_fit_diff_lm, newdata = X_vals$X)
+#lm_df <- data.frame(x = X_vals$X, y = lm_estimates)
+
+ggplot2::ggplot() +
+  geom_bin2d(data = rf_cubist_test_df, aes(cubist_preds, rf_preds, fill = cut(..count.., c(0, 10, 50, 100, 500, 1000, 5000, Inf))), bins = 75) +
+  scale_fill_manual(values = ccc, '# of Retrievals') +
+  geom_abline(slope = 1, intercept = 0, color = 'black') +
+  geom_line(data = loess_df_diff, aes(x = x, y = y), color = 'blue') +
+  #geom_line(data = lm_df, aes(x = x, y = y), color = '#008000') +
+  labs(x = 'Cubist Predicted SST Residual (deg C)', y = 'Random Forest Predicted SST Residual (deg C)') +
+  ggtitle('Cubist and Random Forest Predicted SST Residuals') +
+  theme_bw() +
+  xlim(-6, 6) +
+  ylim(-6, 6) +
+  ggsave('difference_in_residual_predictions_noloess.pdf', device = 'pdf', width = 8, height = 6, units = 'in')
+```
+
+```{r}
+ggplot2::ggplot() +
+  geom_histogram(aes(rf_rules_test_vals), col = 'yellow', fill = 'yellow', alpha = 0.2, bins = 100) +
+  geom_histogram(aes(Cubist_rules_test_vals), col = 'red', fill = 'red', alpha = 0.2, bins = 100) +
+  geom_histogram(aes(orig_test$SST.resid.SMB), col = 'blue', fill = 'blue', alpha = 0.2, bins = 100)
+
+ggplot2::ggplot() +
+  geom_density(aes(rf_rules_test_vals), col = 'blue', fill = 'blue', alpha = 0.3) +
+  geom_density(aes(Cubist_rules_test_vals), col = 'red', fill = 'red', alpha = 0.3) +
+  geom_density(aes(orig_test$SST.resid.SMB), col = 'yellow', fill = 'yellow', alpha = 0.3)
+
+ww1 <- data.frame(SST.residual = rf_rules_test_vals, source = 'RF')
+ww2 <- data.frame(SST.residual = Cubist_rules_test_vals, source = 'Cubist')
+ww3 <- data.frame(SST.residual = orig_test$SST.resid.SMB, source = 'Observed')
+
+www <- rbind(ww1, ww2, ww3)
+ggplot2::ggplot(data = www, aes(x = as.factor(source), y = SST.residual)) +
+  geom_boxplot(coef = 15) +
+  coord_flip() +
+  labs(y = 'SST Residual', x = 'Source') +
+  #ggtitle('RF, Cubist, and Observed SST Residuals') +
+  theme_bw() +
+  scale_y_continuous(breaks = c(-6, -4, -2, 0, 2, 4, 6)) +
+  ggsave('boxplot_RF_Cubist_Observed.pdf', device = 'pdf', width = 8, height = 6, units = 'in') +
+  ggsave('boxplot_RF_Cubist_Observed.png', device = 'png', width = 8, height = 6, units = 'in')
+
+require(ggridges)
+
+eee <- transform(www, source = factor(source))
+
+ggplot(eee, aes(x = SST.residual, y = source, group = source)) + 
+  geom_density_ridges() +
+  theme_bw() +
+  xlab('SST Residual') +
+  ylab('Source') +
+  scale_x_continuous(breaks = c(-6, -4, -2, 0, 2, 4, 6)) +
+  ggsave('ggridges_RF_Cubist_Observed.pdf', device = 'pdf', width = 8, height = 6, units = 'in') +
+  ggsave('ggridges_RF_Cubist_Observed.png', device = 'png', width = 8, height = 6, units = 'in')
+
+
+ggplot2::ggplot() +
+   geom_density(data = www, aes(x = SST.residual, color = source), bins = 100) +
+   xlab('SST Residual') +
+   scale_x_continuous(breaks = c(-6, -4, -2, 0, 2, 4, 6)) +
+   ggsave('density_RF_Cubist_Observed.pdf', device = 'pdf', width = 8, height = 6, units = 'in') +
+   ggsave('density_RF_Cubist_Observed.png', device = 'png', width = 8, height = 6, units = 'in')
+
+
+# Residuals of Residuals boxplot
+ss1 <- data.frame(SST.residual = rf_rules_test_vals - orig_test$SST.resid.SMB, source = 'RF')
+ss2 <- data.frame(SST.residual = Cubist_rules_test_vals - orig_test$SST.resid.SMB, source = 'Cubist')
+
+sss <- rbind(ss1, ss2)
+
+ggplot2::ggplot(data = sss, aes(x = as.factor(source), y = SST.residual)) +
+  geom_boxplot(coef = 15) +
+  coord_flip() +
+  labs(y = 'Error of SST Residual Prediction', x = 'Source') +
+  ggtitle('RF and Cubist Errors') +
+  theme_bw() +
+  scale_y_continuous(breaks = c(-6, -4, -2, 0, 2, 4, 6)) +
+  ggsave('boxplot_RF_Cubist_Errors.pdf', device = 'pdf', width = 8, height = 6, units = 'in') +
+  ggsave('boxplot_RF_Cubist_Errors.png', device = 'png', width = 8, height = 6, units = 'in')
+
+```
+
+We see that the Cubist model has slightly better performance at domain extremes.
+
+# Interpretation of Cubist Model for Geophysical Insight
+
+## Geographic Distribution of Rule Sets
+
+```{r}
+tt1 <- dplyr::tbl_df(orig_train) %>%
+  dplyr::select(cell5deg, rule_numb, SST.resid.SMB) %>%
+  dplyr::group_by(cell5deg) %>%
+  dplyr::summarise(total_num = n())
+
+tt1
+
+tt2 <- dplyr::tbl_df(orig_train) %>%
+  dplyr::select(cell5deg, rule_numb, SST.resid.SMB) %>%
+  dplyr::group_by(cell5deg, rule_numb) %>%
+  dplyr::summarise(number_by_rule = n()) %>%
+  dplyr::arrange(cell5deg, rule_numb)
+
+tt2
+
+
+dplyr::tbl_df(orig_test) %>%
+  dplyr::select(SST.resid.SMB, predicted_resid, rule_numb) %>%
+  dplyr::group_by(rule_numb) %>%
+  dplyr::summarise(number = n())
+
+dplyr::tbl_df(orig_test) %>%
+  dplyr::select(SST.resid.SMB, predicted_resid, rule_numb) %>%
+  dplyr::group_by(rule_numb) %>%
+  dplyr::summarise(median_predicted = median(predicted_resid))
+
+dplyr::tbl_df(orig_test) %>%
+  dplyr::select(SST.resid.SMB, predicted_resid, rule_numb) %>%
+  dplyr::group_by(rule_numb) %>%
+  dplyr::summarise(mad_predicted = mad(predicted_resid))
+
+dplyr::tbl_df(orig_test) %>%
+  dplyr::select(SST.resid.SMB, predicted_resid, rule_numb) %>%
+  dplyr::group_by(rule_numb) %>%
+  dplyr::summarise(median_actual = median(SST.resid.SMB))
+
+dplyr::tbl_df(orig_test) %>%
+  dplyr::select(SST.resid.SMB, predicted_resid, rule_numb) %>%
+  dplyr::group_by(rule_numb) %>%
+  dplyr::summarise(mad_actual = mad(SST.resid.SMB))
+
+```
+
+```{r joins}
+ij12 <- inner_join(tt1, tt2)
+
+sj12 <- semi_join(tt1, tt2)
+
+lj12 <- left_join(tt1, tt2)
+
+
+ij21 <- inner_join(tt2, tt1)
+
+sj21 <- semi_join(tt2, tt1)
+
+lj21 <- left_join(tt2, tt1)
+```
+
+```{r join_explorations}
+lj12
+
+rule_prop_geo <- dplyr::tbl_df(lj12) %>%
+  dplyr::filter(total_num >= 100) %>%
+  dplyr::filter(number_by_rule > 0) %>%
+  dplyr::mutate(percent_rule = (number_by_rule / total_num) * 100)
+
+rule_prop_geo
+```
+
+
+```{r rule set 1}
+rule_prop_geo_1 <- rule_prop_geo %>% dplyr::filter(rule_numb == 1)
+
+crs.string <- "+proj=longlat +datum=WGS84 +no_defs +ellps=WGS84 +towgs84=0,0,0"
+
+rule_1_raster <- raster::raster(ncol = 72, nrow = 36,
+  xmn = -180, xmx = 180,
+  ymn = -90, ymx = 90,
+  crs = crs.string)
+
+rule_1_raster[] <- NA_real_
+rule_1_raster[rule_prop_geo_1$cell5deg] <- rule_prop_geo_1$percent_rule
+
+plot(rule_1_raster)
+maps::map("world", add = TRUE)
+```
+
+```{r rule set 2}
+rule_prop_geo_2 <- rule_prop_geo %>% dplyr::filter(rule_numb == 2)
+
+crs.string <- "+proj=longlat +datum=WGS84 +no_defs +ellps=WGS84 +towgs84=0,0,0"
+
+rule_2_raster <- raster::raster(ncol = 72, nrow = 36,
+  xmn = -180, xmx = 180,
+  ymn = -90, ymx = 90,
+  crs = crs.string)
+
+rule_2_raster[] <- NA_real_
+rule_2_raster[rule_prop_geo_2$cell5deg] <- rule_prop_geo_2$percent_rule
+
+plot(rule_2_raster)
+maps::map("world", add = TRUE)
+```
+
+```{r rule set 3}
+rule_prop_geo_3 <- rule_prop_geo %>% dplyr::filter(rule_numb == 3)
+
+crs.string <- "+proj=longlat +datum=WGS84 +no_defs +ellps=WGS84 +towgs84=0,0,0"
+
+rule_3_raster <- raster::raster(ncol = 72, nrow = 36,
+  xmn = -180, xmx = 180,
+  ymn = -90, ymx = 90,
+  crs = crs.string)
+
+rule_3_raster[] <- NA_real_
+rule_3_raster[rule_prop_geo_3$cell5deg] <- rule_prop_geo_3$percent_rule
+
+plot(rule_3_raster)
+maps::map("world", add = TRUE)
+```
+
+```{r rule set 4}
+rule_prop_geo_4 <- rule_prop_geo %>% dplyr::filter(rule_numb == 4)
+
+crs.string <- "+proj=longlat +datum=WGS84 +no_defs +ellps=WGS84 +towgs84=0,0,0"
+
+rule_4_raster <- raster::raster(ncol = 72, nrow = 36,
+  xmn = -180, xmx = 180,
+  ymn = -90, ymx = 90,
+  crs = crs.string)
+
+rule_4_raster[] <- NA_real_
+rule_4_raster[rule_prop_geo_4$cell5deg] <- rule_prop_geo_4$percent_rule
+
+plot(rule_4_raster)
+maps::map("world", add = TRUE)
+```
+
+```{r rule set 5}
+rule_prop_geo_5 <- rule_prop_geo %>% dplyr::filter(rule_numb == 5)
+
+crs.string <- "+proj=longlat +datum=WGS84 +no_defs +ellps=WGS84 +towgs84=0,0,0"
+
+rule_5_raster <- raster::raster(ncol = 72, nrow = 36,
+  xmn = -180, xmx = 180,
+  ymn = -90, ymx = 90,
+  crs = crs.string)
+
+rule_5_raster[] <- NA_real_
+rule_5_raster[rule_prop_geo_5$cell5deg] <- rule_prop_geo_5$percent_rule
+
+plot(rule_5_raster)
+maps::map("world", add = TRUE)
+```
+
+```{r rule set 6}
+rule_prop_geo_6 <- rule_prop_geo %>% dplyr::filter(rule_numb == 6)
+
+crs.string <- "+proj=longlat +datum=WGS84 +no_defs +ellps=WGS84 +towgs84=0,0,0"
+
+rule_6_raster <- raster::raster(ncol = 72, nrow = 36,
+  xmn = -180, xmx = 180,
+  ymn = -90, ymx = 90,
+  crs = crs.string)
+
+rule_6_raster[] <- NA_real_
+rule_6_raster[rule_prop_geo_6$cell5deg] <- rule_prop_geo_6$percent_rule
+
+plot(rule_6_raster)
+maps::map("world", add = TRUE)
+```
+
+```{r rule set 7}
+rule_prop_geo_7 <- rule_prop_geo %>% dplyr::filter(rule_numb == 7)
+
+crs.string <- "+proj=longlat +datum=WGS84 +no_defs +ellps=WGS84 +towgs84=0,0,0"
+
+rule_7_raster <- raster::raster(ncol = 72, nrow = 36,
+  xmn = -180, xmx = 180,
+  ymn = -90, ymx = 90,
+  crs = crs.string)
+
+rule_7_raster[] <- NA_real_
+rule_7_raster[rule_prop_geo_7$cell5deg] <- rule_prop_geo_7$percent_rule
+
+plot(rule_7_raster)
+maps::map("world", add = TRUE)
+```
+
+```{r rule set 8}
+rule_prop_geo_8 <- rule_prop_geo %>% dplyr::filter(rule_numb == 8)
+
+crs.string <- "+proj=longlat +datum=WGS84 +no_defs +ellps=WGS84 +towgs84=0,0,0"
+
+rule_8_raster <- raster::raster(ncol = 72, nrow = 36,
+  xmn = -180, xmx = 180,
+  ymn = -90, ymx = 90,
+  crs = crs.string)
+
+rule_8_raster[] <- NA_real_
+rule_8_raster[rule_prop_geo_8$cell5deg] <- rule_prop_geo_8$percent_rule
+
+plot(rule_8_raster)
+maps::map("world", add = TRUE)
+```
+
+```{r rule sets stacked}
+
+b <- rgdal::readOGR("ne_110m_coastline.shp")
+
+library(lattice)
+library(grid)
+
+# Amend key function
+# Hopefully a nicer way to do this!
+mykey <- draw.colorkey
+
+body(mykey)[28:30] <- list(
+quote(
+  if(!is.null(key$title)){
+      key.gf <- placeGrob(key.gf,
+                      textGrob(key$title,hjust=key$hjust, vjust=key$vjust, gp=key$gp),
+                          row=key$row, col=key$column)
+  }),
+body(mykey)[[28]], 
+body(mykey)[[29]])
+
+# Assign to namespace: http://stackoverflow.com/questions/6254744/override-a-function-that-is-imported-in-a-namespace
+unlockBinding("draw.colorkey", as.environment("package:lattice"))
+assign("draw.colorkey", mykey, "package:lattice")
+unlockBinding("draw.colorkey", getNamespace("lattice"))
+assign("draw.colorkey", mykey, getNamespace("lattice"))
+
+s <- raster::stack(rule_1_raster,
+           rule_2_raster,
+           rule_3_raster,
+           rule_4_raster,
+           rule_5_raster,
+           rule_6_raster,
+           rule_7_raster,
+           rule_8_raster)
+
+myTheme=rasterTheme(region = c('white', colorRampPalette(brewer.pal('Greens', n=9)[3:9])(9)))
+
+myColorkey <- list(at = c(0, 5, seq(from = 20, to = 100, by = 10)),
+                   labels = list(at = c(0, 5, seq(from = 20, to = 100, by = 10))),
+                   title = '% in Cell',
+                   row = 3,
+                   column = 1,
+                   vjust = 2)
+
+layer_names <- c('Rule Set 1',
+                 'Rule Set 2',
+                 'Rule Set 3',
+                 'Rule Set 4',
+                 'Rule Set 5',
+                 'Rule Set 6',
+                 'Rule Set 7',
+                 'Rule Set 8')
+
+pdf('~/Projects/Matchup_R_Scripts/rule_set_geographic_distribution.pdf')
+rasterVis::levelplot(s, par.settings = myTheme, names.attr = layer_names, colorkey = myColorkey) +
+  layer(sp.polygons(b))
+dev.off()
+```
+
+
+```{r rule set groups stacked}
+# Rule set 1
+rule_prop_geo_1 <- rule_prop_geo %>% dplyr::filter(rule_numb == 1)
+
+crs.string <- "+proj=longlat +datum=WGS84 +no_defs +ellps=WGS84 +towgs84=0,0,0"
+
+rule_1_raster <- raster::raster(ncol = 72, nrow = 36,
+  xmn = -180, xmx = 180,
+  ymn = -90, ymx = 90,
+  crs = crs.string)
+
+rule_1_raster[] <- NA_real_
+rule_1_raster[rule_prop_geo_1$cell5deg] <- rule_prop_geo_1$percent_rule
+
+# Rule sets 2, 3, 4, and 5
+rule_prop_geo_25 <- rule_prop_geo %>% dplyr::filter(rule_numb >= 2 & rule_numb <= 5)
+
+crs.string <- "+proj=longlat +datum=WGS84 +no_defs +ellps=WGS84 +towgs84=0,0,0"
+
+rule_25_raster <- raster::raster(ncol = 72, nrow = 36,
+  xmn = -180, xmx = 180,
+  ymn = -90, ymx = 90,
+  crs = crs.string)
+
+rule_25_raster[] <- NA_real_
+rule_25_raster[rule_prop_geo_25$cell5deg] <- rule_prop_geo_25$percent_rule
+
+# Rule sets 6 and 7
+rule_prop_geo_67 <- rule_prop_geo %>% dplyr::filter(rule_numb == 6 | rule_numb == 7)
+
+crs.string <- "+proj=longlat +datum=WGS84 +no_defs +ellps=WGS84 +towgs84=0,0,0"
+
+rule_67_raster <- raster::raster(ncol = 72, nrow = 36,
+  xmn = -180, xmx = 180,
+  ymn = -90, ymx = 90,
+  crs = crs.string)
+
+rule_67_raster[] <- NA_real_
+rule_67_raster[rule_prop_geo_67$cell5deg] <- rule_prop_geo_67$percent_rule
+
+# Rule set 8
+rule_prop_geo_8 <- rule_prop_geo %>% dplyr::filter(rule_numb == 8)
+
+crs.string <- "+proj=longlat +datum=WGS84 +no_defs +ellps=WGS84 +towgs84=0,0,0"
+
+rule_8_raster <- raster::raster(ncol = 72, nrow = 36,
+  xmn = -180, xmx = 180,
+  ymn = -90, ymx = 90,
+  crs = crs.string)
+
+rule_8_raster[] <- NA_real_
+rule_8_raster[rule_prop_geo_8$cell5deg] <- rule_prop_geo_8$percent_rule
+
+
+# Plotting
+b <- rgdal::readOGR("ne_110m_coastline.shp")
+
+library(lattice)
+library(grid)
+
+# Amend key function
+# Hopefully a nicer way to do this!
+mykey <- draw.colorkey
+
+body(mykey)[28:30] <- list(
+quote(
+  if(!is.null(key$title)){
+      key.gf <- placeGrob(key.gf,
+                      textGrob(key$title,hjust=key$hjust, vjust=key$vjust, gp=key$gp),
+                          row=key$row, col=key$column)
+  }),
+body(mykey)[[28]], 
+body(mykey)[[29]])
+
+# Assign to namespace: http://stackoverflow.com/questions/6254744/override-a-function-that-is-imported-in-a-namespace
+unlockBinding("draw.colorkey", as.environment("package:lattice"))
+assign("draw.colorkey", mykey, "package:lattice")
+unlockBinding("draw.colorkey", getNamespace("lattice"))
+assign("draw.colorkey", mykey, getNamespace("lattice"))
+
+s <- stack(rule_1_raster,
+           rule_25_raster,
+           rule_67_raster,
+           rule_8_raster)
+
+myTheme <- rasterTheme(region = c('white', colorRampPalette(brewer.pal('Greens', n=9)[3:9])(9)))
+
+layer_names <- c('Rule Set 1',
+                 'Rule Sets 2, 3, 4, and 5',
+                 'Rule Sets 6 and 7',
+                 'Rule Set 8')
+
+myColorkey <- list(at = c(0, 5, seq(from = 20, to = 100, by = 20)),
+                   labels = list(at = c(0, 5, seq(from = 20, to = 100, by = 20))),
+                   title = '% in Cell',
+                   row = 3,
+                   column = 1,
+                   vjust = 2)
+
+rasterVis::levelplot(s, par.settings = myTheme, names.attr = layer_names, colorkey = myColorkey) + 
+  layer(sp.polygons(b))
+```
+
+
+# Feature Space Distribution of Rule Sets
+
+A variety of exploratory plots to better understand all the rule sets and their distribution in
+the feature space. This can help understand the physical aspects behind each rule set.
+
+```{r}
+yy1 <- data.frame(x = seq(from = 1, to = 120, by = 0.001/5.70002), y = seq(from = 1, to = 120, by = 0.001/5.70002))
+
+td_lm <- lm(orig_train$td_actual ~ orig_train$x2)
+yy1$y <- (yy1$x * td_lm$coefficients[2]) + td_lm$coefficients[1]
+
+ggplot2::ggplot() +
+  geom_bin2d(data = orig_train, aes(x = x2, y = td_actual, fill = cut(..count.., c(0, 10, 50, 100, 500, 1000, 5000, Inf))), bins = 75) +
+  facet_wrap(~orig_train$rule_numb) +
+  scale_fill_manual(values = ccc, '# of Retrievals') +
+  geom_line(data = yy1, aes(x = x, y = y), color = 'black') +
+  theme_bw()
+
+```
+
+```{r}
+blues <- colorRampPalette(c('blue', '#e8e9ff'))(6)
+reds <- colorRampPalette(c('#ffe8e8', 'red'))(2)
+
+palette(c(blues, reds))
+with(orig_train, rgl::plot3d(x2, td_actual, sec_satz, col = rule_numb))
+legend3d("topright", legend = levels(as.factor(orig_train$rule_numb)), col = levels(as.factor(orig_train$rule_numb)), pch = '.')
+```
+
+```{r}
+palette(RColorBrewer::brewer.pal(n = 8, 'Set1'))
+with(orig_train, plot3d(x2, td_actual, sec_satz, col = rule_numb))
+legend3d("topright", legend = levels(as.factor(orig_train$rule_numb)), col = levels(as.factor(orig_train$rule_numb)), pch = '.')
+```
+
+```{r}
+blues <- colorRampPalette(c('blue', '#e8e9ff'))(6)
+reds <- colorRampPalette(c('#ffe8e8', 'red'))(2)
+
+palette(c(blues, reds))
+with(orig_train, plot3d(x2, td_resid, sec_satz, col = rule_numb))
+legend3d("topright", legend = levels(as.factor(orig_train$rule_numb)), col = levels(as.factor(orig_train$rule_numb)), pch = '.')
+```
+
+```{r}
+blues <- colorRampPalette(c('blue', '#e8e9ff'))(6)
+reds <- colorRampPalette(c('#ffe8e8', 'red'))(2)
+
+palette(c(blues, reds))
+with(orig_train, plot3d(buoy.sst, td_actual, band.diff, col = rule_numb))
+legend3d("topright", legend = levels(as.factor(orig_train$rule_numb)), col = levels(as.factor(orig_train$rule_numb)), pch = '.')
+```
+
+```{r}
+palette(RColorBrewer::brewer.pal(n = 8, 'Set1'))
+with(orig_train, plot3d(buoy.sst, td_actual, band.diff, col = rule_numb))
+legend3d("topright", legend = levels(as.factor(orig_train$rule_numb)), col = levels(as.factor(orig_train$rule_numb)), pch = '.')
+```
+
+```{r}
+palette(colorRampPalette(c('#ffe8e8', 'red'))(6))
+qq1 <- orig_train[orig_train$buoy.sst > 0, ]
+qq1$SST_cat <- as.numeric(cut(qq1$buoy.sst, c(0, 5, 10, 15, 20, 25, 30)))
+with(qq1, plot3d(x2, td_resid, sec_satz, col = SST_cat))
+legend3d("topright", legend = levels(as.factor(qq1$SST_cat)), col = levels(as.factor(qq1$SST_cat)), pch = '.')
+```
+
+```{r}
+ggplot2::ggplot() +
+  geom_histogram(data = orig_train[orig_train$rule_numb == 4, ], aes(x = buoy.sst), bins = 100, col = 'green', alpha = 0.4) +
+  geom_histogram(data = orig_train[orig_train$rule_numb == 5, ], aes(x = buoy.sst), bins = 100, col = 'red', alpha = 0.4) +
+  theme_bw()
+```
+
+```{r}
+ggplot2::ggplot() +
+  geom_histogram(data = orig_train[orig_train$rule_numb == 4, ], aes(x = band.diff), bins = 100, col = 'green', alpha = 0.4) +
+  geom_histogram(data = orig_train[orig_train$rule_numb == 5, ], aes(x = band.diff), bins = 100, col = 'red', alpha = 0.4) +
+  theme_bw()
+```
+
+
+```{r}
+ ggplot2::ggplot() +
+   geom_histogram(data = orig_train[orig_train$rule_numb == 6, ], aes(x = band.diff), bins = 100, col = 'green', alpha = 0.4) +
+   geom_histogram(data = orig_train[orig_train$rule_numb == 7, ], aes(x = band.diff), bins = 100, col = 'red', alpha = 0.4) +
+   theme_bw()
+ 
+ ggplot2::ggplot() +
+   geom_density(data = orig_train[orig_train$rule_numb == 6, ], aes(x = band.diff), bins = 100, col = 'green', alpha = 0.4) + 
+   geom_density(data = orig_train[orig_train$rule_numb == 7, ], aes(x = band.diff), bins = 100, col = 'red', alpha = 0.4) +
+   theme_bw()
+```
+
+```{r}
+ ggplot2::ggplot() +
+   geom_histogram(data = orig_train[orig_train$rule_numb == 2, ], aes(x = band.diff), bins = 100, col = 'green', alpha = 0.4) +
+   geom_histogram(data = orig_train[orig_train$rule_numb == 3, ], aes(x = band.diff), bins = 100, col = 'red', alpha = 0.4) +
+   theme_bw()
+ 
+ ggplot2::ggplot() +
+   geom_density(data = orig_train[orig_train$rule_numb == 2, ], aes(x = band.diff), bins = 100, col = 'green', alpha = 0.4) + 
+   geom_density(data = orig_train[orig_train$rule_numb == 3, ], aes(x = band.diff), bins = 100, col = 'red', alpha = 0.4) +
+   theme_bw()
+```
+
+```{r}
+ggplot2::ggplot() +
+  geom_bin2d(data = orig_train, aes(x = sec_satz, y = td_resid, fill = cut(..count.., c(0, 10, 50, 100, 500, 1000, 5000, Inf))), bins = 75) +
+  scale_fill_manual(values = ccc, '# of Retrievals') +
+  theme_bw()
+
+
+blues_palette <- rev(RColorBrewer::brewer.pal(3, 'Blues'))
+reds_palette <- RColorBrewer::brewer.pal(3, 'Reds')
+pal <- c(blues_palette, '#D3D3D3', reds_palette)
+
+ggplot2::ggplot(data = orig_train, aes(x = sec_satz, y = td_resid, z = SST.resid.SMB)) + stat_summary_2d(fun = median) +
+  scale_fill_gradientn(colors = pal) +
+  geom_hline(yintercept = 0.514) +
+  geom_vline(xintercept = 1.671)
+
+ggplot2::ggplot() +
+  stat_summary_2d(data = orig_train, aes(x = sec_satz, y = td_resid, z = x2), fun = median) +
+  viridis::scale_fill_viridis() +
+  ggplot2::facet_wrap(~(orig_train$rule_numb))
+  #geom_hline(yintercept = 0.514) +
+  #geom_vline(xintercept = 1.671)
+
+ggplot2::ggplot(data = orig_train, aes(x = sec_satz, y = td_resid, z = band.diff)) + stat_summary_2d(fun = median) +
+  viridis::scale_fill_viridis() +
+  geom_hline(yintercept = 0.514) +
+  geom_vline(xintercept = 1.671)
+
+ggplot2::ggplot(data = orig_train, aes(x = sec_satz, y = td_resid, z = ref_SST)) + stat_summary_2d(fun = median) +
+  viridis::scale_fill_viridis() +
+  geom_hline(yintercept = 0.514) +
+  geom_vline(xintercept = 1.671)
+```
+
+```{r}
+ggplot2::ggplot() +
+  geom_bin2d(data = orig_train, aes(x = sec_satz, y = td_actual, fill = cut(..count.., c(0, 10, 50, 100, 500, 1000, 5000, Inf))), bins = 75) +
+  scale_fill_manual(values = ccc, '# of Retrievals') +
+  theme_bw()
+
+
+blues_palette <- rev(RColorBrewer::brewer.pal(3, 'Blues'))
+reds_palette <- RColorBrewer::brewer.pal(3, 'Reds')
+pal <- c(blues_palette, '#D3D3D3', reds_palette)
+
+ggplot2::ggplot(data = orig_train, aes(x = sec_satz, y = td_actual, z = SST.resid.SMB)) + stat_summary_2d(fun = median) +
+  scale_fill_gradientn(colors = pal) +
+  geom_vline(xintercept = 1.671)
+
+ggplot2::ggplot(data = orig_train, aes(x = sec_satz, y = td_actual, z = x2)) + stat_summary_2d(fun = median) +
+  viridis::scale_fill_viridis() +
+  geom_vline(xintercept = 1.671)
+
+ggplot2::ggplot(data = orig_train, aes(x = sec_satz, y = td_actual, z = band.diff)) + stat_summary_2d(fun = median) +
+  viridis::scale_fill_viridis() +
+  geom_vline(xintercept = 1.671)
+
+ggplot2::ggplot(data = orig_train, aes(x = sec_satz, y = td_actual, z = ref_SST)) + stat_summary_2d(fun = median) +
+  viridis::scale_fill_viridis() +
+  geom_vline(xintercept = 1.671)
+
+ggplot2::ggplot(data = orig_train) +
+  geom_point(aes(x = sec_satz, y = td_actual, col = as.factor(rule_numb)), pch = '.') +
+  geom_vline(xintercept = 1.671)
+```
+
+```{r}
+ggplot2::ggplot() +
+  geom_bin2d(data = orig_train, aes(x = band.diff, y = sec_satz, fill = cut(..count.., c(0, 10, 50, 100, 500, 1000, 5000, Inf))), bins = 75) +
+  scale_fill_manual(values = ccc, '# of Retrievals') +
+  theme_bw()
+
+
+blues_palette <- rev(RColorBrewer::brewer.pal(3, 'Blues'))
+reds_palette <- RColorBrewer::brewer.pal(3, 'Reds')
+pal <- c(blues_palette, '#D3D3D3', reds_palette)
+
+ggplot2::ggplot(data = orig_train, aes(x = band.diff, y = sec_satz, z = SST.resid.SMB)) + stat_summary_2d(fun = median) +
+  scale_fill_gradientn(colors = pal)
+
+
+ggplot2::ggplot(data = orig_train, aes(x = band.diff, y = sec_satz, z = x2)) + stat_summary_2d(fun = median) +
+  viridis::scale_fill_viridis()
+```
+
+```{r}
+ggplot2::ggplot() +
+  geom_bin2d(data = orig_train, aes(x = band.diff, y = x2, fill = cut(..count.., c(0, 10, 50, 100, 500, 1000, 5000, Inf))), bins = 75) +
+  scale_fill_manual(values = ccc, '# of Retrievals')
+
+ggplot2::ggplot() +
+  geom_bin2d(data = orig_train, aes(x = ref_SST, y = x2, fill = cut(..count.., c(0, 10, 50, 100, 500, 1000, 5000, Inf))), bins = 75) +
+  scale_fill_manual(values = ccc, '# of Retrievals')
+
+ggplot2::ggplot() +
+  geom_bin2d(data = orig_train, aes(x = ref_SST, y = band.diff, fill = cut(..count.., c(0, 10, 50, 100, 500, 1000, 5000, Inf))), bins = 75) +
+  scale_fill_manual(values = ccc, '# of Retrievals')
+
+ggplot2::ggplot(data = orig_train, aes(x = ref_SST, y = band.diff, z = x2)) +
+  ggplot2::stat_summary_2d(fun = median) +
+  #ggplot2::geom_contour() +
+  viridis::scale_fill_viridis()
+```
+
+
+```{r}
+require(ggridges)
+
+eee <- transform(orig_train, rule_set_num = as.numeric(rule_numb))
+
+ggplot(eee, aes(x = sd11, y = rule_set_num, group = rule_set_num)) + 
+  geom_density_ridges() + 
+  xlim(-0, .6) +
+  geom_vline(aes(xintercept = 0), col = 'tomato') +
+  theme_bw() +
+  xlab('SD_11') +
+  ylab('Rule Set Number') +
+  ggtitle('SD_11 by Cubist Rule Set') +
+  scale_y_continuous(breaks = c(seq(from = 1, to = 8, by = 1)))
+```
+
+
+```{r}
+summary(orig_train[orig_train$rule_numb == 8, 'band.diff'])
+
+summary(orig_train$band.diff)
+
+summary(orig_train[orig_train$sec_satz > 2, 'band.diff'])
+
+```
+
+```{r}
+summary(orig_train[orig_train$rule_numb == 8, 'sec_satz'])
+
+summary(orig_train$sec_satz)
+
+summary(orig_train[orig_train$sec_satz > 2, 'sec_satz'])
+
+```
+
+
+```{r}
+summary(orig_train[orig_train$rule_numb == 8, 'td_actual'])
+
+summary(orig_train$td_actual)
+
+summary(orig_train[orig_train$sec_satz > 2, 'td_actual'])
+
+```
+
+
+```{r}
+ggplot2::ggplot() +
+  geom_histogram(data = orig_train[orig_train$rule_numb == 8, ], aes(x = band.diff), bins = 100, col = 'green', alpha = 0.4) +
+  geom_histogram(data = orig_train[orig_train$sec_satz > 2.03, ], aes(x = band.diff), bins = 100, col = 'red', alpha = 0.4) +
+  theme_bw()
+```
+
+```{r}
+ggplot2::ggplot() +
+  geom_histogram(data = orig_train[orig_train$rule_numb == 8, ], aes(x = band.diff), bins = 100, col = 'green', alpha = 0.4) +
+  geom_histogram(data = orig_train[orig_train$sec_satz > 1.56, ], aes(x = band.diff), bins = 100, col = 'red', alpha = 0.4) +
+  theme_bw()
+```
+
+
+```{r}
+ggplot2::ggplot() +
+  geom_bin2d(data = orig_train, aes(x = band.diff, y = td_actual, fill = cut(..count.., c(0, 10, 50, 100, 500, 1000, 5000, Inf))), bins = 75) +
+  scale_fill_manual(values = ccc, '# of Retrievals') +
+  theme_bw()
+
+
+blues_palette <- rev(RColorBrewer::brewer.pal(3, 'Blues'))
+reds_palette <- RColorBrewer::brewer.pal(3, 'Reds')
+pal <- c(blues_palette, '#D3D3D3', '#D3D3D3', reds_palette)
+
+ggplot2::ggplot(data = orig_train, aes(x = band.diff, y = td_actual, z = SST.resid.SMB)) + stat_summary_2d(fun = median) +
+  scale_fill_gradientn(colors = pal)
+
+ggplot2::ggplot(data = orig_train, aes(x = band.diff, y = td_actual, z = sec_satz)) + stat_summary_2d(fun = median) +
+  viridis::scale_fill_viridis()
+
+
+ggplot2::ggplot(data = orig_train) +
+  geom_point(aes(x = band.diff, y = td_actual, col = as.factor(rule_numb)), pch = '.') +
+  scale_color_manual(values = pal)
+```
+
+
+```{r}
+ggplot2::ggplot() +
+  geom_bin2d(data = orig_train, aes(x = band.diff, y = td_actual, fill = cut(..count.., c(0, 10, 50, 100, 500, 1000, 5000, Inf))), bins = 75) +
+  scale_fill_manual(values = ccc, '# of Retrievals') +
+  theme_bw()
+
+
+blues_palette <- rev(RColorBrewer::brewer.pal(3, 'Blues'))
+reds_palette <- RColorBrewer::brewer.pal(3, 'Reds')
+pal <- c(blues_palette, '#D3D3D3', '#D3D3D3', reds_palette)
+
+ggplot2::ggplot(data = orig_train, aes(x = band.diff, y = td_actual, z = SST.resid.SMB)) + stat_summary_2d(fun = median) +
+  scale_fill_gradientn(colors = pal)
+
+ggplot2::ggplot(data = orig_train, aes(x = band.diff, y = td_actual, z = sec_satz)) + stat_summary_2d(fun = median) +
+  viridis::scale_fill_viridis()
+
+
+ggplot2::ggplot(data = orig_train) +
+  geom_point(aes(x = band.diff, y = td_actual, col = as.factor(rule_numb)), pch = '.') +
+  scale_color_manual(values = pal)
+```
+
+
+```{r}
+blues <- colorRampPalette(c('blue', '#e8e9ff'))(6)
+reds <- colorRampPalette(c('#ffe8e8', 'red'))(2)
+#
+palette(c(blues, reds))
+with(orig_train, plot3d(ref_SST, sec_satz, band.diff, col = rule_numb))
+legend3d("topright", legend = levels(as.factor(orig_train$rule_numb)), col = levels(as.factor(orig_train$rule_numb)), pch = '.')
+```
+
+```{r}
+blues <- colorRampPalette(c('blue', '#e8e9ff'))(6)
+reds <- colorRampPalette(c('#ffe8e8', 'red'))(2)
+
+palette(c(blues, reds))
+with(orig_train, plot3d(ref_SST, sec_satz, td_actual, col = rule_numb))
+legend3d("topright", legend = levels(as.factor(orig_train$rule_numb)), col = levels(as.factor(orig_train$rule_numb)), pch = '.')
+```
+
+
+```{r comparison_to_MODIS_QLs}
+prop.table(table(cut(orig$SST.resid.SMB[orig$qsst == 0], c(-Inf, -3, -2, -1, -0.5, 0.5, 1, 2, 3, Inf))))
+summary((orig$SST.resid.SMB[orig$qsst == 0]))
+
+prop.table(table(cut(orig$SST.resid.SMB[orig$qsst == 1], c(-Inf, -3, -2, -1, -0.5, 0.5, 1, 2, 3, Inf))))
+summary((orig$SST.resid.SMB[orig$qsst == 1]))
+
+prop.table(table(cut(orig$SST.resid.SMB[orig$qsst == 2], c(-Inf, -3, -2, -1, -0.5, 0.5, 1, 2, 3, Inf))))
+summary((orig$SST.resid.SMB[orig$qsst == 2]))
+
+ggplot2::ggplot() +
+   geom_density(data = orig, aes(x = SST.resid.SMB, color = as.factor(qsst)), bins = 100) +
+   xlab('SST Residual') +
+   scale_x_continuous(breaks = c(-6, -4, -2, 0, 2, 4, 6))
+```
+
+
+```{r rule_sets_3_and_6}
+
+aaa <- dplyr::tbl_df(orig_test) %>%
+  dplyr::filter(rule_numb == 3 | rule_numb == 6)
+
+aaa$rule_numb = as.factor(aaa$rule_numb)
+
+Xs = data.frame(Xs = seq(from = 0, to = 140, by = 0.0008799111))
+loess_estimates <- predict(td_loess, newdata = Xs$Xs)
+
+lm_estimates <- td_lm$coefficients[1] + (td_lm$coefficients[2] * Xs)
+lm_estimates <- as.vector(lm_estimates$Xs)
+
+ggplot2::ggplot(data = aaa) +
+  geom_point(aes(x = x2, y = td_actual, color = rule_numb), alpha = 1.0, pch = '.') +
+  scale_color_manual(values = c('#FF0000', '#008000'), 'Rule Set') +
+  xlab('Scaled Channel Difference (deg C)') +
+  ylab('Temperature Deficit (deg C)') +
+  geom_line(aes(x = Xs, y = lm_estimates), color = '#008000') +
+  geom_line(aes(x = Xs, y = loess_estimates), color = 'blue') +
+  coord_fixed(ratio = 2.4) +
+  xlim(-2, 122) +
+  ylim(-.1, 22) +
+  theme_bw() +
+  ggsave('Rule_sets_3+6.pdf', device = 'pdf', width = 8, height = 6, units = 'in') +
+  ggsave('Rule_sets_3+6.png', device = 'png', width = 8, height = 6, units = 'in')
+
+```
+
+```{r}
+set.seed(108)
+x1 <- seq(from = 0, to = 10, by = 0.1)
+y1 <- 3*x1+25 + rnorm(n = 101, mean= 0, sd = 4)
+
+x2 <- seq(from = 10, to = 20, by = 0.1)
+y2 <- 9*x2-35 + rnorm(n = 101, mean= 0, sd = 4)
+
+ggplot2::ggplot() +
+  geom_point(aes(x1, y1)) +
+  geom_point(aes(x2, y2)) +
+  ggsave('Base.png', device = 'png', width = 8, height = 6, units = 'in')
+
+rule_boundary_x <- seq(from = 5, to = 12.5, by = 0.1)
+rule_boundary_y <- -20*rule_boundary_x + 250
+
+ggplot2::ggplot() +
+  geom_point(aes(x1, y1), color = 'green') +
+  geom_point(aes(x2, y2), color = 'tomato') +
+  geom_line(aes(x = rule_boundary_x, y = rule_boundary_y), linetype = 'dashed') +
+  ggsave('Base_wRuleSet.png', device = 'png', width = 8, height = 6, units = 'in')
+
+lm_x1 <- seq(from = 0, to = 10, by = 0.1)
+lm_y1 <- 3*lm_x1 + 25
+lm_x2 <- seq(from = 10, to = 20, by = 0.1)
+lm_y2 <- 9*lm_x2 - 35
+
+ggplot2::ggplot() +
+  geom_point(aes(x1, y1), color = 'green') +
+  geom_point(aes(x2, y2), color = 'tomato') +
+  geom_line(aes(x = rule_boundary_x, y = rule_boundary_y), linetype = 'dashed') +
+  geom_line(aes(x = lm_x1, y = lm_y1), color = 'black') +
+  geom_line(aes(x = lm_x2, y = lm_y2), color = 'black') +
+  ggsave('Base_wRuleSet_lin_reg_eqn.png', device = 'png', width = 8, height = 6, units = 'in')
+
+```
+
+```{r}
+orig_train$qsst <- as.factor(orig_train$qsst)
+
+ggplot2::ggplot(data = orig_train) +
+  geom_density(aes(x = SST.resid.SMB, color = qsst)) +
+  geom_vline(xintercept = 0.0, color = 'black')
+```
+
+
+
+```{r}
+blues <- colorRampPalette(c('blue', '#e8e9ff'))(6)
+reds <- colorRampPalette(c('#ffe8e8', 'red'))(2)
+
+open3d()
+bg3d('grey75')
+ddd <- dplyr::tbl_df(orig_train) %>%
+  dplyr::select(td_actual, x2, sec_satz, rule_numb)
+
+colnames(ddd) <- c('TD', 'SCD', 'SEC_SATZ', 'rule_numb')
+
+palette(c(blues, reds))
+with(ddd, plot3d(SCD, TD, SEC_SATZ, col = rule_numb))
+#legend3d("topright", legend = levels(as.factor(orig_train$rule_numb)), col = levels(as.factor(orig_train$rule_numb)), pch = '.')
+```
+
+```{r}
+palette(RColorBrewer::brewer.pal(n = 8, 'Set1'))
+with(ddd, plot3d(SCD, TD, SEC_SATZ, col = rule_numb))
+```
+
+```{r}
+blues <- colorRampPalette(c('blue', '#e8e9ff'))(6)
+reds <- colorRampPalette(c('#ffe8e8', 'red'))(2)
+
+palette(c(blues, reds))
+with(orig_train, plot3d(x2, td_resid, sec_satz, col = rule_numb))
+legend3d("topright", legend = levels(as.factor(orig_train$rule_numb)), col = levels(as.factor(orig_train$rule_numb)), pch = '.')
+```
+
+```{r}
+blues <- colorRampPalette(c('blue', '#e8e9ff'))(6)
+reds <- colorRampPalette(c('#ffe8e8', 'red'))(2)
+
+palette(c(blues, reds))
+with(orig_train, plot3d(buoy.sst, td_actual, band.diff, col = rule_numb))
+legend3d("topright", legend = levels(as.factor(orig_train$rule_numb)), col = levels(as.factor(orig_train$rule_numb)), pch = '.')
+```
+
+```{r}
+palette(RColorBrewer::brewer.pal(n = 8, 'Set1'))
+with(orig_train, plot3d(buoy.sst, td_actual, band.diff, col = rule_numb))
+legend3d("topright", legend = levels(as.factor(orig_train$rule_numb)), col = levels(as.factor(orig_train$rule_numb)), pch = '.')
+```
+
+```{r}
+palette(colorRampPalette(c('#ffe8e8', 'red'))(6))
+qq1 <- orig_train[orig_train$buoy.sst > 0, ]
+qq1$SST_cat <- as.numeric(cut(qq1$buoy.sst, c(0, 5, 10, 15, 20, 25, 30)))
+with(qq1, plot3d(x2, td_resid, sec_satz, col = SST_cat))
+legend3d("topright", legend = levels(as.factor(qq1$SST_cat)), col = levels(as.factor(qq1$SST_cat)), pch = '.')
+```
+
+
+To understand emissivity impacts...
+```{r}
+ggplot2::ggplot() +
+  geom_bin2d(data = orig_train, aes(x = T_11, y = (T_11 - band.diff), fill = cut(..count.., c(0, 10, 50, 100, 500, 1000, 5000, Inf))), bins = 75) +
+  scale_fill_manual(values = ccc, '# of Retrievals')
+
+ggplot2::ggplot(data = orig_train, aes(x = T_11, y = (T_11 - band.diff), z = sec_satz)) +
+  ggplot2::stat_summary_2d(fun = median) +
+  viridis::scale_fill_viridis()
+
+ggplot2::ggplot(data = orig_train, aes(x = T_11, y = (T_11 - band.diff), z = sec_satz)) +
+  ggplot2::stat_summary_2d(fun = median) +
+  viridis::scale_fill_viridis()
+
+ggplot2::ggplot(data = orig_train, aes(x = T_11, y = (T_11 - band.diff), z = SST.resid.SMB)) +
+  ggplot2::stat_summary_2d(fun = median) +
+  viridis::scale_fill_viridis()
+
+```
+
+
+# Global "Improvement"
+
+
+```{r med_resid_of_matchups_by_location_raster, echo=TRUE}
+# --- These numbers may help perform statistics for the matchups
+# --- (e.g., number of matchups per cell, etc.).
+
+# --- Create a raster object with 5-degree pixels
+
+crs.string <- "+proj=longlat +datum=WGS84 +no_defs +ellps=WGS84 +towgs84=0,0,0"
+
+grid5deg <- raster::raster(ncol = 72, nrow = 36,
+  xmn = -180, xmx = 180,
+  ymn = -90, ymx = 90,
+  crs = crs.string)
+
+# --- Write cell numbers as value for the grids.
+# --- Cell 1 is the upper left corner and numbers go
+# --- across the top line through its end, then
+# --- start again in the second line, and so forth.
+
+raster::values(grid5deg) <- 1:raster::ncell(grid5deg) # Cell numbers for 5 deg grid
+
+raster::cellFromRowCol(object = grid5deg, rownr = 2, colnr = 72)
+
+raster::xyFromCell(object =  grid5deg, cell = 2592, spatial=FALSE)
+
+qqq <- dplyr::tbl_df(orig_test) %>%
+  dplyr::group_by(cell5deg) %>%
+  dplyr::summarise(N = n(), med = median(SST.resid.SMB), IQR = IQR(SST.resid.SMB))
+
+qq1 <- rep(NA, (72*36))
+qq1[qqq$cell5deg] <- qqq$med
+
+raster::values(grid5deg) <- qq1
+
+
+
+blues_palette <- rev(RColorBrewer::brewer.pal(9, 'Blues'))
+blues_palette <- blues_palette[1:7]
+blues_palette <- colorRampPalette(blues_palette)(4)
+
+reds_palette <- RColorBrewer::brewer.pal(9, 'Reds')
+reds_palette <- reds_palette[2:5]
+reds_palette <- colorRampPalette(reds_palette)(3)
+
+palette_med <- c((blues_palette), '#ffffff', (reds_palette))
+
+myTheme=rasterTheme(region = palette_med)
+
+brk <- c(-1, -0.75, -0.5, -0.2, -0.05, 0.05, 0.1, 0.2, 0.5)
+
+myColorkey <- list(at = brk,
+                   labels = list(at = brk),
+                   title = '',
+                   row = 3,
+                   column = 1,
+                   vjust = 2)
+
+#p  <- rasterVis::levelplot(grid5deg, margin = FALSE, par.settings = myTheme, colorkey = myColorkey) 
+
+p1 <- rasterVis::levelplot(grid5deg, margin = FALSE,
+  at = brk,
+  labels = list(at = brk),
+  col.regions = palette_med,
+  colorkey = myColorkey)
+
+world.map <- rgdal::readOGR("/home/ckk/Projects/Matchup_R_Scripts", layer = "ne_110m_land", verbose = TRUE)
+
+p1 <- p1 + layer(sp.lines(world.map, lwd = .75, fill = 'white', col = 'grey50'))
+
+pdf('~/Projects/Matchup_R_Scripts/median_SST_residual_geographic_distribution.pdf')
+p1
+dev.off()
+
+p1
+
+```
+
+
+
+
+```{r med_error_corrected_of_matchups_by_location_raster, echo=TRUE}
+# --- These numbers may help perform statistics for the matchups
+# --- (e.g., number of matchups per cell, etc.).
+
+# --- Create a raster object with 5-degree pixels
+
+crs.string <- "+proj=longlat +datum=WGS84 +no_defs +ellps=WGS84 +towgs84=0,0,0"
+
+grid5deg <- raster::raster(ncol = 72, nrow = 36,
+  xmn = -180, xmx = 180,
+  ymn = -90, ymx = 90,
+  crs = crs.string)
+
+# --- Write cell numbers as value for the grids.
+# --- Cell 1 is the upper left corner and numbers go
+# --- across the top line through its end, then
+# --- start again in the second line, and so forth.
+
+raster::values(grid5deg) <- 1:raster::ncell(grid5deg) # Cell numbers for 5 deg grid
+
+raster::cellFromRowCol(object = grid5deg, rownr = 2, colnr = 72)
+
+raster::xyFromCell(object =  grid5deg, cell = 2592, spatial=FALSE)
+
+orig_test$corrected.sst <- orig_test$cen.sst - orig_test$predicted_resid
+
+orig_test$error <- orig_test$corrected.sst - orig_test$buoy.sst
+
+qqq <- dplyr::tbl_df(orig_test) %>%
+  dplyr::group_by(cell5deg) %>%
+  dplyr::summarise(N = n(), med = median(error), IQR = IQR(SST.resid.SMB))
+
+qq1 <- rep(NA, (72*36))
+qq1[qqq$cell5deg] <- qqq$med
+
+raster::values(grid5deg) <- qq1
+
+
+blues_palette <- rev(RColorBrewer::brewer.pal(9, 'Blues'))
+blues_palette <- blues_palette[1:7]
+blues_palette <- colorRampPalette(blues_palette)(4)
+
+reds_palette <- RColorBrewer::brewer.pal(9, 'Reds')
+reds_palette <- reds_palette[2:5]
+reds_palette <- colorRampPalette(reds_palette)(3)
+
+palette_med <- c((blues_palette), '#ffffff', (reds_palette))
+
+myTheme=rasterTheme(region = palette_med)
+
+brk <- c(-1, -0.75, -0.5, -0.2, -0.05, 0.05, 0.1, 0.2, 0.5)
+
+myColorkey <- list(at = brk,
+                   labels = list(at = brk),
+                   title = '',
+                   row = 3,
+                   column = 1,
+                   vjust = 2)
+
+#p  <- rasterVis::levelplot(grid5deg, margin = FALSE, par.settings = myTheme, colorkey = myColorkey) 
+
+p2 <- rasterVis::levelplot(grid5deg, margin = FALSE,
+  at = brk,
+  labels = list(at = brk),
+  col.regions = palette_med,
+  colorkey = myColorkey)
+
+world.map <- rgdal::readOGR("/home/ckk/Projects/Matchup_R_Scripts", layer = "ne_110m_land", verbose = TRUE)
+
+p2 <- p2 + layer(sp.lines(world.map, lwd = .75, fill = 'white', col = 'grey50'))
+
+pdf('~/Projects/Matchup_R_Scripts/median_corrected_SST_error_geographic_distribution.pdf')
+p2
+dev.off()
+
+p2
+
+```
